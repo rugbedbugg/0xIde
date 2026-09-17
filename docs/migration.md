@@ -32,6 +32,26 @@ refuses to run if `hypr-vars.lua` or `hypr-user.lua` is missing, or if
 | `foot/foot.ini` | 2 values edited | still edited, now by `apply_overlay.py` |
 | `starship.toml` | 1 value edited | still edited, now by `apply_overlay.py` |
 
+## Superseded helpers removed from `~/.local/bin`
+
+Five scripts predating this repository were replaced by adapters and the
+orchestration hook. Before removing them, every plausible caller was checked:
+this repository, `~/.config/caelestia`, `~/.config/hypr`, `~/.config/fish`,
+`~/.config/quickshell`, user systemd units, the rest of `~/.local/bin`, and
+running process command lines. The only references found were from
+`caelestia-post-hook` to its own siblings, and it was removed too.
+
+| Removed | Replaced by |
+| --- | --- |
+| `caelestia-post-hook` | `orchestration/hooks/post-theme` |
+| `caelestia-theme-sync` | `adapters/kde/apply` |
+| `caelestia-edge-theme` | `adapters/edge/apply` |
+| `caelestia-sddm-sync` | `system/sddm/sync` |
+| `caelestia-ocr-screenshot` | nothing; it wrapped `capture.sh`, which the in-shell picker path superseded |
+
+All five remain in the rollback snapshot, byte-identical. A theme change was run
+afterwards and all five adapters still reported `ok`.
+
 ## Validation
 
 Every affected subsystem was checked before and after. See the Phase 2 report
