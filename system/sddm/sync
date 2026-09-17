@@ -4,7 +4,9 @@ import os
 import shutil
 from pathlib import Path
 
-CORNERS_DIR = Path("/usr/share/sddm/themes/corners")
+# Honours the same override as system/sddm/install, so a distribution that
+# puts the theme elsewhere needs no edit here.
+CORNERS_DIR = Path(os.environ.get("CM_SDDM_THEME_DIR", "/usr/share/sddm/themes/corners"))
 THEME_CONF = CORNERS_DIR / "theme.conf"
 BG_DIR = CORNERS_DIR / "backgrounds"
 

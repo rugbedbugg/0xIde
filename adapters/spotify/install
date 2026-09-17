@@ -5,7 +5,7 @@
 set -euo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
 
-cm_have spicetify || cm_die "spicetify is not installed"
+cm_have spicetify || { cm_log "spicetify is not installed; nothing to do"; exit 0; }
 dest="$XDG_CONFIG_HOME/spicetify/Themes/caelestia"
 mkdir -p "$dest"
 cm_install_file "$dest/user.css" 644 < "$(dirname -- "${BASH_SOURCE[0]}")/user.css" &&
