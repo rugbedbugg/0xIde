@@ -22,19 +22,38 @@ takes, what the status strings mean, and when `finished` has to fire.
 
 Rebuilding from `shell/plugin/src/` and diffing the resulting `.qmltypes`
 against the lost binary's gives a **byte-identical** result for both types,
-including the source line numbers. Every property name, type, accessor, notify
-signal, declaration index, method signature and default argument matches, and
-the reconstructed files place each declaration on the same line the original did.
+including the recorded source line numbers. Every property name, type, accessor,
+notify signal, declaration index, method signature and default argument matches,
+and each declaration lands on the line the original recorded for it.
 
-Reproduce it:
+Read that claim precisely. `.qmltypes` describes a type's **interface**, so what
+matches is the interface and the line each declaration sat on - strong evidence
+that these files have the same shape as the originals. It is not evidence that
+they have the same contents. A `.cpp` body, a helper, a comment, a private
+member: none of that reaches `.qmltypes`, and `airequest.cpp` in particular is
+new code written to satisfy an observed contract.
+
+**These files are a reimplementation that matches a recovered interface. They
+are not the lost source recovered, and nothing here should be read as a claim
+that the original implementation looked like this.**
+
+This comparison was possible because the old binary was still on the machine at
+the time. **You do not need it, and it is not distributed here** - it was
+evidence, not a dependency. What you can reproduce is that the plugin builds and
+that the shell resolves both types:
 
 ```sh
 ./shell/build.sh --no-install
-diff <(sed -n '/caelestia::config::AiConfig/,/^    }/p' \
-         build/plugin-install/lib/qt6/qml/Caelestia/Config/caelestia-config.qmltypes) \
-     <(sed -n '/caelestia::config::AiConfig/,/^    }/p' \
-         <the old plugin>/Caelestia/Config/caelestia-config.qmltypes)
+grep -c 'caelestia::config::AiConfig' \
+    build/plugin-install/lib/qt6/qml/Caelestia/Config/caelestia-config.qmltypes
+grep -c 'caelestia::AiRequest' \
+    build/plugin-install/lib/qt6/qml/Caelestia/caelestia-core.qmltypes
+qs -p build/shell-src -n        # must reach "Configuration Loaded" with no errors
 ```
+
+If you still have an older build of the plugin, the original check was a diff of
+the `Component { ... }` block for each type between its `.qmltypes` and the
+freshly built one.
 
 ## What is verified, and what is inferred
 

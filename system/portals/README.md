@@ -32,6 +32,22 @@ and **not** `RemoteDesktop`. The only installed portal that does expose
 RemoteDesktop is `kde.portal`, the Plasma backend, which is not usable here.
 So the gap this fills is real and upstream has not closed it.
 
+### Does the rest of this project need it?
+
+**No.** Nothing in this repository imports it, calls it, depends on it, or checks
+for it. It is absent from `installer/components.conf`, so `./install` never
+mentions it, and from `installer/check_deps.sh`, so a dependency check never
+asks for it. Every shell extension, adapter, override and system module works
+exactly the same on a machine that has never heard of it.
+
+What you lose without it is one thing, unrelated to this project: KDE Connect
+cannot move this machine's pointer or type into it from a phone. Screen sharing,
+screenshots and global shortcuts are unaffected, because those come from
+`xdg-desktop-portal-hyprland`, which is a normal package.
+
+It is therefore **not part of the supported public install**, and someone
+cloning this repository gets a complete, working setup without it.
+
 ### Status
 
 The binary appears to be locally written: the mangled symbols use an `hkcf::`

@@ -1,72 +1,132 @@
 # caelestia-mod
 
-Personal extensions to a [Caelestia](https://github.com/caelestia-dots) desktop,
-arranged so that upstream can keep updating underneath them.
+A modular extension and theme-synchronisation layer around
+[Caelestia](https://github.com/caelestia-dots). It adds capabilities to the
+Caelestia Shell, and it pushes Caelestia's colour scheme into applications
+Caelestia does not theme itself.
 
-Caelestia stays the source of truth for the colour scheme. Nothing here holds a
-second palette; every integration reads what Caelestia already produced and
-translates it for one application.
+Caelestia remains the source of truth for colours. Nothing here holds a second
+palette; every integration reads what Caelestia already produced and translates
+it for one application.
 
-## What is in here
+## What it provides
 
-| Directory | Owns |
-| --- | --- |
-| `shell/` | The forked Caelestia Shell: a 3-patch series on a pinned upstream revision, the QML that OCR / AI / search add, and the C++ plugin source those need |
-| `overrides/` | Configuration that goes through a supported Caelestia extension point |
-| `adapters/` | One directory per application whose theme has to be translated from Caelestia's |
-| `orchestration/` | The `postHook` that runs enabled adapters, and shared path helpers |
-| `system/` | Everything needing root or writing outside `$HOME`. All opt-in, all print what they will do first |
-| `assets/` | Fonts this project installs |
-| `manifests/` | Pinned revisions and hashes for things fetched at runtime, never the things themselves |
-| `installer/` | Component registry, dependency check, the config-overlay applier |
-| `tests/` | Static validation of everything above |
-| `docs/` | Architecture, security, upstream compatibility |
+- **Shell extensions** built on Caelestia Shell: screen-region OCR with table
+  reconstruction, a local AI backend and an OpenAI-compatible client, and
+  region / circle-to-search.
+- **Theme adapters** for applications Caelestia leaves alone: Dolphin and Ark
+  via `kdeglobals`, Spotify via spicetify, Papirus folder icons, Microsoft Edge,
+  and Yazi and rmpc through terminal ANSI slots.
+- **Supported overrides** only. Personal settings go through the extension
+  points Caelestia provides, not into the files it deploys.
+- **Optional system integrations**, each one opt-in and each one printing what
+  it will change before it changes it.
+
+## What it is not
+
+- Not a desktop environment. Caelestia, Hyprland and Quickshell do that; this
+  sits on top of a working Caelestia install.
+- Not a fork that replaces Caelestia. The shell is a **three-patch series over a
+  pinned upstream revision**, not a vendored copy, and the CLI and dots are
+  untouched upstream packages.
+- Not a dotfiles dump. Every file here belongs to a named component you can
+  install or skip.
+- Not a second theme engine. There is no palette in this repository.
+
+## Prerequisites
+
+A working Caelestia desktop: `caelestia-shell`, `caelestia-cli`, `quickshell`,
+Hyprland, and the Caelestia dots deployed. Then:
+
+```sh
+./installer/check_deps.sh     # what each component needs, and what is missing
+```
+
+Building the shell additionally needs `cmake`, `ninja`, `git` and the Qt 6
+development packages.
 
 ## Install
 
 ```sh
-./install --list        # what exists
-./install --dry-run     # what would change
-./install               # everything in the default set, none of it privileged
-./install --status      # what is installed and whether it works
+./install --list        # every component, its kind, and whether it is on by default
+./install --dry-run     # exactly what would change, grouped by kind. Changes nothing
+./install               # the default set. No component in it needs root
+./install --status      # what is installed, and whether it works
 ```
 
 Selective:
 
 ```sh
-./install --only shell
-./install --enable edge --enable sudoers
-./install --disable spotify
+./install --only shell            # just the shell
+./install --enable edge           # add a component that is off by default
+./install --disable spotify       # skip one that is on
+./install --enable sudoers        # privileged; prints the rules and asks
 ```
 
-Nothing that needs root is in the default set. `sudoers` and `sddm` print the
-exact change and ask before doing anything. Re-running `./install` is a no-op.
+Re-running `./install` is a no-op. An adapter whose application is not installed
+is skipped rather than failing.
 
-## The shell fork
+## Components
 
-`shell/` does not vendor a copy of Caelestia Shell. It holds a pinned upstream
-revision, three patches against it, and the files this project adds. The tree is
-materialised at build time:
+`./install --list` is authoritative. [docs/components.md](docs/components.md)
+describes each one and what mechanism it uses.
 
-```sh
-./shell/build.sh
-```
+| Kind | Default | Needs root |
+| --- | --- | --- |
+| `overrides`, `foot`, `starship` | on | no |
+| `kde`, `yazi`, `rmpc`, `spotify`, `papirus` | on | no |
+| `shell` | off (builds from source) | no |
+| `edge` | off | yes, to take effect |
+| `sudoers`, `sddm` | off | yes |
 
-which clones upstream at the pin, applies the patches, overlays the extensions,
-builds the plugin, and installs both. Taking an upstream update is a normal
-merge of the patch series, not a re-derivation. See `docs/upstream.md`.
+## Optional and privileged modules
 
-**The upstream patch surface is three patches over five files.** Keeping it that
-small is the point; `docs/upstream.md` lists each one and why it cannot be
-configuration instead.
+Everything under `system/` is opt-in, prints the exact change first, and asks.
+`system/sudoers` validates with `visudo -c` before installing anything.
 
-## Before you enable the search extension
+Two things this project deliberately does **not** do, both documented with
+safer alternatives: it never makes `/opt/spotify` writable
+([system/spotify](system/spotify/README.md)) and it never chowns the SDDM theme
+directory ([system/sddm](system/sddm/README.md)).
 
-`shell/extensions/search` can transmit a captured region of your screen off this
-machine. It defaults to a mode that does not, and asks before any mode that
-does. Read `docs/security.md` before changing that.
+One local dependency is documented but **not shipped**: an unpackaged KDE
+Connect portal binary whose source is lost. Everything here works without it.
+See [system/portals](system/portals/README.md).
+
+## Disabling and uninstalling
+
+Adapters are driven by `$XDG_CONFIG_HOME/caelestia-mod/adapters.enabled`;
+removing a line stops that adapter running. `system/sudoers/remove` reverses the
+sudo rules. The first version of every file this project replaced is kept under
+`$XDG_STATE_HOME/caelestia-mod/replaced/`, and `$XDG_STATE_HOME/caelestia-mod/owned.list`
+records what it created. Nothing here deletes either.
+
+## Generated data
+
+This repository holds the mechanisms, never their output. The built plugin, the
+upstream checkout, the AI model (~1.4 GB) and all Caelestia runtime state are
+excluded, and `tests/run` fails if any of it becomes tracked.
+See [docs/generated.md](docs/generated.md).
+
+## Updating the shell against upstream
+
+The shell is patches over a pin, so an update is a patch rebase, not a merge.
+`shell/build.sh` refuses to continue if a patch no longer applies, rather than
+producing a half-patched tree. Exact commands:
+[docs/upstream.md](docs/upstream.md).
+
+## Privacy
+
+The region-search extension defaults to reading the selected region **locally**
+with OCR and searching the extracted text. No image leaves the machine. An
+upload mode exists, is off by default, and asks for confirmation naming the
+destination host every time it is used. The AI backend defaults to a local model
+on `127.0.0.1`. Full detail, including the sudo rules and the two standing
+system weaknesses this project refuses to recreate:
+[docs/security.md](docs/security.md).
 
 ## Licence
 
-GPL-3.0-or-later, because Caelestia Shell is GPL-3.0 and this contains patches
-against it. See `docs/licensing.md`.
+GPL-3.0-or-later. Caelestia Shell is GPL-3.0 and this contains patches against
+it, so a permissive licence is not available to the repository as a whole.
+See [docs/licensing.md](docs/licensing.md).

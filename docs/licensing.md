@@ -22,6 +22,6 @@ reuse an adapter in a non-GPL project.
 previously built plugin and is compiled into the GPL-3.0 plugin, so it is
 GPL-3.0 as well.
 
-One bundled asset has its own terms: `assets/fonts` ships Google Sans Flex under
-the SIL Open Font License 1.1, whose licence file travels with it. OFL is
-compatible with distributing alongside GPL software.
+No third-party assets are bundled. The Caelestia fonts this setup uses are
+installed separately, by the distribution or by the Caelestia dots, and are not
+redistributed from here, so no font licence applies to this repository.
