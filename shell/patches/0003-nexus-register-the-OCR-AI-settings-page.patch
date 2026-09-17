@@ -1,6 +1,6 @@
-From fe9e33a1def09f7e94721fc18e47d2478fe5e908 Mon Sep 17 00:00:00 2001
+From 6eefa913df230adc1e34d0791d24927901e0489b Mon Sep 17 00:00:00 2001
 From: Oxide 1-6 <yes.par781@gmail.com>
-Date: Thu, 17 Sep 2026 06:05:09 +0530
+Date: Thu, 17 Sep 2026 13:25:00 +0530
 Subject: [PATCH 3/3] nexus: register the OCR & AI settings page
 
 Upstream has no runtime page-registration hook, so a new settings page has

@@ -1,11 +1,11 @@
-From 3c7d2d251f101f2814b18862fdc22c009a1552e8 Mon Sep 17 00:00:00 2001
+From 9ba461c20f1aefa25247b877545f5f765396d617 Mon Sep 17 00:00:00 2001
 From: Oxide 1-6 <yes.par781@gmail.com>
-Date: Thu, 17 Sep 2026 06:05:08 +0530
+Date: Thu, 17 Sep 2026 13:25:00 +0530
 Subject: [PATCH 2/3] areapicker: add OCR and region/circle search capture
  modes
 
 Routes a completed selection to one of three consumers instead of only the
-screenshot path: Ocr.scan for text extraction, region_search.sh for Lens
+screenshot path: Ocr.scan for text extraction, region_search.sh for web
 search, or the existing clipboard/file behaviour. Circle mode records the
 pointer track and derives the bounding box from it.
 
@@ -13,11 +13,11 @@ The two files are one change: Picker dispatches on loader.ocr/searchMode
 and AreaPicker owns the loaders and the result popup those modes need.
 ---
  modules/areapicker/AreaPicker.qml | 217 ++++++++++++++++++++++++++++++
- modules/areapicker/Picker.qml     |  71 +++++++++-
- 2 files changed, 287 insertions(+), 1 deletion(-)
+ modules/areapicker/Picker.qml     |  72 +++++++++-
+ 2 files changed, 288 insertions(+), 1 deletion(-)
 
 diff --git a/modules/areapicker/AreaPicker.qml b/modules/areapicker/AreaPicker.qml
-index 76cc1039..b246ecb8 100644
+index 76cc1039..585971c8 100644
 --- a/modules/areapicker/AreaPicker.qml
 +++ b/modules/areapicker/AreaPicker.qml
 @@ -1,5 +1,6 @@
@@ -306,7 +306,7 @@ index 76cc1039..b246ecb8 100644
 +    CustomShortcut {
 +        // qmllint enable unresolved-type
 +        name: "regionSearch"
-+        description: "Select a rectangle and search with Google Lens"
++        description: "Select a rectangle and search the web for what it contains"
 +        onPressed: pickerIpc.regionSearch()
 +    }
 +
@@ -314,15 +314,23 @@ index 76cc1039..b246ecb8 100644
 +    CustomShortcut {
 +        // qmllint enable unresolved-type
 +        name: "circleSearch"
-+        description: "Circle an area and search with Google Lens"
++        description: "Circle an area and search the web for what it contains"
 +        onPressed: pickerIpc.circleSearch()
 +    }
  }
 diff --git a/modules/areapicker/Picker.qml b/modules/areapicker/Picker.qml
-index 5e847603..4d823a0f 100644
+index 5e847603..217593a0 100644
 --- a/modules/areapicker/Picker.qml
 +++ b/modules/areapicker/Picker.qml
-@@ -13,6 +13,7 @@ MouseArea {
+@@ -5,6 +5,7 @@ import Quickshell
+ import Quickshell.Io
+ import Quickshell.Wayland
+ import Caelestia
++import Caelestia.Config
+ import qs.components
+ import qs.components.effects
+ import qs.services
+@@ -13,6 +14,7 @@ MouseArea {
      id: root
  
      required property LazyLoader loader
@@ -330,7 +338,7 @@ index 5e847603..4d823a0f 100644
      required property ShellScreen screen
  
      property bool onClient
-@@ -32,6 +33,7 @@ MouseArea {
+@@ -32,6 +34,7 @@ MouseArea {
      property real rsy: Math.min(sy, ey)
      property real sw: Math.abs(sx - ex)
      property real sh: Math.abs(sy - ey)
@@ -338,7 +346,7 @@ index 5e847603..4d823a0f 100644
  
      property list<var> clients: {
          const mon = Hypr.monitorFor(screen);
-@@ -74,7 +76,11 @@ MouseArea {
+@@ -74,7 +77,11 @@ MouseArea {
      function save(): void {
          const tmpfile = Qt.resolvedUrl(`/tmp/caelestia-picker-${Quickshell.processId}-${Date.now()}.png`);
          CUtils.saveItem(screencopy, tmpfile, Qt.rect(Math.ceil(rsx), Math.ceil(rsy), Math.floor(sw), Math.floor(sh)), path => {
@@ -351,7 +359,7 @@ index 5e847603..4d823a0f 100644
                  Quickshell.execDetached(["sh", "-c", "wl-copy --type image/png < " + path]);
                  Quickshell.execDetached(["notify-send", "-a", "caelestia-cli", "-i", path, "Screenshot taken", "Screenshot copied to clipboard"]);
              } else {
-@@ -120,12 +126,24 @@ MouseArea {
+@@ -120,12 +127,24 @@ MouseArea {
      onPressed: event => {
          ssx = event.x;
          ssy = event.y;
@@ -376,7 +384,7 @@ index 5e847603..4d823a0f 100644
          if (root.loader.freeze) {
              save();
          } else {
-@@ -145,6 +163,9 @@ MouseArea {
+@@ -145,6 +164,9 @@ MouseArea {
              sy = ssy;
              ex = x;
              ey = y;
@@ -386,7 +394,7 @@ index 5e847603..4d823a0f 100644
          } else {
              checkClientRects(x, y);
          }
-@@ -236,6 +257,29 @@ MouseArea {
+@@ -236,6 +258,29 @@ MouseArea {
          }
      }
  
@@ -416,7 +424,7 @@ index 5e847603..4d823a0f 100644
      Item {
          id: selectionWrapper
  
-@@ -301,4 +345,29 @@ MouseArea {
+@@ -301,4 +346,29 @@ MouseArea {
  
          Anim {}
      }

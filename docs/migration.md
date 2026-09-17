@@ -57,9 +57,20 @@ Each was verified to have no effect before removal.
   `variables.lua` and referenced nowhere. The shell implements all three
   actions; no key reached them. They are not carried into `hypr-vars.lua`.
 
-The last one is a **gap, not just dead weight**: circle-to-search and region
-search work but have no keybind. Adding them is three `hl.bind` lines in
-`overrides/caelestia/hypr-user.lua` against `picker circleSearch`,
-`picker open` with search mode, and `picker openOcrClipboard`. It was left
-undone deliberately, because choosing three keybindings is a preference, not a
-migration.
+The last one was a **gap, not just dead weight**: circle-to-search and region
+search worked but no key reached them. That is now closed. Both are bound in
+`overrides/caelestia/hypr-user.lua`, with the keys configurable through
+`hypr-vars.lua`:
+
+| Action | Key | Note |
+| --- | --- | --- |
+| OCR capture | `SUPER + SHIFT + T` | unchanged |
+| Region search | `SUPER + SHIFT + A` | the originally intended key, free |
+| Circle search | `SUPER + SHIFT + O` | **not** the originally intended `SUPER + SHIFT + C`, which is upstream's `kbColorPicker` |
+
+`hypr-user.lua` checks each key against every `vars.kb*` upstream already binds
+and skips its own binding, with a message, rather than shadowing one. Making
+these reachable immediately exposed a latent bug in the picker overlay: the
+search-mode label used `Tokens` in a file that never imported `Caelestia.Config`,
+so it had been throwing `ReferenceError` on every invocation that nobody could
+reach. Fixed in `shell/patches/0002`.

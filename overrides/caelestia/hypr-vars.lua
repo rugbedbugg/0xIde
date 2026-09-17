@@ -16,8 +16,11 @@ return {
     -- and hyprcursor does not fall back, so the wrong case leaves the default cursor.
     cursorTheme = "Sweet-cursors",
 
-    -- Keybinds consumed by overrides/caelestia/hypr-user.lua
+    -- Keybinds for the shell extensions, bound in hypr-user.lua.
+    -- SUPER + SHIFT + C is upstream's kbColorPicker, so circle search takes O.
     kbOcrScreenshot = "SUPER + SHIFT + T",
+    kbRegionSearch = "SUPER + SHIFT + A",
+    kbCircleSearch = "SUPER + SHIFT + O",
 
     -- Default OCR language for the shell's capture path
     ocrLanguages = "eng",
