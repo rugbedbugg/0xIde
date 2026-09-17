@@ -1,0 +1,18 @@
+# Machine-local configuration (never committed; see docs/portability.md)
+/config.local
+/*.local
+
+# Working area: upstream clones, materialised shell trees, build output
+/.work/
+/build/
+
+# Generated / runtime state that this project produces but never owns
+*.pyc
+__pycache__/
+*.so
+*.o
+*.qmltypes
+
+# Large runtime data fetched from manifests/ai.toml, never vendored
+/manifests/*.gguf
+/manifests/models/
