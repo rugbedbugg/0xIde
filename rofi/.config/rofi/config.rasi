@@ -1,6 +1,0 @@
-configuration { 
-        modi: "drun,run,filebrowser,window";
-        show-icons: true;
-}
-
-@theme "~/.config/rofi/themes/acrylic.rasi"
