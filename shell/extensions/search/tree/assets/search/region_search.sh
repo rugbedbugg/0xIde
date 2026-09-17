@@ -71,8 +71,12 @@ fi
 # --- mode: host-upload (image leaves this machine) ---------------------------
 [[ "$mode" == "host-upload" ]] || die "Unknown mode '${mode}' in ${conf}"
 
+# Name the host alone in the prompt: the full endpoint path is noise, and the
+# host is the fact the person is being asked to agree to.
 host="${upload_endpoints[0]%%|*}"
-ask "Upload this region to ${host#https://} and open Google Lens?" ||
+host="${host#*://}"
+host="${host%%/*}"
+ask "Upload this region to ${host} and open Google Lens?" ||
     { notify-send -a caelestia-search "Search cancelled" "Nothing was uploaded."; exit 0; }
 
 image_url=""
@@ -92,5 +96,5 @@ done
 
 [[ -n "$image_url" ]] || die "Could not upload the selected image."
 
-notify-send -a caelestia-search "Google Lens" "Region uploaded to ${host#https://}; search opened in your browser."
+notify-send -a caelestia-search "Google Lens" "Region uploaded to ${host}; search opened in your browser."
 open_search "https://lens.google.com/uploadbyurl?url=$(printf '%s' "$image_url" | jq -sRr @uri)"
