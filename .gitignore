@@ -1,4 +1,4 @@
-# Machine-local configuration (never committed; see docs/portability.md)
+# Machine-local configuration and generated state. Never committed.
 /config.local
 /*.local
 

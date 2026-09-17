@@ -3,7 +3,7 @@
 #
 # PRIVACY: modes other than "text" transmit the captured pixels off this
 # machine. Nothing is transmitted unless the configured mode says so and the
-# confirmation below is accepted. See docs/security.md.
+# confirmation below is accepted. See the Privacy section of README.md.
 set -euo pipefail
 
 image="${1:-}"

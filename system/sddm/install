@@ -38,5 +38,5 @@ grep -qx sddm "$CM_CONFIG/adapters.enabled" 2>/dev/null ||
 cm_log "sddm sync enabled"
 if [ -w "$THEME_DIR" ]; then
     cm_log "note: $THEME_DIR is already writable by you, so no prompts will occur"
-    cm_warn "that is option 2 above; this machine already has it. See docs/security.md."
+    cm_warn "that is option 2 above; this machine already has it."
 fi

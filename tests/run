@@ -70,13 +70,34 @@ cm_step "No machine-specific values are committed"
 declare -a MACHINE=()
 for v in "$(id -un)" "$(uname -n)"; do [ -n "$v" ] && MACHINE+=(-e "$v"); done
 if [ ${#MACHINE[@]} -gt 0 ] &&
-   git -C "$CM_ROOT" grep -qIn "${MACHINE[@]}" -- . ':!docs' ':!*.md' ':!LICENSE' 2>/dev/null; then
+   git -C "$CM_ROOT" grep -qIn "${MACHINE[@]}" -- . ':!*.md' ':!LICENSE' 2>/dev/null; then
     no "a username or hostname appears in a tracked file:"
-    git -C "$CM_ROOT" grep -In "${MACHINE[@]}" -- . ':!docs' ':!*.md' ':!LICENSE' | sed 's/^/        /'
-else ok "no username or hostname outside docs"; fi
-if git -C "$CM_ROOT" grep -qIn -e '/home/[a-z]' -- . ':!docs' ':!*.md' 2>/dev/null; then
+    git -C "$CM_ROOT" grep -In "${MACHINE[@]}" -- . ':!*.md' ':!LICENSE' | sed 's/^/        /'
+else ok "no username or hostname is committed"; fi
+if git -C "$CM_ROOT" grep -qIn -e '/home/[a-z]' -- . ':!*.md' 2>/dev/null; then
     no "an absolute home path appears in a tracked file"
-else ok "no absolute home paths outside docs"; fi
+else ok "no absolute home paths are committed"; fi
+
+cm_step "Documentation stays README-first"
+# Spelt indirectly so this file does not match its own search.
+d=doc"s"
+if [ -n "$(git -C "$CM_ROOT" ls-files "$d" "$d/*")" ]; then
+    no "a tracked $d/ directory is back; this project is README-first"
+else ok "no tracked $d/ directory"; fi
+if git -C "$CM_ROOT" grep -qIn "$d/" -- . ':!LICENSE' 2>/dev/null; then
+    no "a tracked file still links into $d/:"
+    git -C "$CM_ROOT" grep -In "$d/" -- . ':!LICENSE' | sed 's/^/        /'
+else ok "nothing links into a $d/ path"; fi
+# Every remaining markdown file must sit beside the component it explains.
+bad=0
+while IFS= read -r f; do
+    [ "$f" = README.md ] && continue
+    dir="$(dirname "$f")"
+    if [ -z "$(find "$CM_ROOT/$dir" -mindepth 1 -maxdepth 1 ! -name '*.md' -print -quit)" ]; then
+        no "$f has no component beside it; fold it into README.md"; bad=1
+    fi
+done < <(git -C "$CM_ROOT" ls-files '*.md')
+[ "$bad" = 0 ] && ok "every component README sits beside the component it explains"
 
 cm_step "No generated state is committed"
 bad=0
@@ -133,7 +154,9 @@ if grep -q 'ask "Upload this region to' "$rs"; then ok "the upload prompt names 
 else no "the upload prompt no longer names the host"; fi
 
 # No privileged side effect may happen without a prompt.
-if grep -rnE '\bchown\b|chmod -R (a\+w|go\+w|777)' "$CM_ROOT/adapters" "$CM_ROOT/orchestration" \
+# Prose that tells you not to do it is not doing it, so markdown is excluded.
+if grep -rnE --exclude='*.md' '\bchown\b|chmod -R (a\+w|go\+w|777)' \
+      "$CM_ROOT/adapters" "$CM_ROOT/orchestration" \
       "$CM_ROOT/installer" "$CM_ROOT/install" 2>/dev/null | grep -qv '^\s*#'; then
     no "a chown or broad chmod appears outside system/"
 else ok "no chown or world-writable chmod outside system/"

@@ -52,7 +52,7 @@ for p in "$CM_ROOT"/shell/plugin/patches/*.patch "$CM_ROOT"/shell/patches/*.patc
     [ -e "$p" ] || continue
     cm_log "$(basename "$p")"
     git -C "$SRC" apply --whitespace=nowarn "$p" ||
-        cm_die "$(basename "$p") does not apply to ${REV:0:9}. See docs/upstream.md."
+        cm_die "$(basename "$p") does not apply to ${REV:0:9}. Rebase it by hand; see README.md."
 done
 
 cm_step "Extensions"
