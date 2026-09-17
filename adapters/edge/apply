@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Mirrors caelestia's own apply_chromium() for Microsoft Edge, which
+# caelestia-cli does not theme. Reads $SCHEME_COLOURS when the hook provides
+# it, falling back to the scheme file so the adapter also works standalone.
+set -euo pipefail
+. "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
+
+BROWSER="${CM_EDGE_BINARY:-microsoft-edge-dev}"
+POLICY_DIR="${CM_EDGE_POLICY_DIR:-/etc/opt/edge/policies/managed}"
+
+cm_have "$BROWSER" || exit 0
+
+colours="${SCHEME_COLOURS:-}"
+[ -n "$colours" ] && [ -r "$CM_SCHEME" ] || true
+if [ -z "$colours" ] && [ -r "$CM_SCHEME" ]; then
+    colours="$(jq -c '.colours // {}' "$CM_SCHEME")"
+fi
+[ -n "$colours" ] || exit 0
+
+surface="$(printf '%s' "$colours" | jq -r '.surface // empty')"
+[ -n "$surface" ] || exit 0
+
+policy="$(sed "s/@SURFACE@/$surface/" "$(dirname -- "${BASH_SOURCE[0]}")/policy.template.json")"
+
+# Writing under /etc needs root. The sudoers rule installed by
+# system/sudoers scopes this to exactly this one file.
+if [ -w "$POLICY_DIR" ]; then
+    printf '%s' "$policy" > "$POLICY_DIR/caelestia.json"
+else
+    sudo -n mkdir -p "$POLICY_DIR" 2>/dev/null || exit 0
+    printf '%s' "$policy" | sudo -n tee "$POLICY_DIR/caelestia.json" >/dev/null || exit 0
+fi
+
+"$BROWSER" --refresh-platform-policy --no-startup-window >/dev/null 2>&1 || true

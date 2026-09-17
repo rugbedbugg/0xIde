@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Reports whether Caelestia's own papirus-folders call can actually succeed.
+set -uo pipefail
+. "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
+
+cm_have papirus-folders || { echo "papirus: papirus-folders is not installed"; exit 1; }
+
+if cm_has_sudo_rule papirus-folders; then
+    echo "papirus: ok, folder colours track the scheme"
+    exit 0
+fi
+
+echo "papirus: folder colours will NOT track the scheme"
+echo "         papirus-folders needs root and no passwordless rule is in place."
+echo "         Install one with: ./install --enable sudoers"
+exit 1

@@ -1,0 +1,211 @@
+#!/usr/bin/python3
+"""Sync caelestia's generated theme into the toolkits it does not cover itself.
+
+KDE apps (Dolphin, Ark, Gwenview) read their palette from kdeglobals via
+KColorScheme, not from the Qt platform theme, so without this they fall back to
+stock Breeze. Caelestia already writes a KDE-format scheme for qtengine; this
+copies the colour groups across and leaves every other kdeglobals group intact,
+since applications write their own settings there.
+
+Fonts are handled the same way: caelestia's own families are pushed into
+qtengine (which supplies the application font to every Qt app), kdeglobals
+(the KDE-specific menu, toolbar and window title roles) and GTK's settings.ini
+plus dconf, which is what Thunar and the rest of the GTK stack read.
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+FONT_SANS = "Google Sans Flex"
+FONT_MONO = "CaskaydiaCove NF"
+
+config_dir = Path(os.getenv("XDG_CONFIG_HOME", Path.home() / ".config"))
+src_path = config_dir / "qtengine/caelestia.colors"
+cfg_path = config_dir / "qtengine/config.json"
+dst_path = config_dir / "kdeglobals"
+
+HEADER = re.compile(r"^\[.*\]\s*$")
+
+
+def parse(text):
+    """Ordered [header -> body lines]. Headers keep their exact spelling so
+    compound groups such as [Colors:Header][Inactive] survive untouched."""
+    groups, header, body = [], None, []
+    for line in text.splitlines():
+        if HEADER.match(line):
+            if header is not None:
+                groups.append([header, body])
+            header, body = line.strip(), []
+        elif header is None:
+            continue
+        else:
+            body.append(line)
+    if header is not None:
+        groups.append([header, body])
+    return groups
+
+
+def dump(groups):
+    out = []
+    for header, body in groups:
+        while body and not body[-1].strip():
+            body.pop()
+        out.append(header)
+        out.extend(body)
+        out.append("")
+    return "\n".join(out).lstrip("\n") + "\n"
+
+
+def find(groups, header):
+    for group in groups:
+        if group[0] == header:
+            return group
+    group = [header, []]
+    groups.append(group)
+    return group
+
+
+def get_key(groups, header, key):
+    for h, body in groups:
+        if h != header:
+            continue
+        for line in body:
+            if line.split("=", 1)[0].strip() == key:
+                return line.split("=", 1)[1].strip()
+    return None
+
+
+def set_key(groups, header, key, value):
+    group = find(groups, header)
+    for i, line in enumerate(group[1]):
+        if line.split("=", 1)[0].strip() == key:
+            group[1][i] = f"{key}={value}"
+            return
+    group[1].append(f"{key}={value}")
+
+
+def is_colour_group(header):
+    return (
+        header.startswith("[Colors:")
+        or header.startswith("[ColorEffects:")
+        or header == "[WM]"
+    )
+
+
+def have_font(family):
+    """fc-match always returns something, so compare what came back."""
+    try:
+        out = subprocess.run(
+            ["fc-match", "-f", "%{family}", family],
+            capture_output=True, text=True, timeout=5,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    wanted = family.lower().replace(" nf", " nerd font")
+    return any(wanted in name.strip().lower() for name in out.split(","))
+
+
+def qt_font(family, size, weight=400, style="Regular"):
+    """Qt 6 QFont::fromString form, as written by Plasma itself."""
+    return f"{family},{size},-1,5,{weight},0,0,0,0,0,0,0,0,0,0,1,{style}"
+
+
+def sync_fonts(dst, sans, mono):
+    size = fixed_size = 12
+
+    if cfg_path.is_file():
+        try:
+            cfg = json.loads(cfg_path.read_text())
+        except json.JSONDecodeError:
+            cfg = {}
+        theme = cfg.setdefault("theme", {})
+        size = theme.get("font", {}).get("size", size)
+        fixed_size = theme.get("fontFixed", {}).get("size", fixed_size)
+        theme.setdefault("font", {})["family"] = sans
+        theme.setdefault("fontFixed", {})["family"] = mono
+        tmp = cfg_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(cfg, indent=4) + "\n")
+        tmp.replace(cfg_path)
+
+    for key in ("font", "menuFont", "toolBarFont"):
+        set_key(dst, "[General]", key, qt_font(sans, size))
+    set_key(dst, "[General]", "fixed", qt_font(mono, fixed_size))
+    set_key(dst, "[General]", "smallestReadableFont", qt_font(sans, max(size - 2, 6)))
+    set_key(dst, "[WM]", "activeFont", qt_font(sans, size))
+
+
+def sync_gtk(sans, mono, icon_theme):
+    """Thunar and friends read settings.ini; dconf covers apps that use gsettings."""
+    size = 10
+    for version in ("gtk-3.0", "gtk-4.0"):
+        path = config_dir / version / "settings.ini"
+        if not path.is_file():
+            continue
+        groups = parse(path.read_text())
+        current = get_key(groups, "[Settings]", "gtk-font-name")
+        if current:
+            tail = current.rsplit(" ", 1)[-1]
+            if tail.isdigit():
+                size = int(tail)
+        set_key(groups, "[Settings]", "gtk-font-name", f"{sans} {size}")
+        if icon_theme:
+            set_key(groups, "[Settings]", "gtk-icon-theme-name", icon_theme)
+        tmp = path.with_suffix(".ini.tmp")
+        tmp.write_text(dump(groups))
+        tmp.replace(path)
+
+    for key, value in (
+        ("font-name", f"{sans} {size}"),
+        ("document-font-name", f"{sans} {size}"),
+        ("monospace-font-name", f"{mono} {size}"),
+    ):
+        subprocess.run(
+            ["dconf", "write", f"/org/gnome/desktop/interface/{key}", f"'{value}'"],
+            check=False,
+        )
+
+
+def main():
+    if not src_path.is_file():
+        print(f"no scheme at {src_path}", file=sys.stderr)
+        return 1
+
+    src = parse(src_path.read_text())
+    dst = parse(dst_path.read_text()) if dst_path.is_file() else []
+
+    dst = [g for g in dst if not is_colour_group(g[0])]
+    dst.extend([h, list(b)] for h, b in src if is_colour_group(h))
+
+    for header, key in (("[General]", "ColorScheme"), ("[General]", "Name"), ("[KDE]", "contrast")):
+        value = get_key(src, header, key)
+        if value is not None:
+            set_key(dst, header, key, value)
+
+    sans = FONT_SANS if have_font(FONT_SANS) else "Rubik"
+    mono = FONT_MONO if have_font(FONT_MONO) else "monospace"
+    sync_fonts(dst, sans, mono)
+
+    if cfg_path.is_file():
+        try:
+            cfg = json.loads(cfg_path.read_text()).get("theme", {})
+        except json.JSONDecodeError:
+            cfg = {}
+        icon_theme = cfg.get("iconTheme")
+        if icon_theme:
+            set_key(dst, "[Icons]", "Theme", icon_theme)
+        if style := cfg.get("style"):
+            set_key(dst, "[KDE]", "widgetStyle", style)
+        sync_gtk(sans, mono, icon_theme)
+
+    tmp = dst_path.with_suffix(dst_path.suffix + ".tmp")
+    tmp.write_text(dump(dst))
+    tmp.replace(dst_path)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Caelestia already maps the scheme's primary colour to a Papirus folder colour
+# and calls papirus-folders itself. It just needs root, and fails silently
+# without it. So this adapter does not re-derive a colour: it reuses Caelestia's
+# own mapping and only exists to make the failure visible and recoverable.
+set -euo pipefail
+. "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
+
+cm_have papirus-folders || exit 0
+[ -r "$CM_SCHEME" ] || exit 0
+
+primary="$(jq -r '.colours.primary // empty' "$CM_SCHEME")"
+[ -n "$primary" ] || exit 0
+
+"$(cm_python)" - "$primary" <<'PY'
+import sys
+from caelestia.utils.theme import sync_papirus_colors
+
+sync_papirus_colors(sys.argv[1])
+PY
