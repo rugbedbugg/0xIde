@@ -1,0 +1,46 @@
+From fe9e33a1def09f7e94721fc18e47d2478fe5e908 Mon Sep 17 00:00:00 2001
+From: Oxide 1-6 <yes.par781@gmail.com>
+Date: Thu, 17 Sep 2026 06:05:09 +0530
+Subject: [PATCH 3/3] nexus: register the OCR & AI settings page
+
+Upstream has no runtime page-registration hook, so a new settings page has
+to be appended to both registries by hand.
+---
+ modules/nexus/PageCompRegistry.qml | 7 +++++++
+ modules/nexus/PageRegistry.qml     | 6 ++++++
+ 2 files changed, 13 insertions(+)
+
+diff --git a/modules/nexus/PageCompRegistry.qml b/modules/nexus/PageCompRegistry.qml
+index d7d59245..20e0902c 100644
+--- a/modules/nexus/PageCompRegistry.qml
++++ b/modules/nexus/PageCompRegistry.qml
+@@ -182,6 +182,13 @@ QtObject {
+                     AboutPage {}
+                 }
+             }
++        },
++        Component {
++            StackPage {
++                Component {
++                    AiPage {}
++                }
++            }
+         }
+     ]
+ 
+diff --git a/modules/nexus/PageRegistry.qml b/modules/nexus/PageRegistry.qml
+index 38bd19ef..314e8697 100644
+--- a/modules/nexus/PageRegistry.qml
++++ b/modules/nexus/PageRegistry.qml
+@@ -89,5 +89,11 @@ QtObject {
+             description: qsTr("System information, credits"),
+             category: "about"
+         },
++        {
++            label: qsTr("OCR & AI"),
++            icon: "auto_awesome",
++            description: qsTr("OCR languages, AI backend and local model"),
++            category: "shell"
++        },
+     ]
+ }

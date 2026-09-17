@@ -1,0 +1,64 @@
+From e0518541df204f8cad3dc3900cc0c1acd94c7534 Mon Sep 17 00:00:00 2001
+From: Oxide 1-6 <yes.par781@gmail.com>
+Date: Thu, 17 Sep 2026 06:08:41 +0530
+Subject: [PATCH] plugin: register the AI config node and request type
+
+Declares the two types that shell/plugin/src/ provides. Those files are
+copied into the tree by shell/build.sh before this patch is applied, so
+they stay readable on their own instead of living inside a diff.
+
+  Caelestia.Config  AiConfig    GlobalConfig.ai.* settings, persisted to
+                                shell.json like every other config node
+  Caelestia         AiRequest   one streaming OpenAI-compatible chat
+                                completion, exposing text/status/error as
+                                it arrives so the popup can render partially
+---
+ plugin/src/Caelestia/CMakeLists.txt        | 1 +
+ plugin/src/Caelestia/Config/CMakeLists.txt | 1 +
+ plugin/src/Caelestia/Config/rootnodes.hpp  | 2 ++
+ 3 files changed, 4 insertions(+)
+
+diff --git a/plugin/src/Caelestia/CMakeLists.txt b/plugin/src/Caelestia/CMakeLists.txt
+index 40e750fe..59fe81ff 100644
+--- a/plugin/src/Caelestia/CMakeLists.txt
++++ b/plugin/src/Caelestia/CMakeLists.txt
+@@ -4,6 +4,7 @@ qml_module(caelestia-core
+     SOURCES
+         cutils.cpp
+         qalculator.cpp
++        airequest.cpp
+         requests.cpp
+         toaster.cpp
+         circularbuffer.cpp
+diff --git a/plugin/src/Caelestia/Config/CMakeLists.txt b/plugin/src/Caelestia/Config/CMakeLists.txt
+index a8e9d46b..54573838 100644
+--- a/plugin/src/Caelestia/Config/CMakeLists.txt
++++ b/plugin/src/Caelestia/Config/CMakeLists.txt
+@@ -12,6 +12,7 @@ qml_module(caelestia-config
+         tokensattached.cpp
+         anim.cpp
+         enums.hpp
++        aiconfig.hpp
+         backgroundconfig.hpp
+         barconfig.hpp
+         dashboardconfig.hpp
+diff --git a/plugin/src/Caelestia/Config/rootnodes.hpp b/plugin/src/Caelestia/Config/rootnodes.hpp
+index 03050f56..297adad8 100644
+--- a/plugin/src/Caelestia/Config/rootnodes.hpp
++++ b/plugin/src/Caelestia/Config/rootnodes.hpp
+@@ -5,6 +5,7 @@
+ 
+ #include "settings/layerregistry.hpp"
+ #include "settings/rootnode.hpp"
++#include "aiconfig.hpp"
+ #include "appearanceconfig.hpp"
+ #include "backgroundconfig.hpp"
+ #include "barconfig.hpp"
+@@ -31,6 +32,7 @@ class ConfigRoot : public settings::RootNode {
+     QML_ANONYMOUS
+ 
+     CONFIG_PROPERTY(bool, enabled, true)
++    CONFIG_SUBOBJECT(AiConfig, ai)
+     CONFIG_SUBOBJECT(AppearanceConfig, appearance)
+     CONFIG_SUBOBJECT(GeneralConfig, general)
+     CONFIG_SUBOBJECT(BackgroundConfig, background)

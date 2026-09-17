@@ -1,0 +1,448 @@
+From 3c7d2d251f101f2814b18862fdc22c009a1552e8 Mon Sep 17 00:00:00 2001
+From: Oxide 1-6 <yes.par781@gmail.com>
+Date: Thu, 17 Sep 2026 06:05:08 +0530
+Subject: [PATCH 2/3] areapicker: add OCR and region/circle search capture
+ modes
+
+Routes a completed selection to one of three consumers instead of only the
+screenshot path: Ocr.scan for text extraction, region_search.sh for Lens
+search, or the existing clipboard/file behaviour. Circle mode records the
+pointer track and derives the bounding box from it.
+
+The two files are one change: Picker dispatches on loader.ocr/searchMode
+and AreaPicker owns the loaders and the result popup those modes need.
+---
+ modules/areapicker/AreaPicker.qml | 217 ++++++++++++++++++++++++++++++
+ modules/areapicker/Picker.qml     |  71 +++++++++-
+ 2 files changed, 287 insertions(+), 1 deletion(-)
+
+diff --git a/modules/areapicker/AreaPicker.qml b/modules/areapicker/AreaPicker.qml
+index 76cc1039..b246ecb8 100644
+--- a/modules/areapicker/AreaPicker.qml
++++ b/modules/areapicker/AreaPicker.qml
+@@ -1,5 +1,6 @@
+ pragma ComponentBehavior: Bound
+ 
++import QtQuick
+ import Quickshell
+ import Quickshell.Io
+ import Quickshell.Wayland
+@@ -14,6 +15,9 @@ Scope {
+         property bool freeze
+         property bool closing
+         property bool clipboardOnly
++        property bool ocr
++        property bool ocrClipboard
++        property string searchMode: ""
+ 
+         Variants {
+             model: Screens.screens
+@@ -41,17 +45,108 @@ Scope {
+ 
+                 Picker {
+                     loader: root
++                    result: result
+                     screen: win.modelData
+                 }
+             }
+         }
+     }
+ 
++    Connections {
++        function onRecognized(): void {
++            if (root.ocrClipboard) {
++                const text = Ocr.result.text.trim();
++                if (text) {
++                    Quickshell.execDetached(["wl-copy", text]);
++                    Quickshell.execDetached(["notify-send", "Text copied", "OCR text copied to the clipboard"]);
++                } else {
++                    Quickshell.execDetached(["notify-send", "No text found", "OCR did not detect text in the selected region"]);
++                }
++                root.ocrClipboard = false;
++                return;
++            }
++            result.screen = Ocr.resultScreen;
++            result.text = "";
++            result.structured = Ocr.result;
++            result.text = Ocr.result.text;
++            if (!result.text.trim())
++                Quickshell.execDetached(["notify-send", "No text found", "OCR did not detect text in the selected region"]);
++        }
++        function onErrorChanged(): void {
++            if (Ocr.error)
++                Quickshell.execDetached(["notify-send", "-a", "caelestia", "-u", "critical", "OCR failed", Ocr.error]);
++        }
++
++        target: Ocr
++    }
++
++    LazyLoader {
++        id: result
++
++        property string text
++        property var structured: ({})
++        property ShellScreen screen
++
++        active: text.length > 0
++
++        StyledWindow {
++            screen: result.screen ?? Screens.screens[0]
++            name: "ocr-result"
++            WlrLayershell.exclusionMode: ExclusionMode.Ignore
++            WlrLayershell.layer: WlrLayer.Overlay
++            WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
++            mask: Region {
++                item: resultCard
++            }
++
++            anchors.top: true
++            anchors.bottom: true
++            anchors.left: true
++            anchors.right: true
++
++            OcrResult {
++                id: resultCard
++
++                text: result.text
++                structured: result.structured
++                onDismissed: result.text = ""
++            }
++        }
++    }
++
+     IpcHandler {
++        id: pickerIpc
++
++        function showOcr(json: string): void {
++            try {
++                const data = JSON.parse(json);
++                if (typeof data.text !== "string" || !Array.isArray(data.rows) || !Array.isArray(data.words))
++                    return;
++                result.text = "";
++                result.screen = Screens.screens[0];
++                result.structured = data;
++                result.text = data.text;
++                if (!data.text.trim())
++                    Quickshell.execDetached(["notify-send", "No text found", "OCR did not detect text in the selected region"]);
++            } catch (error) {
++                Quickshell.execDetached(["notify-send", "OCR failed", "Invalid structured OCR result"]);
++            }
++        }
++
++        function showText(text: string): void {
++            result.screen = Screens.screens[0];
++            result.text = "";
++            result.structured = ({});
++            result.text = text;
++        }
++
+         function open(): void {
+             root.freeze = false;
+             root.closing = false;
+             root.clipboardOnly = false;
++            root.ocr = false;
++            root.ocrClipboard = false;
++            root.searchMode = "";
+             root.activeAsync = true;
+         }
+ 
+@@ -59,6 +154,9 @@ Scope {
+             root.freeze = true;
+             root.closing = false;
+             root.clipboardOnly = false;
++            root.ocr = false;
++            root.ocrClipboard = false;
++            root.searchMode = "";
+             root.activeAsync = true;
+         }
+ 
+@@ -66,6 +164,9 @@ Scope {
+             root.freeze = false;
+             root.closing = false;
+             root.clipboardOnly = true;
++            root.ocr = false;
++            root.ocrClipboard = false;
++            root.searchMode = "";
+             root.activeAsync = true;
+         }
+ 
+@@ -73,6 +174,59 @@ Scope {
+             root.freeze = true;
+             root.closing = false;
+             root.clipboardOnly = true;
++            root.ocr = false;
++            root.ocrClipboard = false;
++            root.searchMode = "";
++            root.activeAsync = true;
++        }
++
++        function openOcr(): void {
++            root.freeze = false;
++            root.closing = false;
++            root.clipboardOnly = false;
++            root.ocr = true;
++            root.ocrClipboard = false;
++            root.searchMode = "";
++            root.activeAsync = true;
++        }
++
++        function openFreezeOcr(): void {
++            root.freeze = true;
++            root.closing = false;
++            root.clipboardOnly = false;
++            root.ocr = true;
++            root.ocrClipboard = false;
++            root.searchMode = "";
++            root.activeAsync = true;
++        }
++
++        function openOcrClipboard(): void {
++            root.freeze = false;
++            root.closing = false;
++            root.clipboardOnly = false;
++            root.ocr = true;
++            root.ocrClipboard = true;
++            root.searchMode = "";
++            root.activeAsync = true;
++        }
++
++        function regionSearch(): void {
++            root.freeze = false;
++            root.closing = false;
++            root.clipboardOnly = false;
++            root.ocr = false;
++            root.ocrClipboard = false;
++            root.searchMode = "rectangle";
++            root.activeAsync = true;
++        }
++
++        function circleSearch(): void {
++            root.freeze = false;
++            root.closing = false;
++            root.clipboardOnly = false;
++            root.ocr = false;
++            root.ocrClipboard = false;
++            root.searchMode = "circle";
+             root.activeAsync = true;
+         }
+ 
+@@ -88,6 +242,7 @@ Scope {
+             root.freeze = false;
+             root.closing = false;
+             root.clipboardOnly = false;
++            root.ocr = false;
+             root.activeAsync = true;
+         }
+     }
+@@ -101,6 +256,7 @@ Scope {
+             root.freeze = true;
+             root.closing = false;
+             root.clipboardOnly = false;
++            root.ocr = false;
+             root.activeAsync = true;
+         }
+     }
+@@ -114,6 +270,7 @@ Scope {
+             root.freeze = false;
+             root.closing = false;
+             root.clipboardOnly = true;
++            root.ocr = false;
+             root.activeAsync = true;
+         }
+     }
+@@ -127,7 +284,67 @@ Scope {
+             root.freeze = true;
+             root.closing = false;
+             root.clipboardOnly = true;
++            root.ocr = false;
+             root.activeAsync = true;
+         }
+     }
++
++    // qmllint disable unresolved-type
++    CustomShortcut {
++        // qmllint enable unresolved-type
++        name: "screenshotOcr"
++        description: "Open screenshot tool (extract text)"
++        onPressed: {
++            root.freeze = false;
++            root.closing = false;
++            root.clipboardOnly = false;
++            root.ocr = true;
++            root.activeAsync = true;
++        }
++    }
++
++    // qmllint disable unresolved-type
++    CustomShortcut {
++        // qmllint enable unresolved-type
++        name: "screenshotFreezeOcr"
++        description: "Open screenshot tool (freeze mode, extract text)"
++        onPressed: {
++            root.freeze = true;
++            root.closing = false;
++            root.clipboardOnly = false;
++            root.ocr = true;
++            root.activeAsync = true;
++        }
++    }
++
++    // qmllint disable unresolved-type
++    CustomShortcut {
++        // qmllint enable unresolved-type
++        name: "regionOcr"
++        description: "Select a region and copy recognized text"
++        onPressed: {
++            root.freeze = false;
++            root.closing = false;
++            root.clipboardOnly = false;
++            root.ocr = true;
++            root.ocrClipboard = true;
++            root.activeAsync = true;
++        }
++    }
++
++    // qmllint disable unresolved-type
++    CustomShortcut {
++        // qmllint enable unresolved-type
++        name: "regionSearch"
++        description: "Select a rectangle and search with Google Lens"
++        onPressed: pickerIpc.regionSearch()
++    }
++
++    // qmllint disable unresolved-type
++    CustomShortcut {
++        // qmllint enable unresolved-type
++        name: "circleSearch"
++        description: "Circle an area and search with Google Lens"
++        onPressed: pickerIpc.circleSearch()
++    }
+ }
+diff --git a/modules/areapicker/Picker.qml b/modules/areapicker/Picker.qml
+index 5e847603..4d823a0f 100644
+--- a/modules/areapicker/Picker.qml
++++ b/modules/areapicker/Picker.qml
+@@ -13,6 +13,7 @@ MouseArea {
+     id: root
+ 
+     required property LazyLoader loader
++    required property LazyLoader result
+     required property ShellScreen screen
+ 
+     property bool onClient
+@@ -32,6 +33,7 @@ MouseArea {
+     property real rsy: Math.min(sy, ey)
+     property real sw: Math.abs(sx - ex)
+     property real sh: Math.abs(sy - ey)
++    property var circlePoints: []
+ 
+     property list<var> clients: {
+         const mon = Hypr.monitorFor(screen);
+@@ -74,7 +76,11 @@ MouseArea {
+     function save(): void {
+         const tmpfile = Qt.resolvedUrl(`/tmp/caelestia-picker-${Quickshell.processId}-${Date.now()}.png`);
+         CUtils.saveItem(screencopy, tmpfile, Qt.rect(Math.ceil(rsx), Math.ceil(rsy), Math.floor(sw), Math.floor(sh)), path => {
+-            if (root.loader.clipboardOnly) {
++            if (root.loader.ocr) {
++                Ocr.scan(path, root.screen, "");
++            } else if (root.loader.searchMode) {
++                Quickshell.execDetached(["bash", Quickshell.shellPath("assets/search/region_search.sh"), path]);
++            } else if (root.loader.clipboardOnly) {
+                 Quickshell.execDetached(["sh", "-c", "wl-copy --type image/png < " + path]);
+                 Quickshell.execDetached(["notify-send", "-a", "caelestia-cli", "-i", path, "Screenshot taken", "Screenshot copied to clipboard"]);
+             } else {
+@@ -120,12 +126,24 @@ MouseArea {
+     onPressed: event => {
+         ssx = event.x;
+         ssy = event.y;
++        if (root.loader.searchMode === "circle")
++            circlePoints = [{ x: event.x, y: event.y }];
++        circlePath.requestPaint();
+     }
+ 
+     onReleased: {
+         if (closeAnim.running)
+             return;
+ 
++        if (root.loader.searchMode === "circle" && circlePoints.length > 1) {
++            const xs = circlePoints.map(point => point.x);
++            const ys = circlePoints.map(point => point.y);
++            sx = Math.min(...xs);
++            sy = Math.min(...ys);
++            ex = Math.max(...xs);
++            ey = Math.max(...ys);
++        }
++
+         if (root.loader.freeze) {
+             save();
+         } else {
+@@ -145,6 +163,9 @@ MouseArea {
+             sy = ssy;
+             ex = x;
+             ey = y;
++            if (root.loader.searchMode === "circle")
++                circlePoints = circlePoints.concat([{ x, y }]);
++            circlePath.requestPaint();
+         } else {
+             checkClientRects(x, y);
+         }
+@@ -236,6 +257,29 @@ MouseArea {
+         }
+     }
+ 
++    StyledRect {
++        anchors.top: parent.top
++        anchors.topMargin: Tokens.padding.large
++        anchors.horizontalCenter: parent.horizontalCenter
++        visible: !!root.loader.searchMode
++        z: 4
++        radius: Tokens.rounding.full
++        color: Colours.palette.m3secondaryContainer
++        border.color: Colours.palette.m3outlineVariant
++        border.width: 1
++        implicitWidth: searchModeLabel.implicitWidth + Tokens.padding.large * 2
++        implicitHeight: searchModeLabel.implicitHeight + Tokens.padding.small * 2
++
++        StyledText {
++            id: searchModeLabel
++
++            anchors.centerIn: parent
++            text: root.loader.searchMode === "circle" ? qsTr("Circle to Search") : qsTr("Lens search")
++            color: Colours.palette.m3onSecondaryContainer
++            font: Tokens.font.label.large
++        }
++    }
++
+     Item {
+         id: selectionWrapper
+ 
+@@ -301,4 +345,29 @@ MouseArea {
+ 
+         Anim {}
+     }
++
++    Canvas {
++        id: circlePath
++
++        anchors.fill: parent
++        visible: root.loader.searchMode === "circle" && root.circlePoints.length > 1
++        z: 3
++
++        onPaint: {
++            const ctx = getContext("2d");
++            ctx.reset();
++            ctx.strokeStyle = Colours.palette.m3primary;
++            ctx.lineWidth = 3;
++            ctx.lineCap = "round";
++            ctx.lineJoin = "round";
++            ctx.beginPath();
++            root.circlePoints.forEach((point, index) => {
++                if (index === 0)
++                    ctx.moveTo(point.x, point.y);
++                else
++                    ctx.lineTo(point.x, point.y);
++            });
++            ctx.stroke();
++        }
++    }
+ }
