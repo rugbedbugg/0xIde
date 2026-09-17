@@ -1,0 +1,6 @@
+# starship.toml is deployed by the Caelestia dots and has no include mechanism,
+# so this one key is rewritten in place by installer/apply_overlay.py.
+#
+# scan_timeout: starship's default 30ms is short enough that disk or scheduler
+# contention makes language modules drop out of the prompt intermittently.
+scan_timeout = 100

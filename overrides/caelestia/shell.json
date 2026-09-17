@@ -1,0 +1,66 @@
+{
+    "ai": {
+        "tableMode": false
+    },
+    "appearance": {
+        "transparency": {
+            "enabled": true
+        }
+    },
+    "background": {
+        "wallpaperEnabled": true
+    },
+    "launcher": {
+        "favouriteApps": [
+            "discord",
+            "firefox",
+            "google-chrome",
+            "libreoffice-startcenter",
+            "microsoft-edge-dev"
+        ]
+    },
+    "services": {
+        "useFahrenheit": false,
+        "useTwelveHourClock": true
+    },
+    "session": {
+        "commands": {
+            "logout": [
+                "uwsm",
+                "stop"
+            ]
+        }
+    },
+    "utilities": {
+        "quickToggles": [
+            {
+                "enabled": true,
+                "id": "wifi"
+            },
+            {
+                "enabled": true,
+                "id": "bluetooth"
+            },
+            {
+                "enabled": true,
+                "id": "mic"
+            },
+            {
+                "enabled": true,
+                "id": "settings"
+            },
+            {
+                "enabled": true,
+                "id": "gameMode"
+            },
+            {
+                "enabled": true,
+                "id": "dnd"
+            },
+            {
+                "enabled": false,
+                "id": "vpn"
+            }
+        ]
+    }
+}
