@@ -11,6 +11,8 @@ skipt(){ printf '  skip  %s\n' "$*"; skip=$((skip+1)); }
 check(){ if "$@" >/dev/null 2>&1; then return 0; else return 1; fi; }
 
 PY="$(cm_python)"
+# Compiling a checker must not leave __pycache__ in the working tree.
+export PYTHONDONTWRITEBYTECODE=1
 
 cm_step "Shell script syntax"
 while IFS= read -r f; do
@@ -86,6 +88,56 @@ for pat in 'build/' 'scheme.json' 'sequences.txt' 'apps.sqlite' 'notifs.json' \
     fi
 done
 [ "$bad" = 0 ] && ok "no caches, models, compiled output or Caelestia runtime state tracked"
+
+cm_step "Shell layer is complete"
+for f in shell/upstream.pin shell/build.sh \
+         shell/plugin/src/aiconfig.hpp shell/plugin/src/airequest.hpp shell/plugin/src/airequest.cpp; do
+    if [ -s "$CM_ROOT/$f" ]; then ok "$f"; else no "$f is missing or empty"; fi
+done
+n=$(ls "$CM_ROOT"/shell/patches/*.patch 2>/dev/null | wc -l)
+[ "$n" -gt 0 ] && ok "$n shell patch(es) present" || no "no shell patches"
+n=$(ls "$CM_ROOT"/shell/plugin/patches/*.patch 2>/dev/null | wc -l)
+[ "$n" -gt 0 ] && ok "$n plugin patch(es) present" || no "no plugin registration patch"
+# The types the extensions cannot load without.
+for t in AiConfig backend backendUrl model systemPrompt ocrLanguages translateLanguage tableMode; do
+    grep -q "$t" "$CM_ROOT/shell/plugin/src/aiconfig.hpp" || no "aiconfig.hpp no longer declares $t"
+done
+grep -q "class AiRequest" "$CM_ROOT/shell/plugin/src/airequest.hpp" &&
+    ok "plugin still declares both recovered types" || no "airequest.hpp lost AiRequest"
+
+cm_step "Safe defaults"
+# Nothing needing root may be installed by a plain ./install.
+bad=0
+while IFS= read -r line; do
+    name=$(printf '%s' "$line" | awk -F: '{gsub(/ /,"",$1);print $1}')
+    kind=$(printf '%s' "$line" | awk -F: '{gsub(/ /,"",$2);print $2}')
+    dflt=$(printf '%s' "$line" | awk -F: '{gsub(/ /,"",$3);print $3}')
+    if [ "$kind" = system ] && [ "$dflt" = on ]; then no "$name needs root but is on by default"; bad=1; fi
+    if [ "$kind" = adapter ] && [ "$dflt" = on ] &&
+       [ "$(cm_pin "$CM_ROOT/adapters/$name/adapter.conf" privileges)" = root ] &&
+       [ "$name" != papirus ]; then
+        no "$name requires root but is on by default"; bad=1
+    fi
+done < <(grep -vE '^\s*(#|$)' "$CM_ROOT/installer/components.conf")
+[ "$bad" = 0 ] && ok "no root-requiring component is enabled by default"
+
+# The privacy default that matters: region search must not upload out of the box.
+rs="$CM_ROOT/shell/extensions/search/tree/assets/search/region_search.sh"
+if grep -qE '^mode="text"' "$rs"; then ok "region search defaults to local OCR, no upload"
+else no "region search no longer defaults to the non-uploading mode"; fi
+if grep -qE '^confirm="always"' "$rs"; then ok "image upload confirms by default"
+else no "region search no longer confirms before uploading"; fi
+if grep -qE '"\$mode" == "off"' "$rs"; then ok "region search can be disabled entirely"
+else no "region search lost its off switch"; fi
+if grep -q 'ask "Upload this region to' "$rs"; then ok "the upload prompt names the destination host"
+else no "the upload prompt no longer names the host"; fi
+
+# No privileged side effect may happen without a prompt.
+if grep -rnE '\bchown\b|chmod -R (a\+w|go\+w|777)' "$CM_ROOT/adapters" "$CM_ROOT/orchestration" \
+      "$CM_ROOT/installer" "$CM_ROOT/install" 2>/dev/null | grep -qv '^\s*#'; then
+    no "a chown or broad chmod appears outside system/"
+else ok "no chown or world-writable chmod outside system/"
+fi
 
 cm_step "Adapter metadata"
 for d in "$CM_ROOT"/adapters/*/; do
