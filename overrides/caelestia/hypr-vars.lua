@@ -22,6 +22,8 @@ return {
     kbRegionSearch = "SUPER + SHIFT + A",
     kbCircleSearch = "SUPER + SHIFT + O",
 
-    -- Default OCR language for the shell's capture path
-    ocrLanguages = "eng",
+    -- Opens the same selector, but puts the text in the result window with the
+    -- table and AI actions instead of on the clipboard. Unbound by default:
+    -- give it a key here to use it.
+    kbAskAi = "",
 }

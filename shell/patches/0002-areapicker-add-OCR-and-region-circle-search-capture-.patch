@@ -1,23 +1,33 @@
-From 9ba461c20f1aefa25247b877545f5f765396d617 Mon Sep 17 00:00:00 2001
+From a8cbb0dee4761b6f6eb7f7ad35397b789afe2fc8 Mon Sep 17 00:00:00 2001
 From: Oxide 1-6 <yes.par781@gmail.com>
-Date: Thu, 17 Sep 2026 13:25:00 +0530
-Subject: [PATCH 2/3] areapicker: add OCR and region/circle search capture
- modes
+Date: Thu, 17 Sep 2026 19:28:57 +0530
+Subject: [PATCH 2/3] areapicker: add OCR and region/circle search capture modes
 
 Routes a completed selection to one of three consumers instead of only the
-screenshot path: Ocr.scan for text extraction, region_search.sh for web
+screenshot path: Ocr.extract for text extraction, region_search.sh for web
 search, or the existing clipboard/file behaviour. Circle mode records the
 pointer track and derives the bounding box from it.
+
+Both OCR modes freeze the screen, so the selection is made against a still
+image. Text extraction puts the result on the clipboard with no window;
+askAi opens the result window instead, for the table and AI actions.
+
+A zero-size selection closes without capturing, and a capture that fails
+closes and says so rather than leaving the selector up.
+
+The mode indicator follows the pointer rather than sitting at the top of the
+screen, and covers OCR as well as the two search modes. Its component,
+PickerGuide, is an extension file, so it is not part of this patch.
 
 The two files are one change: Picker dispatches on loader.ocr/searchMode
 and AreaPicker owns the loaders and the result popup those modes need.
 ---
- modules/areapicker/AreaPicker.qml | 217 ++++++++++++++++++++++++++++++
- modules/areapicker/Picker.qml     |  72 +++++++++-
- 2 files changed, 288 insertions(+), 1 deletion(-)
+ modules/areapicker/AreaPicker.qml | 172 ++++++++++++++++++++++++++++++
+ modules/areapicker/Picker.qml     |  80 +++++++++++++-
+ 2 files changed, 251 insertions(+), 1 deletion(-)
 
 diff --git a/modules/areapicker/AreaPicker.qml b/modules/areapicker/AreaPicker.qml
-index 76cc1039..585971c8 100644
+index 76cc1039..e76e88b0 100644
 --- a/modules/areapicker/AreaPicker.qml
 +++ b/modules/areapicker/AreaPicker.qml
 @@ -1,5 +1,6 @@
@@ -27,46 +37,30 @@ index 76cc1039..585971c8 100644
  import Quickshell
  import Quickshell.Io
  import Quickshell.Wayland
-@@ -14,6 +15,9 @@ Scope {
+@@ -14,6 +15,11 @@ Scope {
          property bool freeze
          property bool closing
          property bool clipboardOnly
++        // ocr extracts the text in the selection. askAi hands it to the result
++        // window instead of putting it straight on the clipboard.
 +        property bool ocr
-+        property bool ocrClipboard
++        property bool askAi
 +        property string searchMode: ""
  
          Variants {
              model: Screens.screens
-@@ -41,17 +45,108 @@ Scope {
- 
-                 Picker {
-                     loader: root
-+                    result: result
-                     screen: win.modelData
-                 }
-             }
+@@ -47,11 +53,90 @@ Scope {
          }
      }
  
 +    Connections {
 +        function onRecognized(): void {
-+            if (root.ocrClipboard) {
-+                const text = Ocr.result.text.trim();
-+                if (text) {
-+                    Quickshell.execDetached(["wl-copy", text]);
-+                    Quickshell.execDetached(["notify-send", "Text copied", "OCR text copied to the clipboard"]);
-+                } else {
-+                    Quickshell.execDetached(["notify-send", "No text found", "OCR did not detect text in the selected region"]);
-+                }
-+                root.ocrClipboard = false;
-+                return;
-+            }
 +            result.screen = Ocr.resultScreen;
 +            result.text = "";
 +            result.structured = Ocr.result;
 +            result.text = Ocr.result.text;
 +            if (!result.text.trim())
-+                Quickshell.execDetached(["notify-send", "No text found", "OCR did not detect text in the selected region"]);
++                Quickshell.execDetached(["notify-send", "-a", "caelestia", "No text found", "Nothing was recognised in the selected region"]);
 +        }
 +        function onErrorChanged(): void {
 +            if (Ocr.error)
@@ -123,9 +117,9 @@ index 76cc1039..585971c8 100644
 +                result.structured = data;
 +                result.text = data.text;
 +                if (!data.text.trim())
-+                    Quickshell.execDetached(["notify-send", "No text found", "OCR did not detect text in the selected region"]);
++                    Quickshell.execDetached(["notify-send", "-a", "caelestia", "No text found", "Nothing was recognised in the selected region"]);
 +            } catch (error) {
-+                Quickshell.execDetached(["notify-send", "OCR failed", "Invalid structured OCR result"]);
++                Quickshell.execDetached(["notify-send", "-a", "caelestia", "-u", "critical", "OCR failed", "Invalid structured OCR result"]);
 +            }
 +        }
 +
@@ -141,67 +135,59 @@ index 76cc1039..585971c8 100644
              root.closing = false;
              root.clipboardOnly = false;
 +            root.ocr = false;
-+            root.ocrClipboard = false;
++            root.askAi = false;
 +            root.searchMode = "";
              root.activeAsync = true;
          }
  
-@@ -59,6 +154,9 @@ Scope {
+@@ -59,6 +144,9 @@ Scope {
              root.freeze = true;
              root.closing = false;
              root.clipboardOnly = false;
 +            root.ocr = false;
-+            root.ocrClipboard = false;
++            root.askAi = false;
 +            root.searchMode = "";
              root.activeAsync = true;
          }
  
-@@ -66,6 +164,9 @@ Scope {
+@@ -66,6 +154,9 @@ Scope {
              root.freeze = false;
              root.closing = false;
              root.clipboardOnly = true;
 +            root.ocr = false;
-+            root.ocrClipboard = false;
++            root.askAi = false;
 +            root.searchMode = "";
              root.activeAsync = true;
          }
  
-@@ -73,6 +174,59 @@ Scope {
+@@ -73,6 +164,51 @@ Scope {
              root.freeze = true;
              root.closing = false;
              root.clipboardOnly = true;
 +            root.ocr = false;
-+            root.ocrClipboard = false;
++            root.askAi = false;
 +            root.searchMode = "";
 +            root.activeAsync = true;
 +        }
 +
++        // Both OCR entry points freeze the screen: selecting text against a
++        // desktop that is still moving is what made the old flow unusable.
 +        function openOcr(): void {
-+            root.freeze = false;
-+            root.closing = false;
-+            root.clipboardOnly = false;
-+            root.ocr = true;
-+            root.ocrClipboard = false;
-+            root.searchMode = "";
-+            root.activeAsync = true;
-+        }
-+
-+        function openFreezeOcr(): void {
 +            root.freeze = true;
 +            root.closing = false;
 +            root.clipboardOnly = false;
 +            root.ocr = true;
-+            root.ocrClipboard = false;
++            root.askAi = false;
 +            root.searchMode = "";
 +            root.activeAsync = true;
 +        }
 +
-+        function openOcrClipboard(): void {
-+            root.freeze = false;
++        function openAskAi(): void {
++            root.freeze = true;
 +            root.closing = false;
 +            root.clipboardOnly = false;
 +            root.ocr = true;
-+            root.ocrClipboard = true;
++            root.askAi = true;
 +            root.searchMode = "";
 +            root.activeAsync = true;
 +        }
@@ -211,7 +197,7 @@ index 76cc1039..585971c8 100644
 +            root.closing = false;
 +            root.clipboardOnly = false;
 +            root.ocr = false;
-+            root.ocrClipboard = false;
++            root.askAi = false;
 +            root.searchMode = "rectangle";
 +            root.activeAsync = true;
 +        }
@@ -221,12 +207,12 @@ index 76cc1039..585971c8 100644
 +            root.closing = false;
 +            root.clipboardOnly = false;
 +            root.ocr = false;
-+            root.ocrClipboard = false;
++            root.askAi = false;
 +            root.searchMode = "circle";
              root.activeAsync = true;
          }
  
-@@ -88,6 +242,7 @@ Scope {
+@@ -88,6 +224,7 @@ Scope {
              root.freeze = false;
              root.closing = false;
              root.clipboardOnly = false;
@@ -234,7 +220,7 @@ index 76cc1039..585971c8 100644
              root.activeAsync = true;
          }
      }
-@@ -101,6 +256,7 @@ Scope {
+@@ -101,6 +238,7 @@ Scope {
              root.freeze = true;
              root.closing = false;
              root.clipboardOnly = false;
@@ -242,7 +228,7 @@ index 76cc1039..585971c8 100644
              root.activeAsync = true;
          }
      }
-@@ -114,6 +270,7 @@ Scope {
+@@ -114,6 +252,7 @@ Scope {
              root.freeze = false;
              root.closing = false;
              root.clipboardOnly = true;
@@ -250,7 +236,7 @@ index 76cc1039..585971c8 100644
              root.activeAsync = true;
          }
      }
-@@ -127,7 +284,67 @@ Scope {
+@@ -127,7 +266,40 @@ Scope {
              root.freeze = true;
              root.closing = false;
              root.clipboardOnly = true;
@@ -263,43 +249,16 @@ index 76cc1039..585971c8 100644
 +    CustomShortcut {
 +        // qmllint enable unresolved-type
 +        name: "screenshotOcr"
-+        description: "Open screenshot tool (extract text)"
-+        onPressed: {
-+            root.freeze = false;
-+            root.closing = false;
-+            root.clipboardOnly = false;
-+            root.ocr = true;
-+            root.activeAsync = true;
-+        }
++        description: "Select a region and copy the text in it"
++        onPressed: pickerIpc.openOcr()
 +    }
 +
 +    // qmllint disable unresolved-type
 +    CustomShortcut {
 +        // qmllint enable unresolved-type
-+        name: "screenshotFreezeOcr"
-+        description: "Open screenshot tool (freeze mode, extract text)"
-+        onPressed: {
-+            root.freeze = true;
-+            root.closing = false;
-+            root.clipboardOnly = false;
-+            root.ocr = true;
-+            root.activeAsync = true;
-+        }
-+    }
-+
-+    // qmllint disable unresolved-type
-+    CustomShortcut {
-+        // qmllint enable unresolved-type
-+        name: "regionOcr"
-+        description: "Select a region and copy recognized text"
-+        onPressed: {
-+            root.freeze = false;
-+            root.closing = false;
-+            root.clipboardOnly = false;
-+            root.ocr = true;
-+            root.ocrClipboard = true;
-+            root.activeAsync = true;
-+        }
++        name: "askAi"
++        description: "Select a region and open its text in the result window"
++        onPressed: pickerIpc.openAskAi()
 +    }
 +
 +    // qmllint disable unresolved-type
@@ -319,7 +278,7 @@ index 76cc1039..585971c8 100644
 +    }
  }
 diff --git a/modules/areapicker/Picker.qml b/modules/areapicker/Picker.qml
-index 5e847603..217593a0 100644
+index 5e847603..aedf1604 100644
 --- a/modules/areapicker/Picker.qml
 +++ b/modules/areapicker/Picker.qml
 @@ -5,6 +5,7 @@ import Quickshell
@@ -330,15 +289,7 @@ index 5e847603..217593a0 100644
  import qs.components
  import qs.components.effects
  import qs.services
-@@ -13,6 +14,7 @@ MouseArea {
-     id: root
- 
-     required property LazyLoader loader
-+    required property LazyLoader result
-     required property ShellScreen screen
- 
-     property bool onClient
-@@ -32,6 +34,7 @@ MouseArea {
+@@ -32,6 +33,7 @@ MouseArea {
      property real rsy: Math.min(sy, ey)
      property real sw: Math.abs(sx - ex)
      property real sh: Math.abs(sy - ey)
@@ -346,20 +297,34 @@ index 5e847603..217593a0 100644
  
      property list<var> clients: {
          const mon = Hypr.monitorFor(screen);
-@@ -74,7 +77,11 @@ MouseArea {
+@@ -74,13 +76,25 @@ MouseArea {
      function save(): void {
          const tmpfile = Qt.resolvedUrl(`/tmp/caelestia-picker-${Quickshell.processId}-${Date.now()}.png`);
          CUtils.saveItem(screencopy, tmpfile, Qt.rect(Math.ceil(rsx), Math.ceil(rsy), Math.floor(sw), Math.floor(sh)), path => {
 -            if (root.loader.clipboardOnly) {
 +            if (root.loader.ocr) {
-+                Ocr.scan(path, root.screen, "");
++                if (root.loader.askAi)
++                    Ocr.scan(path, root.screen);
++                else
++                    Ocr.extract(path);
 +            } else if (root.loader.searchMode) {
 +                Quickshell.execDetached(["bash", Quickshell.shellPath("assets/search/region_search.sh"), path]);
 +            } else if (root.loader.clipboardOnly) {
                  Quickshell.execDetached(["sh", "-c", "wl-copy --type image/png < " + path]);
                  Quickshell.execDetached(["notify-send", "-a", "caelestia-cli", "-i", path, "Screenshot taken", "Screenshot copied to clipboard"]);
              } else {
-@@ -120,12 +127,24 @@ MouseArea {
+                 Quickshell.execDetached(["swappy", "-f", path]);
+             }
+             closeAnim.start();
++        }, () => {
++            // A capture that failed still has to close the selector, and has to
++            // say so rather than looking like an empty result.
++            Quickshell.execDetached(["notify-send", "-a", "caelestia", "-u", "critical", "Capture failed", "The selected region could not be captured"]);
++            closeAnim.start();
+         });
+     }
+ 
+@@ -120,12 +134,29 @@ MouseArea {
      onPressed: event => {
          ssx = event.x;
          ssy = event.y;
@@ -381,10 +346,15 @@ index 5e847603..217593a0 100644
 +            ey = Math.max(...ys);
 +        }
 +
++        if (root.sw < 1 || root.sh < 1) {
++            closeAnim.start();
++            return;
++        }
++
          if (root.loader.freeze) {
              save();
          } else {
-@@ -145,6 +164,9 @@ MouseArea {
+@@ -145,6 +176,9 @@ MouseArea {
              sy = ssy;
              ex = x;
              ey = y;
@@ -394,37 +364,30 @@ index 5e847603..217593a0 100644
          } else {
              checkClientRects(x, y);
          }
-@@ -236,6 +258,29 @@ MouseArea {
+@@ -236,6 +270,22 @@ MouseArea {
          }
      }
  
-+    StyledRect {
-+        anchors.top: parent.top
-+        anchors.topMargin: Tokens.padding.large
-+        anchors.horizontalCenter: parent.horizontalCenter
-+        visible: !!root.loader.searchMode
++    PickerGuide {
 +        z: 4
-+        radius: Tokens.rounding.full
-+        color: Colours.palette.m3secondaryContainer
-+        border.color: Colours.palette.m3outlineVariant
-+        border.width: 1
-+        implicitWidth: searchModeLabel.implicitWidth + Tokens.padding.large * 2
-+        implicitHeight: searchModeLabel.implicitHeight + Tokens.padding.small * 2
-+
-+        StyledText {
-+            id: searchModeLabel
-+
-+            anchors.centerIn: parent
-+            text: root.loader.searchMode === "circle" ? qsTr("Circle to Search") : qsTr("Lens search")
-+            color: Colours.palette.m3onSecondaryContainer
-+            font: Tokens.font.label.large
++        visible: root.loader.ocr || !!root.loader.searchMode
++        icon: root.loader.ocr ? "document_scanner" : "image_search"
++        label: {
++            if (root.loader.ocr)
++                return root.loader.askAi ? qsTr("Extract text for AI") : qsTr("Extract text");
++            return root.loader.searchMode === "circle" ? qsTr("Circle to search") : qsTr("Search this region");
 +        }
++
++        // Below and right of the pointer while hovering, and of the selection
++        // while dragging, clamped so it never leaves the screen.
++        x: Math.max(0, Math.min(root.screen.width - width, (root.pressed ? root.rsx + root.sw : root.mouseX) + Tokens.spacing.small))
++        y: Math.max(0, Math.min(root.screen.height - height, (root.pressed ? root.rsy + root.sh : root.mouseY) + Tokens.spacing.small))
 +    }
 +
      Item {
          id: selectionWrapper
  
-@@ -301,4 +346,29 @@ MouseArea {
+@@ -301,4 +351,32 @@ MouseArea {
  
          Anim {}
      }
@@ -440,6 +403,9 @@ index 5e847603..217593a0 100644
 +            const ctx = getContext("2d");
 +            ctx.reset();
 +            ctx.strokeStyle = Colours.palette.m3primary;
++            // Caelestia has no stroke-width token; this matches the selection
++            // border, which upstream sets to 2 plus a little to stay legible
++            // over a busy screen.
 +            ctx.lineWidth = 3;
 +            ctx.lineCap = "round";
 +            ctx.lineJoin = "round";

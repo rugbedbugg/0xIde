@@ -18,12 +18,16 @@ install or skip.
 **Caelestia Shell extensions**, built as patches and overlays on the upstream
 shell:
 
-- **Text extraction.** Select a region of the screen and recognise the text in
-  it with Tesseract, locally.
+- **Text extraction.** The screen freezes, you drag a rectangle over some text,
+  and on release the text is on your clipboard. Tesseract runs locally, there is
+  no result window to dismiss, and the capture is deleted straight away.
 - **Region search.** Draw a rectangle and search the web for what is in it.
 - **Circle search.** Draw freehand around something and search for that.
 - **Local AI.** A BitNet runtime bound to `127.0.0.1`, plus a client for any
-  OpenAI-compatible chat-completions endpoint you point it at.
+  OpenAI-compatible chat-completions endpoint you point it at. It reads a
+  captured region into a result window that can explain, summarise, translate or
+  rebuild it as a table. This is a separate action from text extraction, and
+  text extraction never touches it.
 
 **Theme synchronisation** for applications Caelestia does not reach:
 
@@ -76,9 +80,10 @@ Hyprland, and the Caelestia dots deployed.
 Building the shell additionally needs `cmake`, `ninja`, `git`, `libqalculate`
 and the Qt 6 development packages, which is the same set upstream needs.
 
-The shell extensions use `tesseract` (with the language data you want),
-`wl-clipboard`, `jq`, `curl` and `fuzzel`. Each adapter needs only its own
-application present.
+Text extraction needs exactly two things: `tesseract`, with the language data
+you want, and `wl-clipboard`. Region search additionally uses `jq`, and its
+optional image-upload mode uses `curl` and `fuzzel`. Each adapter needs only its
+own application present.
 
 ## Default keybindings
 
@@ -88,7 +93,11 @@ application present.
 | `SUPER + SHIFT + A` | Region search |
 | `SUPER + SHIFT + O` | Circle search |
 
-These three are defined in `overrides/caelestia/hypr-vars.lua` and bound in
+One more action ships unbound: `kbAskAi` opens the same selector but sends the
+text to the AI result window instead of the clipboard. Give it a key in
+`hypr-vars.lua` to use it.
+
+These are defined in `overrides/caelestia/hypr-vars.lua` and bound in
 `overrides/caelestia/hypr-user.lua`, both of which are extension points
 Caelestia supports. No file that the Caelestia dots deploy is edited. A binding
 that collides with one upstream already made is skipped, with a message, rather
@@ -110,6 +119,7 @@ Everything user-editable lives in one of these:
 | `overrides/fish/user-config.fish` | fish shell additions |
 | `overrides/foot/overlay.conf`, `overrides/starship/overlay.toml` | keys merged into two files that have no include mechanism |
 | `$XDG_CONFIG_HOME/caelestia-mod/region-search.conf` | region search mode and confirmation |
+| `shell.json`, `ai.ocrLanguages` | Tesseract languages. Empty, the default, uses every installed one |
 | `$XDG_CONFIG_HOME/caelestia-mod/adapters.enabled` | which adapters the theme hook runs |
 
 `config.local` at the repository root, which is never committed, overrides
@@ -120,8 +130,9 @@ the shell's settings.
 
 ## Privacy and privileges
 
-- **Text extraction is local.** Tesseract runs on this machine and nothing is
-  transmitted.
+- **Text extraction is local.** Tesseract runs on this machine, the recognised
+  text goes to the clipboard and nowhere else, and the captured image is deleted
+  whether it succeeded or not. It never reaches the AI backend.
 - **Region search is local first.** By default the region is read with local OCR
   and only the recognised *text* is sent to a web search. No image leaves the
   machine.

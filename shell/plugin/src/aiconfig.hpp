@@ -11,7 +11,7 @@ class AiConfig : public settings::ObjectNode {
     CONFIG_NODE(AiConfig, settings::ObjectNode)
 
     CONFIG_GLOBAL_PROPERTY(QString, backend, QString())
-    CONFIG_GLOBAL_PROPERTY(QString, ocrLanguages, u"eng"_s)
+    CONFIG_GLOBAL_PROPERTY(QString, ocrLanguages, QString())
     CONFIG_GLOBAL_PROPERTY(bool, tableMode, false)
     CONFIG_GLOBAL_PROPERTY(QString, translateLanguage, QString())
     CONFIG_GLOBAL_PROPERTY(QString, backendUrl, u"http://127.0.0.1:8080/v1/chat/completions"_s)

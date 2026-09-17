@@ -162,6 +162,87 @@ if grep -rnE --exclude='*.md' '\bchown\b|chmod -R (a\+w|go\+w|777)' \
 else ok "no chown or world-writable chmod outside system/"
 fi
 
+cm_step "Text extraction"
+OCRQML="$CM_ROOT/shell/extensions/ocr/tree/services/Ocr.qml"
+PICKER="$CM_ROOT/shell/patches/0002-areapicker-add-OCR-and-region-circle-search-capture-.patch"
+
+# The two things the extractor cannot work without have to be declared.
+for dep in tesseract wl-copy; do
+    if grep -qE "^report (required|optional) $dep " "$CM_ROOT/installer/check_deps.sh"
+    then ok "$dep is declared as an OCR dependency"
+    else no "$dep is not declared in check_deps.sh"; fi
+done
+
+# The extractor must not be able to reach the AI at all.
+if grep -qE 'AiRuntime|AiRequest|backendUrl|systemPrompt' "$OCRQML"
+then no "the OCR service references the AI backend"
+else ok "text extraction cannot reach the AI backend"; fi
+
+# The normal path ends at the clipboard, and nowhere else.
+if grep -q '"wl-copy"' "$OCRQML"
+then ok "the OCR service copies to the Wayland clipboard"
+else no "the OCR service no longer copies its result"; fi
+
+# The selection is made against a frozen screen.
+if awk '/function openOcr/{f=1} f&&/freeze = true/{found=1;exit} END{exit !found}' "$PICKER"
+then ok "the OCR selector freezes the screen"
+else no "the OCR selector no longer freezes the screen"; fi
+
+# Every path that ends an extraction has to remove the capture.
+if grep -q 'CUtils.deleteFile' "$OCRQML"
+then ok "the OCR service deletes the capture it was given"
+else no "the OCR service no longer deletes its capture"; fi
+
+# Superseded entry points must be gone, not merely unbound.
+bad=0
+for dead in ocrClipboard openOcrClipboard openFreezeOcr screenshotFreezeOcr regionOcr; do
+    if git -C "$CM_ROOT" grep -qIn "$dead" -- . ':!tests/run' 2>/dev/null; then
+        no "the superseded OCR entry point $dead is still referenced"; bad=1
+    fi
+done
+[ -e "$CM_ROOT/shell/extensions/ocr/tree/assets/ocr/capture.sh" ] &&
+    { no "the grim/slurp capture helper is back"; bad=1; }
+for dead in grim slurp; do
+    if git -C "$CM_ROOT" grep -qIn "\\b$dead\\b" -- . ':!*.md' ':!tests/run' 2>/dev/null; then
+        no "$dead is referenced but nothing uses it any more"; bad=1
+    fi
+done
+[ "$bad" = 0 ] && ok "no superseded OCR capture path remains"
+
+# Exactly one binding, in the override point Caelestia supports.
+n=$(grep -c 'kbOcrScreenshot' "$CM_ROOT/overrides/caelestia/hypr-vars.lua")
+[ "$n" = 1 ] && ok "hypr-vars.lua defines the extraction key once" ||
+    no "hypr-vars.lua mentions kbOcrScreenshot $n times, expected 1"
+n=$(grep -c '^bind("kbOcrScreenshot"' "$CM_ROOT/overrides/caelestia/hypr-user.lua")
+[ "$n" = 1 ] && ok "hypr-user.lua binds it once" ||
+    no "hypr-user.lua binds kbOcrScreenshot $n times, expected 1"
+
+cm_step "Text extraction, end to end"
+# The real pipeline on a known image: tesseract, then the clipboard.
+if ! cm_have tesseract; then skipt "tesseract not installed"
+elif ! cm_have magick; then skipt "no magick to render a test image"
+else
+    ocrtmp="$(mktemp -d)"
+    magick -background white -fill black -pointsize 64 \
+        label:'CAELESTIA OCR TEST' "$ocrtmp/sample.png" 2>/dev/null
+    langs=$(tesseract --list-langs 2>/dev/null | tail -n +2 | grep -vx osd | paste -sd+)
+    got="$(tesseract "$ocrtmp/sample.png" - -l "${langs:-eng}" 2>/dev/null | tr -d '\n' | tr -s ' ')"
+    case "$got" in
+        *CAELESTIA*OCR*TEST*) ok "tesseract reads the test image: $got" ;;
+        *) no "tesseract did not read the test image, got: $got" ;;
+    esac
+    if [ -n "${WAYLAND_DISPLAY:-}" ] && cm_have wl-copy && cm_have wl-paste; then
+        before="$(wl-paste 2>/dev/null || true)"
+        wl-copy -n -- "$got"
+        case "$(wl-paste 2>/dev/null)" in
+            *CAELESTIA*) ok "the recognised text reaches the Wayland clipboard" ;;
+            *) no "the recognised text did not reach the clipboard" ;;
+        esac
+        [ -n "$before" ] && wl-copy -n -- "$before"
+    else skipt "no Wayland clipboard to check"; fi
+    rm -rf "$ocrtmp"
+fi
+
 cm_step "Adapter metadata"
 for d in "$CM_ROOT"/adapters/*/; do
     n="$(basename "$d")"

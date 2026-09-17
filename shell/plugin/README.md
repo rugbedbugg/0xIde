@@ -36,8 +36,8 @@ dependency.
 This is the part to check first if behaviour differs from before.
 
 - **Default values.** `.qmltypes` does not record them. `backendUrl` defaults to
-  a local llama.cpp-style endpoint; `ocrLanguages` defaults to `"eng"`, which is what
-  `AiSettings.qml` falls back to; the rest default empty or false.
+  a local llama.cpp-style endpoint; `ocrLanguages` defaults to empty, meaning
+  every installed Tesseract language; the rest default empty or false.
 - **`CONFIG_GLOBAL_PROPERTY` rather than `CONFIG_PROPERTY`.** The metadata does
   not distinguish them. Global is right for these settings, and matches how
   `ServiceConfig` treats `weatherLocation`.

@@ -182,9 +182,9 @@ ColumnLayout {
     }
     StyledTextField {
         Layout.fillWidth: true
-        placeholderText: qsTr("Tesseract languages, for example eng+deu")
+        placeholderText: qsTr("Tesseract languages, for example eng+deu. Empty uses all installed")
         text: GlobalConfig.ai.ocrLanguages
-        onEditingFinished: GlobalConfig.ai.ocrLanguages = text.trim() || "eng"
+        onEditingFinished: GlobalConfig.ai.ocrLanguages = text.trim()
     }
     TextButton {
         text: qsTr("Refresh languages")
@@ -193,7 +193,7 @@ ColumnLayout {
     StyledText {
         Layout.fillWidth: true
         wrapMode: Text.Wrap
-        text: qsTr("Install missing Tesseract language data with your distribution's package manager. Language changes apply to your next capture.")
+        text: qsTr("Leave this empty to recognise every installed language. Install more language data with your distribution's package manager. Changes apply to your next capture.")
     }
     AiRequest {
         id: probe
