@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# caelestia-mod installer.
+#
+#   ./install                      install every default component
+#   ./install --enable edge        also install a component that is off by default
+#   ./install --disable spotify    skip one that is on by default
+#   ./install --only shell         install just these
+#   ./install --status             report what is installed and working
+#   ./install --list               list components
+#   ./install --dry-run            print what would change, change nothing
+#
+# Nothing requiring root is ever in the default set, and every privileged step
+# prints what it will do and asks first.
+set -uo pipefail
+. "$(dirname -- "${BASH_SOURCE[0]}")/orchestration/lib/common.sh"
+
+REG="$CM_ROOT/installer/components.conf"
+DRY=0; MODE=install
+declare -a ENABLE=() DISABLE=() ONLY=()
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --enable)  ENABLE+=("$2"); shift 2 ;;
+        --disable) DISABLE+=("$2"); shift 2 ;;
+        --only)    ONLY+=("$2"); shift 2 ;;
+        --status)  MODE=status; shift ;;
+        --list)    MODE=list; shift ;;
+        --dry-run) DRY=1; shift ;;
+        -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) cm_die "unknown option $1 (try --help)" ;;
+    esac
+done
+
+field() { printf '%s' "$1" | awk -F: -v n="$2" '{gsub(/^[ \t]+|[ \t]+$/,"",$n); print $n}'; }
+components() { grep -vE '^\s*(#|$)' "$REG"; }
+in_list() { local n="$1"; shift; for x in "$@"; do [ "$x" = "$n" ] && return 0; done; return 1; }
+
+selected() {
+    local name="$1" default="$2"
+    [ ${#ONLY[@]} -gt 0 ] && { in_list "$name" "${ONLY[@]}"; return; }
+    in_list "$name" "${DISABLE[@]+"${DISABLE[@]}"}" && return 1
+    in_list "$name" "${ENABLE[@]+"${ENABLE[@]}"}" && return 0
+    [ "$default" = on ]
+}
+
+# ---------------------------------------------------------------- list/status
+if [ "$MODE" = list ]; then
+    printf '%-12s %-10s %-8s %s\n' NAME KIND DEFAULT DESCRIPTION
+    while IFS= read -r line; do
+        printf '%-12s %-10s %-8s %s\n' \
+            "$(field "$line" 1)" "$(field "$line" 2)" "$(field "$line" 3)" "$(field "$line" 4)"
+    done < <(components)
+    exit 0
+fi
+
+if [ "$MODE" = status ]; then
+    cm_step "Components"
+    while IFS= read -r line; do
+        name="$(field "$line" 1)"
+        st="$CM_ROOT/adapters/$name/status"
+        if [ -x "$st" ]; then "$st" || true
+        elif grep -qx "$name" "$CM_CONFIG/adapters.enabled" 2>/dev/null; then
+            echo "$name: enabled"
+        fi
+    done < <(components)
+
+    cm_step "Theme hook"
+    hook="$(jq -r '.theme.postHook // empty' "$CM_CAELCONF/cli.json" 2>/dev/null)"
+    if [ "$hook" = "$CM_ROOT/orchestration/hooks/post-theme" ]; then
+        echo "  postHook -> this repository"
+    elif [ -n "$hook" ]; then
+        echo "  postHook -> $hook  (not this repository)"
+    else
+        echo "  postHook not set; adapters will not run on a theme change"
+    fi
+    [ -s "$CM_STATE/post-theme.log" ] && { cm_step "Last theme run"; sed 's/^/  /' "$CM_STATE/post-theme.log"; }
+
+    cm_step "Shell"
+    if [ -e "$CM_SHELLDIR/shell.qml" ]; then
+        want="$CM_QMLDIR"
+        if grep -q "QML_IMPORT_PATH=$want\$" "$CM_SHELLDIR/shell.qml"; then
+            echo "  installed, plugin -> $want"
+        else
+            echo "  installed, but its plugin import path is not this repository's"
+        fi
+    else
+        echo "  not installed"
+    fi
+    exit 0
+fi
+
+# -------------------------------------------------------------------- install
+# In a dry run the overlay applier reports what it would change instead of
+# writing, and everything else is skipped with a note.
+CHECK=""; [ "$DRY" = 1 ] && CHECK="--check"
+
+run() {
+    if [ "$DRY" = 1 ]; then cm_log "would run: ${*#$CM_ROOT/}"; return 1; fi
+    "$@"
+}
+
+enable_adapter() {
+    [ "$DRY" = 1 ] && { cm_log "would enable adapter $1"; return 0; }
+    mkdir -p "$CM_CONFIG"
+    touch "$CM_CONFIG/adapters.enabled"
+    grep -qx "$1" "$CM_CONFIG/adapters.enabled" || printf '%s\n' "$1" >> "$CM_CONFIG/adapters.enabled"
+}
+
+install_overrides() {
+    cm_step "Caelestia override points"
+    for f in hypr-vars.lua hypr-user.lua shell.json; do
+        if run cm_install_file "$CM_CAELCONF/$f" 644 < "$CM_ROOT/overrides/caelestia/$f"; then
+            cm_log "$f"
+        fi
+        run cm_own "$CM_CAELCONF/$f"
+    done
+    # cli.json carries this checkout's path, so it is rendered, not copied.
+    if [ "$DRY" = 1 ]; then cm_log "would render cli.json with postHook -> $CM_ROOT"; else
+        sed "s|@CM_ROOT@|$CM_ROOT|" "$CM_ROOT/overrides/caelestia/cli.json" |
+            cm_install_file "$CM_CAELCONF/cli.json" 644 && cm_log "cli.json"
+        cm_own "$CM_CAELCONF/cli.json"
+    fi
+    if run cm_install_file "$CM_CAELCONF/user-config.fish" 644 < "$CM_ROOT/overrides/fish/user-config.fish"; then
+        cm_log "user-config.fish"
+    fi
+    run cm_own "$CM_CAELCONF/user-config.fish"
+}
+
+main() {
+    while IFS= read -r line; do
+        name="$(field "$line" 1)"; kind="$(field "$line" 2)"; default="$(field "$line" 3)"
+        selected "$name" "$default" || continue
+
+        case "$kind:$name" in
+            overrides:overrides) install_overrides ;;
+            overrides:foot)
+                cm_step "foot"
+                "$(cm_python)" "$CM_ROOT/installer/apply_overlay.py" \
+                    "$CM_ROOT/overrides/foot/overlay.conf" "$XDG_CONFIG_HOME/foot/foot.ini" \
+                    --ini $CHECK || true ;;
+            overrides:starship)
+                cm_step "starship"
+                "$(cm_python)" "$CM_ROOT/installer/apply_overlay.py" \
+                    "$CM_ROOT/overrides/starship/overlay.toml" "$XDG_CONFIG_HOME/starship.toml" \
+                    --toml $CHECK || true ;;
+            shell:*)
+                cm_step "shell"
+                run "$CM_ROOT/shell/build.sh" ;;
+            adapter:*)
+                cm_step "$name"
+                [ -x "$CM_ROOT/adapters/$name/install" ] && run "$CM_ROOT/adapters/$name/install"
+                [ -x "$CM_ROOT/adapters/$name/apply" ] && enable_adapter "$name"
+                : ;;
+            system:*)
+                cm_step "$name (privileged)"
+                if [ "$DRY" = 1 ]; then cm_log "would run $CM_ROOT/system/$name/install (it will ask first)"
+                else "$CM_ROOT/system/$name/install"; fi ;;
+        esac
+    done < <(components)
+
+    cm_step "Done"
+    cm_log "check it with: ./install --status"
+}
+
+main

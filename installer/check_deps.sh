@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Reports which dependency each component needs and whether it is present.
+# Never installs anything.
+set -uo pipefail
+. "$(dirname -- "${BASH_SOURCE[0]}")/../orchestration/lib/common.sh"
+
+missing=0
+report() {
+    local kind="$1" name="$2" owner="$3"
+    if cm_have "$name"; then
+        printf '  %-9s %-18s %s\n' "ok" "$name" "$owner"
+    elif [ "$kind" = required ]; then
+        printf '  %-9s %-18s %s\n' "MISSING" "$name" "$owner"; missing=$((missing+1))
+    else
+        printf '  %-9s %-18s %s\n' "absent" "$name" "$owner (optional)"
+    fi
+}
+
+report required jq          "adapters/edge, adapters/papirus"
+report required python3     "adapters/kde, installer"
+report optional caelestia   "everything (caelestia-cli)"
+report optional qs          "shell (quickshell)"
+report optional hyprctl     "overrides/caelestia"
+report optional cmake       "shell (build only)"
+report optional ninja       "shell (build only)"
+report optional git         "shell (build only)"
+report optional grim        "shell/extensions/ocr, shell/extensions/search"
+report optional slurp       "shell/extensions/ocr"
+report optional tesseract   "shell/extensions/ocr, shell/extensions/search"
+report optional uv          "shell/extensions/ocr (recognize.py runner)"
+report optional fuzzel      "shell/extensions/search (egress confirmation)"
+report optional spicetify   "adapters/spotify"
+report optional papirus-folders "adapters/papirus"
+report optional yazi        "adapters/yazi"
+report optional rmpc        "adapters/rmpc"
+report optional dconf       "adapters/kde (GNOME font keys)"
+report optional notify-send "shell extensions (error reporting)"
+
+[ "$missing" -eq 0 ]

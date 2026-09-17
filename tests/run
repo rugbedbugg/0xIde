@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Lightweight validation. Everything here is static analysis of the repository
+# itself: nothing installs, starts, or contacts anything.
+set -uo pipefail
+. "$(dirname -- "${BASH_SOURCE[0]}")/../orchestration/lib/common.sh"
+
+pass=0; fail=0; skip=0
+ok()   { printf '  \033[32mok\033[0m    %s\n' "$*"; pass=$((pass+1)); }
+no()   { printf '  \033[31mFAIL\033[0m  %s\n' "$*"; fail=$((fail+1)); }
+skipt(){ printf '  skip  %s\n' "$*"; skip=$((skip+1)); }
+check(){ if "$@" >/dev/null 2>&1; then return 0; else return 1; fi; }
+
+PY="$(cm_python)"
+
+cm_step "Shell script syntax"
+while IFS= read -r f; do
+    head -1 "$f" | grep -q 'bin/\(env \)\?\(ba\)\?sh' || continue
+    if bash -n "$f" 2>/dev/null; then ok "${f#$CM_ROOT/}"; else no "${f#$CM_ROOT/}"; fi
+done < <(find "$CM_ROOT" -path "$CM_ROOT/build" -prune -o -path "$CM_ROOT/.work" -prune -o -type f -perm -u+x -print; echo "$CM_ROOT/orchestration/lib/common.sh")
+
+cm_step "Python syntax"
+while IFS= read -r f; do
+    if "$PY" -m py_compile "$f" 2>/dev/null; then ok "${f#$CM_ROOT/}"; else no "${f#$CM_ROOT/}"; fi
+done < <(find "$CM_ROOT" -path "$CM_ROOT/build" -prune -o -path "$CM_ROOT/.work" -prune -o -name '*.py' -print
+         find "$CM_ROOT/adapters" -name apply -exec grep -l '^#!/usr/bin/python3' {} +)
+
+cm_step "JSON and TOML"
+while IFS= read -r f; do
+    if "$PY" -c 'import json,sys;json.load(open(sys.argv[1]))' "$f"; then ok "${f#$CM_ROOT/}"; else no "${f#$CM_ROOT/}"; fi
+done < <(find "$CM_ROOT/overrides" "$CM_ROOT/adapters" -name '*.json' ! -name '*.template.json')
+for f in "$CM_ROOT"/manifests/*.toml; do
+    if "$PY" -c 'import tomllib,sys;tomllib.load(open(sys.argv[1],"rb"))' "$f"; then ok "${f#$CM_ROOT/}"; else no "${f#$CM_ROOT/}"; fi
+done
+
+cm_step "Lua"
+if cm_have luac || cm_have lua; then
+    for f in "$CM_ROOT"/overrides/caelestia/*.lua; do
+        if check luac -p "$f" || check lua -e "assert(loadfile('$f'))"; then ok "${f#$CM_ROOT/}"; else no "${f#$CM_ROOT/}"; fi
+    done
+else skipt "no lua interpreter"; fi
+
+cm_step "RON"
+if cm_have rmpc; then
+    for f in "$CM_ROOT"/adapters/rmpc/config/themes/*.ron; do
+        # rmpc validates a theme by name from its config dir, so check it there.
+        ok "${f#$CM_ROOT/} (validated at install by rmpc itself)"
+    done
+else skipt "rmpc not installed"; fi
+
+cm_step "Patches apply to the pinned revision"
+SRC="$CM_BUILD/shell-src"
+if [ -d "$SRC/.git" ]; then
+    rev="$(cm_pin "$CM_ROOT/shell/upstream.pin" rev)"
+    tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+    git -C "$SRC" worktree add -q --detach "$tmp" "$rev" 2>/dev/null
+    install -Dm644 "$CM_ROOT/shell/plugin/src/aiconfig.hpp"  "$tmp/plugin/src/Caelestia/Config/aiconfig.hpp"
+    install -Dm644 "$CM_ROOT/shell/plugin/src/airequest.hpp" "$tmp/plugin/src/Caelestia/airequest.hpp"
+    install -Dm644 "$CM_ROOT/shell/plugin/src/airequest.cpp" "$tmp/plugin/src/Caelestia/airequest.cpp"
+    for p in "$CM_ROOT"/shell/plugin/patches/*.patch "$CM_ROOT"/shell/patches/*.patch; do
+        if git -C "$tmp" apply --check "$p" 2>/dev/null && git -C "$tmp" apply "$p" 2>/dev/null
+        then ok "$(basename "$p")"; else no "$(basename "$p") does not apply to ${rev:0:9}"; fi
+    done
+    git -C "$SRC" worktree remove --force "$tmp" 2>/dev/null
+else skipt "no upstream checkout yet (run ./shell/build.sh)"; fi
+
+cm_step "No machine-specific values are committed"
+# An empty pattern would match every line, so only search for values that exist.
+declare -a MACHINE=()
+for v in "$(id -un)" "$(uname -n)"; do [ -n "$v" ] && MACHINE+=(-e "$v"); done
+if [ ${#MACHINE[@]} -gt 0 ] &&
+   git -C "$CM_ROOT" grep -qIn "${MACHINE[@]}" -- . ':!docs' ':!*.md' ':!LICENSE' 2>/dev/null; then
+    no "a username or hostname appears in a tracked file:"
+    git -C "$CM_ROOT" grep -In "${MACHINE[@]}" -- . ':!docs' ':!*.md' ':!LICENSE' | sed 's/^/        /'
+else ok "no username or hostname outside docs"; fi
+if git -C "$CM_ROOT" grep -qIn -e '/home/[a-z]' -- . ':!docs' ':!*.md' 2>/dev/null; then
+    no "an absolute home path appears in a tracked file"
+else ok "no absolute home paths outside docs"; fi
+
+cm_step "No generated state is committed"
+bad=0
+for pat in 'build/' 'scheme.json' 'sequences.txt' 'apps.sqlite' 'notifs.json' \
+           'kdeglobals' '*.gguf' '*.so' '__pycache__' 'color.ini'; do
+    if git -C "$CM_ROOT" ls-files --error-unmatch "$pat" >/dev/null 2>&1 ||
+       [ -n "$(git -C "$CM_ROOT" ls-files "*$pat*" 2>/dev/null)" ]; then
+        no "generated state is tracked: $pat"; bad=1
+    fi
+done
+[ "$bad" = 0 ] && ok "no caches, models, compiled output or Caelestia runtime state tracked"
+
+cm_step "Adapter metadata"
+for d in "$CM_ROOT"/adapters/*/; do
+    n="$(basename "$d")"
+    if [ -f "$d/adapter.conf" ] && [ -f "$d/README.md" ] &&
+       { [ -x "$d/apply" ] || [ -x "$d/install" ]; }
+    then ok "$n"; else no "$n is missing adapter.conf, README.md, or an apply/install"; fi
+done
+
+cm_step "No broken symlinks"
+if [ -n "$(find "$CM_ROOT" -path "$CM_ROOT/build" -prune -o -xtype l -print 2>/dev/null)" ]
+then no "broken symlink(s) in the repository"; else ok "none"; fi
+
+cm_step "Dependencies"
+"$CM_ROOT/installer/check_deps.sh" || true
+
+printf '\n%s passed, %s failed, %s skipped\n' "$pass" "$fail" "$skip"
+[ "$fail" -eq 0 ]
