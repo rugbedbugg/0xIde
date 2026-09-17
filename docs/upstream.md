@@ -28,19 +28,20 @@ upstream and is deliberately **not** carried here.
 
 ## The patch surface, and why each one exists
 
-### `shell/patches/0001` - shell.qml, 2 lines
+### `shell/patches/0001` - shell.qml, 1 line
 
-The plugin import path, and `settings.watchFiles`.
+The plugin import path.
 
 The import path cannot be configuration: quickshell reads `QML_IMPORT_PATH` from
 a pragma at the top of `shell.qml` before any config is loaded. It is stored as
 `@CAELESTIA_MOD_QML_IMPORT_PATH@` and substituted by `shell/build.sh`, so no
 machine path is committed.
 
-`settings.watchFiles: false` is carried forward from the pre-migration
-configuration. **It is a revert candidate**: it disables live reload of
-`shell.json`, which means `./install` changes to that file do not take effect
-until the shell restarts. If you do not need it, drop the second hunk.
+This patch once also carried `settings.watchFiles: false`. That was development
+residue and has been removed; upstream's `true` is restored, so editing a QML
+file in the installed tree hot-reloads the shell as upstream intends. It never
+affected `shell.json` reload, which Caelestia's own `QFileSystemWatcher` in
+`SettingsFile` drives independently of this setting.
 
 ### `shell/patches/0002` - AreaPicker.qml, Picker.qml
 
@@ -90,16 +91,76 @@ is overwritten on the next `./install`.
 
 ## Taking an upstream update
 
+An update is a **patch rebase**, not a merge: the shell is not vendored, so there
+is no upstream history here to reconcile. Nothing below resolves a conflict for
+you. A conflict is a maintainer decision and the build stops until you make it.
+
+### 1. See what changed
+
 ```sh
+./shell/build.sh --no-install            # ensure build/shell-src exists
 cd build/shell-src
 git fetch origin
-git log --oneline <pinned>..origin/main -- modules/areapicker modules/nexus shell.qml
+OLD=$(sed -n 's/^rev = //p' ../../shell/upstream.pin)
+git log --oneline "$OLD"..origin/main -- \
+    shell.qml modules/areapicker modules/nexus plugin/src/Caelestia/Config
 ```
 
-Then, for each patch that no longer applies, rebase it by hand, update
-`shell/upstream.pin`, and run `./tests/run`, which fails if any patch does not
-apply to the pin. `shell/build.sh` refuses to continue on a patch failure rather
-than producing a half-patched tree.
+Those are the only paths the patch series touches. Commits outside them cannot
+conflict.
 
-The shell is not vendored, so there is no upstream history in this repository to
-rewrite, and no merge to resolve: only the patch series moves.
+### 2. Try the series against the new revision
+
+```sh
+NEW=$(git rev-parse origin/main)
+git worktree add -q --detach /tmp/cm-try "$NEW"
+install -Dm644 ../../shell/plugin/src/aiconfig.hpp  /tmp/cm-try/plugin/src/Caelestia/Config/aiconfig.hpp
+install -Dm644 ../../shell/plugin/src/airequest.hpp /tmp/cm-try/plugin/src/Caelestia/airequest.hpp
+install -Dm644 ../../shell/plugin/src/airequest.cpp /tmp/cm-try/plugin/src/Caelestia/airequest.cpp
+for p in ../../shell/plugin/patches/*.patch ../../shell/patches/*.patch; do
+    git -C /tmp/cm-try apply --check "$p" && echo "ok   $(basename "$p")" \
+                                          || echo "FAIL $(basename "$p")"
+done
+```
+
+### 3a. If every patch applies
+
+```sh
+git -C /tmp/cm-try worktree remove --force /tmp/cm-try 2>/dev/null
+cd ../..
+sed -i "s/^rev = .*/rev = $NEW/" shell/upstream.pin
+./tests/run                  # fails if any patch does not apply to the new pin
+./shell/build.sh             # rebuild and install
+caelestia shell -k && caelestia shell -d
+./install --status
+```
+
+### 3b. If a patch fails
+
+Rebase that patch by hand. There is no automation for this on purpose.
+
+```sh
+cd /tmp/cm-try
+git apply --3way ../../shell/patches/0002-*.patch   # leaves conflict markers
+$EDITOR modules/areapicker/Picker.qml               # resolve them
+git add -A && git commit -m "areapicker: add OCR and region/circle search capture modes"
+git format-patch --no-signature -1 -o ../../shell/patches/
+```
+
+Renumber the output to keep the series order, delete the superseded file, then
+follow 3a. `shell/build.sh` applies patches with `git apply` and exits non-zero
+on the first failure, so a half-rebased series cannot silently produce a
+half-patched tree.
+
+### 4. What to re-check after any update
+
+- `./tests/run` passes, including the patch-applies check
+- the shell starts with no errors: `caelestia shell -l | grep -i error`
+- `GlobalConfig.ai` and `AiRequest` still resolve: open the OCR result popup
+  with `caelestia shell picker showOcr '{"text":"probe","words":[],"lines":[]}'`
+  and confirm no `ReferenceError` or `is not a type` in the log
+- the three capture modes still open: `picker openOcr`, `picker regionSearch`,
+  `picker circleSearch`
+
+If upstream ever adds a page-registration hook or a picker dispatch point, patch
+0003 or 0002 should be retired in favour of it rather than rebased again.
