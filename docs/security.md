@@ -3,7 +3,7 @@
 Everything in this project that leaves `$HOME`, needs root, or sends data
 anywhere. Nothing here happens during a plain `./install`.
 
-## Screenshot uploads
+## Region search: what does and does not leave the machine
 
 `shell/extensions/search` turns a selected screen region into a web search.
 There is no way to do image search without sending the image to someone, so the
@@ -25,9 +25,6 @@ circles a password manager, a private document, or a message thread publishes
 it. The adapter asks for confirmation naming the host every time, unless you set
 `confirm="never"`.
 
-**This replaces the original behaviour, which uploaded unconditionally with no
-prompt.** If you are migrating from that, the default is now `text` and you will
-notice the difference.
 
 ### On avoiding the upload entirely
 
@@ -80,11 +77,12 @@ already been applied.
 ### Making the SDDM theme directory group-writable
 
 `/usr/share/sddm/themes/corners` is root-owned, and chowning it to the login
-user's group lets the sync write there without prompting. That leaves a system directory group-writable permanently.
-`system/sddm/install` prints the command but will not run it; by default the
-sync escalates per write instead, and simply does nothing if it cannot.
+user's group lets the sync write there without prompting. That leaves a system
+directory group-writable permanently. `system/sddm/install` prints the command
+but will not run it; by default the sync escalates per write instead, and simply
+does nothing if it cannot.
 
-## An unexplained binary, documented but not distributed
+## A local binary, documented but not distributed
 
 The setup this project was extracted from ran a stripped, unpackaged ELF as an
 enabled user D-Bus service: a RemoteDesktop portal backend that

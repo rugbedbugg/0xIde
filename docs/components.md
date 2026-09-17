@@ -67,4 +67,4 @@ Each has `adapter.conf` (metadata), `README.md`, and at least one of `apply`
 | `system/sudoers` | installs two scoped `NOPASSWD` rules after `visudo -c` and a prompt | off |
 | `system/sddm` | enables login-screen sync | off |
 | `system/spotify` | nothing; documents a change this project refuses to make | n/a |
-| `system/portals` | nothing; documents an unexplained binary | n/a |
+| `system/portals` | nothing; documents a local dependency that is not distributed | n/a |

@@ -93,13 +93,14 @@ is skipped rather than failing.
 `./install --list` is authoritative. [docs/components.md](docs/components.md)
 describes each one and what mechanism it uses.
 
-| Kind | Default | Needs root |
+| Kind | Default | Root |
 | --- | --- | --- |
-| `overrides`, `foot`, `starship` | on | no |
-| `kde`, `yazi`, `rmpc`, `spotify`, `papirus` | on | no |
-| `shell` | off (builds from source) | no |
-| `edge` | off | yes, to take effect |
-| `sudoers`, `sddm` | off | yes |
+| `overrides`, `foot`, `starship` | on | none |
+| `kde`, `yazi`, `rmpc`, `spotify` | on | none |
+| `shell` | off (builds from source) | none |
+| `papirus` | on | installs without root, but folder icons only follow the scheme once the `sudoers` rule is in place |
+| `edge` | off | same: installs without root, needs the `sudoers` rule to take effect |
+| `sudoers`, `sddm` | off | yes, and each asks first |
 
 ## Optional and privileged modules
 
@@ -111,8 +112,11 @@ safer alternatives: it never makes `/opt/spotify` writable
 ([system/spotify](system/spotify/README.md)) and it never chowns the SDDM theme
 directory ([system/sddm](system/sddm/README.md)).
 
-One local dependency is documented but **not shipped**: an unpackaged KDE
-Connect portal binary whose source is lost. Everything here works without it.
+One local dependency is documented but **not distributed**: an unpackaged portal
+binary, source lost, that provided the RemoteDesktop portal
+`xdg-desktop-portal-hyprland` does not. Nothing here requires it and everything
+here works without it; the only thing its absence costs is KDE Connect being
+able to drive your pointer and keyboard from a phone.
 See [system/portals](system/portals/README.md).
 
 ## Disabling and uninstalling
@@ -126,9 +130,13 @@ records what it created. Nothing here deletes either.
 ## Generated data
 
 This repository holds the mechanisms, never their output. The built plugin, the
-upstream checkout, the AI model (~1.4 GB) and all Caelestia runtime state are
-excluded, and `tests/run` fails if any of it becomes tracked.
-See [docs/generated.md](docs/generated.md).
+upstream checkout and all Caelestia runtime state are excluded, and `tests/run`
+fails if any of it becomes tracked.
+
+The local AI model is about 1.4 GB and is **not in this repository and not
+downloaded by `./install`**. `manifests/ai.toml` pins its revision and SHA-256;
+the runtime fetches and verifies it only when you ask for it. Cloning this
+repository downloads no model. See [docs/generated.md](docs/generated.md).
 
 ## Updating the shell against upstream
 
@@ -153,8 +161,9 @@ also be disabled outright.
 
 The AI backend defaults to a local model on `127.0.0.1`. Pointing it at a remote
 endpoint is a configuration choice, and the OCR popup shows the destination
-above the submit button at all times. Full detail, including the sudo rules and the two standing
-system weaknesses this project refuses to recreate:
+above the submit button at all times.
+
+Full detail, including every operation that needs root:
 [docs/security.md](docs/security.md).
 
 ## Licence

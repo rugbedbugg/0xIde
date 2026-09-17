@@ -66,9 +66,10 @@ keybind count was unchanged apart from the bindings deliberately added below,
 with no duplicates across repeated reloads, and a scheme change propagated
 through every adapter.
 
-## Three customizations that were dropped
+## Three customizations that turned out to do nothing
 
-Each was verified to have no effect before removal.
+Each was verified to have no effect before it was touched. Two were deleted; the
+third turned out to be a missing feature rather than dead weight.
 
 - **`~/.config/hypr/hypr-user.lua`** returned a table. Upstream calls
   `require("hypr-user")` for side effects and discards the return value, and
@@ -80,12 +81,16 @@ Each was verified to have no effect before removal.
   and after.
 - **`kbOcrClipboard`, `kbRegionSearch`, `kbCircleSearch`** were defined in
   `variables.lua` and referenced nowhere. The shell implements all three
-  actions; no key reached them. They are not carried into `hypr-vars.lua`.
+  actions; no key reached any of them.
 
-The last one was a **gap, not just dead weight**: circle-to-search and region
-search worked but no key reached them. That is now closed. Both are bound in
-`overrides/caelestia/hypr-user.lua`, with the keys configurable through
-`hypr-vars.lua`:
+That third one was a **gap, not dead weight**: region search and circle search
+worked but were unreachable. So rather than being dropped, two of those three
+were adopted. `kbRegionSearch` and `kbCircleSearch` now live in
+`overrides/caelestia/hypr-vars.lua` and are bound in `hypr-user.lua`;
+`kbOcrClipboard` was the only one left unbound: it would have driven a one-step
+"OCR straight to the clipboard" capture, and the OCR popup's Copy button already
+covers that in two steps. The mode itself still exists - `caelestia shell picker
+openOcrClipboard` - so binding it is one line in `hypr-user.lua` if you want it.
 
 | Action | Key | Note |
 | --- | --- | --- |
