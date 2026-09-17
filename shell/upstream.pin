@@ -1,0 +1,4 @@
+# The upstream revision this fork is based on.
+# Update procedure: docs/upstream.md
+url = https://github.com/caelestia-dots/shell.git
+rev = 750e67d93ac12b264cb8cbc3a1f2b8f429c923c2

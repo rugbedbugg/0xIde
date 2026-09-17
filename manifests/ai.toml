@@ -1,0 +1,23 @@
+# Local AI runtime and model. Nothing here is vendored: the model alone is
+# ~1.13 GiB and is fetched on request by shell/extensions/ai (assets/ai/runtime.py),
+# verified against the hash below, and stored under $XDG_DATA_HOME/caelestia/ai.
+#
+# Fetching is never part of `./install`. It happens only when you ask for it
+# from the OCR & AI settings page, or via `./install --fetch-ai-model`.
+
+[runtime]
+name = "BitNet.cpp"
+repo = "https://github.com/microsoft/BitNet.git"
+revision = "0b341e582afbf9e1011f24744b554c96a3477eb5"
+inference = "local"          # binds 127.0.0.1 only; no request leaves the machine
+
+[model]
+name = "microsoft/bitnet-b1.58-2B-4T-gguf"
+revision = "a1f2f1c765812aa8af3f6eda4a313707064bba15"
+file = "ggml-model-i2_s.gguf"
+bytes = 1187801280
+sha256 = "4221b252fdd5fd25e15847adfeb5ee88886506ba50b8a34548374492884c2162"
+
+[limits]
+contextTokens = 4096
+responseTokens = 512

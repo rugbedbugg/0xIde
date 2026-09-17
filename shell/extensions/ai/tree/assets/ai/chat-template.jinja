@@ -1,0 +1,1 @@
+{%- for message in messages -%}{{ message.role | capitalize }}: {{ message.content | trim }}<|eot_id|>{%- endfor -%}{% if add_generation_prompt %}Assistant: {% endif %}
