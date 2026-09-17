@@ -18,6 +18,10 @@ Scope {
     property var resultScreen: null
     readonly property bool busy: recognition.running
     readonly property string helper: Qt.resolvedUrl("../assets/ocr/recognize.py").toString().replace("file://", "")
+    // recognize.py is stdlib-only, so the distribution interpreter runs it.
+    // Going through a version manager would add a dependency and pin a release
+    // that need not be installed.
+    readonly property string python: "/usr/bin/python3"
 
     signal recognized
 
@@ -54,7 +58,7 @@ Scope {
 
         property bool didExit: false
 
-        command: ["uv", "run", "--no-project", "--python", "3.13", root.helper, root.imagePath, "--language", root.languageOverride]
+        command: [root.python, root.helper, root.imagePath, "--language", root.languageOverride]
         stdout: StdioCollector {
             onStreamFinished: {
                 try {
@@ -92,7 +96,7 @@ Scope {
     Process {
         id: listing
 
-        command: ["uv", "run", "--no-project", "--python", "3.13", root.helper, "--languages"]
+        command: [root.python, root.helper, "--languages"]
         stdout: StdioCollector {
             onStreamFinished: {
                 try {

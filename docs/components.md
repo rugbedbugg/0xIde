@@ -25,7 +25,7 @@ what lets it add a keybind without touching `keybinds.lua`.
 
 | Extension | Adds | Needs |
 | --- | --- | --- |
-| `ocr` | region capture to text, a result popup with table reconstruction, a language setting | `grim`, `slurp`, `tesseract`, `uv` |
+| `ocr` | region capture to text, a result popup with table reconstruction, a language setting | `grim`, `slurp`, `tesseract` |
 | `ai` | an OCR & AI settings page, a local BitNet runtime, streaming chat completions against any OpenAI-compatible endpoint | `python3`; the model is fetched on request |
 | `search` | region to web search; circle-to-search gesture | `tesseract` for the default mode, `jq`, `fuzzel` for confirmation |
 

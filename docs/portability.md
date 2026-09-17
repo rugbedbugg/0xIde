@@ -21,6 +21,7 @@ tracked file outside `docs/`.
 | `Sweet-cursors` cursor theme | `overrides/caelestia/hypr-vars.lua` | a value, easy to change |
 | Google Sans Flex, CaskaydiaCove NF | `adapters/kde` | falls back through `fc-match` when absent |
 | `mise` at `~/.local/bin/mise` | `overrides/fish` | guarded by `test -x`; a no-op without it |
+| `/usr/bin/python3` | `shell/extensions/ocr/tree/services/Ocr.qml`, `common.sh` | deliberate: a `python3` on `PATH` is a version-manager shim on this machine, and a shim pinned to a release the distribution packages do not match is the exact failure this avoids. Change `Ocr.qml`'s `python` property on a distribution that puts it elsewhere |
 
 `config.local` at the repository root is sourced by `common.sh` if present and
 is git-ignored. Machine-specific values belong there.
