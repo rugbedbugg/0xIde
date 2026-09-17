@@ -21,8 +21,11 @@ shell:
 - **Text extraction.** The screen freezes, you drag a rectangle over some text,
   and on release the text is on your clipboard. Tesseract runs locally, there is
   no result window to dismiss, and the capture is deleted straight away.
-- **Region search.** Draw a rectangle and search the web for what is in it.
-- **Circle search.** Draw freehand around something and search for that.
+- **Region search.** Drag a rectangle over something and search the web for it.
+  The region is read with local OCR and only the recognised *text* is searched,
+  so no image leaves the machine.
+- **Circle search.** Draw freehand around something and search for the picture
+  itself. This one uploads, so it asks first, every time, naming the host.
 - **Local AI.** A BitNet runtime bound to `127.0.0.1`, plus a client for any
   OpenAI-compatible chat-completions endpoint you point it at. It reads a
   captured region into a result window that can explain, summarise, translate or
@@ -81,21 +84,18 @@ Building the shell additionally needs `cmake`, `ninja`, `git`, `libqalculate`
 and the Qt 6 development packages, which is the same set upstream needs.
 
 Text extraction needs exactly two things: `tesseract`, with the language data
-you want, and `wl-clipboard`. Region search additionally uses `jq`, and its
-optional image-upload mode uses `curl` and `fuzzel`. Each adapter needs only its
-own application present.
+you want, and `wl-clipboard`. Region search additionally uses `jq`, and circle
+search uses `curl` to upload and `fuzzel` to ask you first. Each adapter needs
+only its own application present.
 
 ## Default keybindings
 
-| Key | Action |
-| --- | --- |
-| `SUPER + SHIFT + T` | Extract text from a region of the screen |
-| `SUPER + SHIFT + A` | Region search |
-| `SUPER + SHIFT + O` | Circle search |
-
-One more action ships unbound: `kbAskAi` opens the same selector but sends the
-text to the AI result window instead of the clipboard. Give it a key in
-`hypr-vars.lua` to use it.
+| Key | Action | Result appears |
+| --- | --- | --- |
+| `SUPER + SHIFT + T` | Extract text from a region | clipboard, silently |
+| `SUPER + SHIFT + I` | Extract text and open it for AI | result window |
+| `SUPER + SHIFT + A` | Region search, local OCR then a text search | browser |
+| `SUPER + SHIFT + O` | Circle search, uploads the picture after asking | browser |
 
 These are defined in `overrides/caelestia/hypr-vars.lua` and bound in
 `overrides/caelestia/hypr-user.lua`, both of which are extension points
@@ -105,6 +105,11 @@ than shadowing it.
 
 `SUPER + SHIFT + O` is used for circle search because upstream already binds
 `SUPER + SHIFT + C` to the colour picker.
+
+The two search gestures differ in what they send, not just in how you draw. A
+rectangle is a text search and stays local; a circle is a visual search and
+uploads. `region-search.conf` overrides both if you want them to behave the
+same, or want uploading off entirely.
 
 ## Configuration
 
@@ -133,14 +138,16 @@ the shell's settings.
 - **Text extraction is local.** Tesseract runs on this machine, the recognised
   text goes to the clipboard and nowhere else, and the captured image is deleted
   whether it succeeded or not. It never reaches the AI backend.
-- **Region search is local first.** By default the region is read with local OCR
-  and only the recognised *text* is sent to a web search. No image leaves the
-  machine.
-- **Image upload is opt-in.** A mode that uploads the captured pixels to a file
-  host for reverse image search exists, is off by default, and when enabled asks
-  before every single upload, naming the host. A declined prompt, a failed
-  prompt and a dismissed prompt all refuse. Region search can also be turned off
-  entirely.
+- **Region search stays local.** The rectangle is read with local OCR and only
+  the recognised *text* is sent to a web search. No image leaves the machine.
+- **Circle search uploads, and asks first.** A visual search needs the picture,
+  so this one sends it: the capture goes to a temporary file host, and Google
+  Lens is handed the resulting URL, which is public and unauthenticated for as
+  long as the host keeps the file. Before any of that it asks, naming the host,
+  every single time. A declined prompt, a failed prompt and a dismissed prompt
+  all refuse, so the gate fails closed.
+- **One line turns uploading off.** `mode="text"` in `region-search.conf` makes
+  both gestures local, and `mode="off"` disables region search entirely.
 - **The AI backend defaults to a local model** on `127.0.0.1`. Pointing it at a
   remote endpoint is a configuration choice, and the destination is shown above
   the submit button at all times.

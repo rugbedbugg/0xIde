@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 # Search a captured screen region.
 #
+#   region_search.sh <capture> [gesture]
+#
+# The gesture the picker used decides what kind of search this is by default:
+# a dragged rectangle is a text search, a drawn circle is a visual one.
+#
 # PRIVACY: modes other than "text" transmit the captured pixels off this
-# machine. Nothing is transmitted unless the configured mode says so and the
+# machine. Nothing is transmitted unless the mode in force says so and the
 # confirmation below is accepted. See the Privacy section of README.md.
 set -euo pipefail
 
 image="${1:-}"
+gesture="${2:-}"
 if [[ -z "$image" || ! -s "$image" ]]; then
     notify-send -a caelestia-search -u critical "Search failed" "The selected image was not captured"
     exit 1
@@ -15,14 +21,21 @@ trap 'rm -f -- "$image"' EXIT
 
 # --- configuration -----------------------------------------------------------
 # mode      text        OCR locally, search the extracted text. No image leaves
-#                       this machine. Default.
+#                       this machine. The default for a rectangle.
 #           host-upload Upload the image to a public file host, then hand Google
 #                       Lens the resulting URL. The URL is public and
 #                       unauthenticated for as long as the host retains it.
+#                       The default for a circle, and it still asks first.
 #           off         Disabled.
 # confirm   always      Ask before any transmission (default).
 #           never       Never ask. Only meaningful with an explicit mode.
+#
+# Setting mode in region-search.conf overrides the gesture for both, so one
+# line still turns uploading off everywhere.
 mode="text"
+if [[ "$gesture" == "circle" ]]; then
+    mode="host-upload"
+fi
 confirm="always"
 search_url="https://www.google.com/search?q="
 upload_endpoints=(

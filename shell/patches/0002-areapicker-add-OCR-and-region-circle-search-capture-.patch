@@ -1,6 +1,6 @@
-From a8cbb0dee4761b6f6eb7f7ad35397b789afe2fc8 Mon Sep 17 00:00:00 2001
+From be7cc83f368410398cd1b0bf36b6a12f23510088 Mon Sep 17 00:00:00 2001
 From: Oxide 1-6 <yes.par781@gmail.com>
-Date: Thu, 17 Sep 2026 19:28:57 +0530
+Date: Thu, 17 Sep 2026 23:49:10 +0530
 Subject: [PATCH 2/3] areapicker: add OCR and region/circle search capture modes
 
 Routes a completed selection to one of three consumers instead of only the
@@ -11,6 +11,9 @@ pointer track and derives the bounding box from it.
 Both OCR modes freeze the screen, so the selection is made against a still
 image. Text extraction puts the result on the clipboard with no window;
 askAi opens the result window instead, for the table and AI actions.
+
+The gesture is passed to region_search.sh, which uses it to pick a default:
+a dragged rectangle is a text search, a drawn circle a visual one.
 
 A zero-size selection closes without capturing, and a capture that fails
 closes and says so rather than leaving the selector up.
@@ -278,7 +281,7 @@ index 76cc1039..e76e88b0 100644
 +    }
  }
 diff --git a/modules/areapicker/Picker.qml b/modules/areapicker/Picker.qml
-index 5e847603..aedf1604 100644
+index 5e847603..e2abe96c 100644
 --- a/modules/areapicker/Picker.qml
 +++ b/modules/areapicker/Picker.qml
 @@ -5,6 +5,7 @@ import Quickshell
@@ -308,7 +311,7 @@ index 5e847603..aedf1604 100644
 +                else
 +                    Ocr.extract(path);
 +            } else if (root.loader.searchMode) {
-+                Quickshell.execDetached(["bash", Quickshell.shellPath("assets/search/region_search.sh"), path]);
++                Quickshell.execDetached(["bash", Quickshell.shellPath("assets/search/region_search.sh"), path, root.loader.searchMode]);
 +            } else if (root.loader.clipboardOnly) {
                  Quickshell.execDetached(["sh", "-c", "wl-copy --type image/png < " + path]);
                  Quickshell.execDetached(["notify-send", "-a", "caelestia-cli", "-i", path, "Screenshot taken", "Screenshot copied to clipboard"]);

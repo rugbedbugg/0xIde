@@ -144,9 +144,9 @@ done < <(grep -vE '^\s*(#|$)' "$CM_ROOT/installer/components.conf")
 
 # The privacy default that matters: region search must not upload out of the box.
 rs="$CM_ROOT/shell/extensions/search/tree/assets/search/region_search.sh"
-if grep -qE '^mode="text"' "$rs"; then ok "region search defaults to local OCR, no upload"
-else no "region search no longer defaults to the non-uploading mode"; fi
-if grep -qE '^confirm="always"' "$rs"; then ok "image upload confirms by default"
+if grep -qE '^mode="text"' "$rs"; then ok "a dragged rectangle defaults to local OCR, no upload"
+else no "the rectangle gesture no longer defaults to the non-uploading mode"; fi
+if grep -qE '^confirm="always"' "$rs"; then ok "any upload confirms by default"
 else no "region search no longer confirms before uploading"; fi
 if grep -qE '"\$mode" == "off"' "$rs"; then ok "region search can be disabled entirely"
 else no "region search lost its off switch"; fi
@@ -160,6 +160,81 @@ if grep -rnE --exclude='*.md' '\bchown\b|chmod -R (a\+w|go\+w|777)' \
       "$CM_ROOT/installer" "$CM_ROOT/install" 2>/dev/null | grep -qv '^\s*#'; then
     no "a chown or broad chmod appears outside system/"
 else ok "no chown or world-writable chmod outside system/"
+fi
+
+cm_step "Region search gestures"
+# Driven for real, with xdg-open, notify-send and fuzzel stubbed and a private
+# XDG_CONFIG_HOME, so nothing is opened, notified or uploaded.
+if ! cm_have tesseract || ! cm_have magick || ! cm_have jq; then
+    skipt "tesseract, magick or jq is missing"
+else
+    sdir="$(mktemp -d)"
+    mkdir -p "$sdir/bin" "$sdir/conf"
+    cat > "$sdir/bin/xdg-open" <<STUB
+#!/bin/sh
+printf '%s' "\$1" > "$sdir/opened"
+STUB
+    cat > "$sdir/bin/notify-send" <<STUB
+#!/bin/sh
+exit 0
+STUB
+    cat > "$sdir/bin/fuzzel" <<STUB
+#!/bin/sh
+cat >/dev/null
+prev=""
+for a in "\$@"; do
+    [ "\$prev" = "--prompt" ] && printf '%s' "\$a" > "$sdir/prompt"
+    prev="\$a"
+done
+printf 'Cancel\n'
+STUB
+    chmod +x "$sdir/bin/xdg-open" "$sdir/bin/notify-send" "$sdir/bin/fuzzel"
+    magick -background white -fill black -pointsize 60 \
+        label:'REGION SEARCH PROBE' "$sdir/probe.png" 2>/dev/null
+
+    # A dragged rectangle resolves locally to a text search.
+    cp "$sdir/probe.png" "$sdir/rect.png"
+    PATH="$sdir/bin:$PATH" XDG_CONFIG_HOME="$sdir/conf" \
+        bash "$rs" "$sdir/rect.png" rectangle >/dev/null 2>&1 || true
+    sleep 1
+    case "$(cat "$sdir/opened" 2>/dev/null)" in
+        *google.com/search*REGION*) ok "a rectangle searches the recognised text" ;;
+        *lens.google.com*) no "a rectangle uploaded the image instead of reading it" ;;
+        *) no "a rectangle opened nothing" ;;
+    esac
+    [ -e "$sdir/rect.png" ] && no "the rectangle capture was not removed" ||
+        ok "the rectangle capture is removed"
+
+    # A drawn circle takes the visual path, which has to ask before uploading.
+    rm -f "$sdir/opened" "$sdir/prompt"
+    cp "$sdir/probe.png" "$sdir/circle.png"
+    PATH="$sdir/bin:$PATH" XDG_CONFIG_HOME="$sdir/conf" \
+        bash "$rs" "$sdir/circle.png" circle >/dev/null 2>&1 || true
+    sleep 1
+    case "$(cat "$sdir/prompt" 2>/dev/null)" in
+        *catbox*) ok "a circle asks before uploading, naming the host" ;;
+        "") no "a circle did not ask before uploading" ;;
+        *) no "the upload prompt no longer names the host" ;;
+    esac
+    [ -s "$sdir/opened" ] && no "declining the prompt still opened a search" ||
+        ok "declining the prompt uploads nothing and opens nothing"
+    [ -e "$sdir/circle.png" ] && no "the circle capture was not removed" ||
+        ok "the circle capture is removed"
+
+    # One line in the config still overrides the gesture for both.
+    rm -f "$sdir/opened"
+    printf 'mode="text"\n' > "$sdir/conf/region-search.conf"
+    mkdir -p "$sdir/conf/caelestia-mod"
+    mv "$sdir/conf/region-search.conf" "$sdir/conf/caelestia-mod/region-search.conf"
+    cp "$sdir/probe.png" "$sdir/forced.png"
+    PATH="$sdir/bin:$PATH" XDG_CONFIG_HOME="$sdir/conf" \
+        bash "$rs" "$sdir/forced.png" circle >/dev/null 2>&1 || true
+    sleep 1
+    case "$(cat "$sdir/opened" 2>/dev/null)" in
+        *google.com/search*) ok "mode=text in the config overrides the circle gesture" ;;
+        *) no "the config no longer overrides the gesture" ;;
+    esac
+    rm -rf "$sdir"
 fi
 
 cm_step "Text extraction"
