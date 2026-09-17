@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Caelestia's theme.postHook. Runs after every colour apply, with
+# $SCHEME_COLOURS and $SCHEME_MODE set by caelestia-cli.
+#
+# This file contains no application logic. It decides which adapters are
+# enabled and runs them; what each one does to which application is the
+# adapter's business.
+set -uo pipefail
+. "$(dirname -- "${BASH_SOURCE[0]}")/../lib/common.sh"
+
+ENABLED="$CM_CONFIG/adapters.enabled"
+[ -r "$ENABLED" ] || exit 0
+
+log="$CM_STATE/post-theme.log"
+mkdir -p "$CM_STATE"
+# One run's worth, not a growing file: this runs on every wallpaper change.
+: > "$log"
+
+failed=0
+while IFS= read -r name; do
+    case "$name" in ''|'#'*) continue ;; esac
+    apply="$CM_ROOT/adapters/$name/apply"
+    [ -x "$apply" ] || continue
+
+    start=$SECONDS
+    if "$apply" >>"$log" 2>&1; then
+        printf '%s ok (%ss)\n' "$name" "$((SECONDS - start))" >> "$log"
+    else
+        printf '%s FAILED (exit %s)\n' "$name" "$?" >> "$log"
+        failed=$((failed + 1))
+    fi
+done < "$ENABLED"
+
+# A failing adapter must never make `caelestia scheme set` look broken, so this
+# always succeeds; ./install --status is where failures are surfaced.
+[ "$failed" -eq 0 ] || printf '%s adapter(s) failed; see %s\n' "$failed" "$log" >&2
+exit 0
