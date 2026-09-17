@@ -1,0 +1,14 @@
+# Installed by caelestia-mod. Scoped to two commands, each writing one path.
+# @USER@ is substituted at install time; nothing here is committed with a
+# username in it.
+#
+# papirus-folders  recolours the Papirus folder icons under /usr/share/icons.
+#                  Caelestia already calls this itself on every theme change and
+#                  fails silently without a rule, which is the whole reason this
+#                  exists.
+# tee/mkdir        writes one managed-policy file for Microsoft Edge. Caelestia
+#                  ships the equivalent pair for Chrome; this is the same thing
+#                  one directory over.
+@USER@ ALL=(root) NOPASSWD: /usr/bin/papirus-folders -C *, /usr/bin/papirus-folders -C * -u
+@USER@ ALL=(root) NOPASSWD: /usr/bin/mkdir -p /etc/opt/edge/policies/managed
+@USER@ ALL=(root) NOPASSWD: /usr/bin/tee /etc/opt/edge/policies/managed/caelestia.json

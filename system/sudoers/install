@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Installs the passwordless rules the papirus and edge adapters need.
+# Prints the exact file first and refuses to run unattended.
+set -euo pipefail
+. "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
+
+here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+dest=/etc/sudoers.d/caelestia-mod
+staged="$CM_STATE/caelestia-mod.sudoers"
+
+mkdir -p "$CM_STATE"
+sed "s|@USER@|$(id -un)|g" "$here/caelestia-mod.template" > "$staged"
+chmod 0440 "$staged"
+
+echo
+echo "This grants passwordless root for these commands, and nothing else:"
+echo
+sed 's/^/    /' "$staged" | grep -v '^    #' | grep -v '^    $'
+echo
+echo "It will be installed as $dest"
+echo
+
+if ! visudo -c -f "$staged" >/dev/null; then
+    cm_die "the generated rule is not valid sudoers syntax; nothing was installed"
+fi
+cm_log "syntax checked with visudo -c"
+
+if [ "${CM_ASSUME_YES:-0}" != 1 ]; then
+    printf 'Install it? [y/N] '
+    read -r reply
+    case "$reply" in [yY]*) ;; *) cm_log "nothing was installed"; exit 0 ;; esac
+fi
+
+sudo install -m 0440 -o root -g root "$staged" "$dest"
+cm_own "$dest"
+cm_log "installed $dest"

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+. "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
+dest=/etc/sudoers.d/caelestia-mod
+[ -e "$dest" ] || { cm_log "$dest is not installed"; exit 0; }
+echo "Removing $dest. The papirus and edge adapters will stop working."
+sudo rm -f "$dest"
+cm_log "removed $dest"

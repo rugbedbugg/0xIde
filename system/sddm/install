@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Enables login-screen theming. This writes into a package-owned directory, so
+# it is opt-in, prints what it will do, and asks.
+set -euo pipefail
+. "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
+
+THEME_DIR="${CM_SDDM_THEME_DIR:-/usr/share/sddm/themes/corners}"
+[ -d "$THEME_DIR" ] || cm_die "$THEME_DIR does not exist; install the corners SDDM theme first"
+
+echo
+echo "SDDM's theme lives in a directory owned by its package:"
+echo
+echo "    $THEME_DIR"
+echo
+echo "Colours and the wallpaper are regenerated there on every Caelestia theme"
+echo "change. Two ways to allow that, in order of preference:"
+echo
+echo "  1. keep the directory root-owned, and let the sync escalate per write"
+echo "     (a sudo password prompt during a wallpaper change)"
+echo "  2. give your login group write access to it, once"
+echo "     (no prompts; a system directory stays group-writable afterwards)"
+echo
+echo "This installer does option 1 and never performs a chown. If you want"
+echo "option 2 you must do it deliberately yourself:"
+echo
+echo "    sudo chown -R root:\$(id -gn) $THEME_DIR"
+echo "    sudo chmod -R g+w $THEME_DIR"
+echo
+if [ "${CM_ASSUME_YES:-0}" != 1 ]; then
+    printf 'Enable SDDM theme sync? [y/N] '
+    read -r reply
+    case "$reply" in [yY]*) ;; *) cm_log "not enabled"; exit 0 ;; esac
+fi
+
+mkdir -p "$CM_CONFIG"
+grep -qx sddm "$CM_CONFIG/adapters.enabled" 2>/dev/null ||
+    printf 'sddm\n' >> "$CM_CONFIG/adapters.enabled"
+cm_log "sddm sync enabled"
+if [ -w "$THEME_DIR" ]; then
+    cm_log "note: $THEME_DIR is already writable by you, so no prompts will occur"
+    cm_warn "that is option 2 above; this machine already has it. See docs/security.md."
+fi
