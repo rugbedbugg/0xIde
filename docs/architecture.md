@@ -81,6 +81,26 @@ is edited there; edit the patch or the extension and rebuild.
 The plugin is resolved through `QML_IMPORT_PATH`, substituted into `shell.qml`
 at build time. No path in this repository names a machine.
 
+## The six kinds of thing in this repository
+
+The directory layout is the vocabulary. Every file belongs to exactly one of
+these, and the boundaries are deliberate rather than cosmetic.
+
+| Kind | Lives in | Is | Example |
+| --- | --- | --- | --- |
+| **Supported override** | `overrides/` | a value written through an extension point Caelestia or the application provides | `hypr-vars.lua`, `shell.json` |
+| **Shell extension** | `shell/extensions/` | QML and assets added to Caelestia Shell, plus the C++ plugin types they need | OCR, AI, search |
+| **Theme adapter** | `adapters/` | one application's translation of the Caelestia scheme, self-contained and independently readable | `kde`, `spotify` |
+| **Orchestration** | `orchestration/` | the hook deciding which adapters run, and shared path helpers. Holds no application logic | `hooks/post-theme` |
+| **System integration** | `system/` | anything needing root or writing outside `$HOME`. Always opt-in, always prints first | `sudoers`, `sddm` |
+| **Generated state** | nowhere | output of running any of the above; never committed | `kdeglobals`, the built plugin |
+
+A seventh category exists only because upstream leaves no alternative:
+`shell/patches/` holds direct modifications to upstream Caelestia Shell source.
+It is kept deliberately small - three patches over five files - and each one is
+justified in [upstream.md](upstream.md). Anything that can be an override, an
+extension or an adapter instead should be.
+
 ## Where a change belongs
 
 | If it is | It goes in |

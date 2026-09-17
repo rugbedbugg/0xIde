@@ -1,18 +1,24 @@
-# Migration record
+# Migrating an existing setup
 
-What the live machine looked like before this repository existed, and what
-changed when it was pointed at it.
+This project grew out of a Caelestia install that had been customised by hand:
+values edited directly into the files the Caelestia dots deploy, helper scripts
+dropped into `~/.local/bin`, and a shell fork that was not under version
+control. This is the record of moving that onto supported mechanisms.
+
+It is worth reading if you are in the same position, because the interesting
+part is not *what* moved but *why each edit did not need to be an edit*. If you
+are starting from a clean Caelestia install, you can skip it.
 
 ## Rollback
 
-A snapshot of every file this migration could touch was taken first:
+`cm_backup` keeps the first version of anything this project replaces, once,
+under `~/.local/state/caelestia-mod/replaced/`, mirroring the original path.
+`~/.local/state/caelestia-mod/owned.list` records what was created. Nothing in
+this repository deletes either.
 
-    ~/.local/state/caelestia-mod-backup/20260917-060123/     333 files, 12 MB
-        manifest.tsv    original path, backup path, sha256, owner, group, mode, size
-
-Separately, `cm_backup` keeps the first version of anything this project
-replaces, once, under `~/.local/state/caelestia-mod/replaced/`, mirroring the
-original path. Neither is deleted by any script here.
+Before a migration of this kind, take a full snapshot as well - every file the
+change could touch, with a manifest recording each original path, its hash,
+owner and mode. That is a one-off step, not something `./install` does.
 
 ## What moved out of dots-managed files
 
@@ -32,34 +38,33 @@ refuses to run if `hypr-vars.lua` or `hypr-user.lua` is missing, or if
 | `foot/foot.ini` | 2 values edited | still edited, now by `apply_overlay.py` |
 | `starship.toml` | 1 value edited | still edited, now by `apply_overlay.py` |
 
-## Superseded helpers removed from `~/.local/bin`
+## Helper scripts became adapters
 
-Five scripts predating this repository were replaced by adapters and the
-orchestration hook. Before removing them, every plausible caller was checked:
-this repository, `~/.config/caelestia`, `~/.config/hypr`, `~/.config/fish`,
-`~/.config/quickshell`, user systemd units, the rest of `~/.local/bin`, and
-running process command lines. The only references found were from
-`caelestia-post-hook` to its own siblings, and it was removed too.
+The pre-existing setup drove its theming from five loose scripts in
+`~/.local/bin`. Each one corresponds to a component here, which is a reasonable
+map of where that kind of logic belongs:
 
-| Removed | Replaced by |
+| Was a loose script | Is now |
 | --- | --- |
-| `caelestia-post-hook` | `orchestration/hooks/post-theme` |
-| `caelestia-theme-sync` | `adapters/kde/apply` |
-| `caelestia-edge-theme` | `adapters/edge/apply` |
-| `caelestia-sddm-sync` | `system/sddm/sync` |
-| `caelestia-ocr-screenshot` | nothing; it wrapped `capture.sh`, which the in-shell picker path superseded |
+| a monolithic `postHook` | `orchestration/hooks/post-theme`, which only dispatches |
+| KDE / Qt / GTK colour and font sync | `adapters/kde/apply` |
+| Edge policy writer | `adapters/edge/apply` |
+| SDDM theme sync | `system/sddm/sync`, because it writes outside `$HOME` |
+| an OCR screenshot wrapper | nothing; the in-shell picker path superseded it |
 
-All five remain in the rollback snapshot, byte-identical. A theme change was run
-afterwards and all five adapters still reported `ok`.
+Before deleting any of them, every plausible caller was checked: the repository,
+the Caelestia, Hyprland, fish and quickshell configs, user systemd units, the
+rest of `~/.local/bin`, and running process command lines. A theme change was
+run afterwards and all five adapters still reported `ok`.
 
 ## Validation
 
-Every affected subsystem was checked before and after. See the Phase 2 report
-for the full table; the summary is that Hyprland reports the same effective
-values through the override points that it previously got from direct edits,
-`hyprctl configerrors` is empty, the bind count is unchanged at 143 with the
-OCR bind present exactly once, and a scheme change propagates through all five
-adapters.
+Every affected subsystem was checked before and after the switch. In summary:
+Hyprland reported the same effective values through the override points that it
+had previously got from direct edits, `hyprctl configerrors` stayed empty, the
+keybind count was unchanged apart from the bindings deliberately added below,
+with no duplicates across repeated reloads, and a scheme change propagated
+through every adapter.
 
 ## Three customizations that were dropped
 

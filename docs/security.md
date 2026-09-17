@@ -62,34 +62,38 @@ command with a fixed target path.
 Caelestia installs its own equivalent Chrome rules. Those are not from here and
 this project neither installs nor removes them.
 
-## Standing weaknesses on this machine that this project will not reproduce
+## Two changes this project will not make for you
 
-Two changes exist on the machine this repository was extracted from. Neither
-came from this repository, and `./install` will not recreate either.
+Both are common workarounds for getting these integrations working, both weaken
+a system directory permanently, and `./install` performs neither. They are
+documented because you will find them recommended elsewhere, and because the
+setup this project came from had both applied by hand before it existed.
 
-### `/opt/spotify` is world-writable
+### Making `/opt/spotify` world-writable
 
 `spicetify` needs write access to the Spotify installation, and the usual
 workaround is `chmod -R a+wr /opt/spotify`. That leaves an executable directory
 writable by every local process for the lifetime of the install. `system/spotify`
-documents three better options and the commands to undo it.
+documents three better options, and the commands to undo the change if it has
+already been applied.
 
-### The SDDM theme directory is group-owned by the login user
+### Making the SDDM theme directory group-writable
 
-`/usr/share/sddm/themes/corners` was chowned so the sync could write to it
-without prompting. That leaves a system directory group-writable permanently.
+`/usr/share/sddm/themes/corners` is root-owned, and chowning it to the login
+user's group lets the sync write there without prompting. That leaves a system directory group-writable permanently.
 `system/sddm/install` prints the command but will not run it; by default the
 sync escalates per write instead, and simply does nothing if it cannot.
 
-## An unexplained binary
+## An unexplained binary, documented but not distributed
 
-`~/.local/bin/hypr-kdeconnect-portal` is a stripped, unpackaged ELF running as an
-enabled user D-Bus service. It implements the RemoteDesktop portal that
-`xdg-desktop-portal-hyprland` does not, so KDE Connect can drive this machine's
-input. Its source is not on this machine.
+The setup this project was extracted from ran a stripped, unpackaged ELF as an
+enabled user D-Bus service: a RemoteDesktop portal backend that
+`xdg-desktop-portal-hyprland` does not provide, which is what lets KDE Connect
+drive the machine's pointer and keyboard. Its source could not be recovered.
 
-It is **not** in this repository and must not be published from it. See
-`system/portals/README.md` for the full record.
+**It is not in this repository, nothing here requires it, and everything here
+works without it.** It is written up rather than omitted so the gap is visible.
+See [system/portals](../system/portals/README.md).
 
 ## What was checked and found clean
 

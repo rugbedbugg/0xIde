@@ -1,7 +1,13 @@
 # Generated state
 
-This project commits the mechanism, never the output. Roughly 1.45 GB of what
-exists on a running machine is regenerable and none of it is tracked.
+This project commits the mechanism, never the output. On a fully installed
+machine roughly 2 GB sits outside the repository, all of it either regenerable
+or fetched on demand, and none of it tracked. The repository itself is under 1 MB.
+
+The largest single item is the local AI model: about 1.4 GB, **not vendored and
+not downloaded by `./install`**. `manifests/ai.toml` pins its revision and
+SHA-256, and the runtime fetches and verifies it only when you ask for it from
+the OCR & AI settings page. Cloning this repository downloads no model.
 
 ## Never committed
 

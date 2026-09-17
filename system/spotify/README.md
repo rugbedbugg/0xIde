@@ -11,8 +11,8 @@ root-owned, and the common workaround is:
 
 That leaves an executable directory world-writable for the lifetime of the
 install: any local process can replace the Spotify binary or its JavaScript
-bundle. This machine currently has that change applied. It did not come from
-this repository and this repository will not reproduce it.
+bundle. This repository will not make that change for you, and does not need it
+made: options 1 and 3 below avoid it entirely.
 
 ## Better options, in order
 
@@ -26,7 +26,7 @@ this repository and this repository will not reproduce it.
    `sudo spicetify apply` manually after a theme change. The `spotify` adapter's
    automatic re-apply stops working; everything else still does.
 
-To undo the world-writable change on this machine:
+If that change has already been applied and you want it undone:
 
     sudo chown -R root:root /opt/spotify
     sudo chmod -R go-w /opt/spotify

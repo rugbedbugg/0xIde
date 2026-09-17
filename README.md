@@ -11,16 +11,25 @@ it for one application.
 
 ## What it provides
 
-- **Shell extensions** built on Caelestia Shell: screen-region OCR with table
-  reconstruction, a local AI backend and an OpenAI-compatible client, and
-  region / circle-to-search.
-- **Theme adapters** for applications Caelestia leaves alone: Dolphin and Ark
-  via `kdeglobals`, Spotify via spicetify, Papirus folder icons, Microsoft Edge,
-  and Yazi and rmpc through terminal ANSI slots.
-- **Supported overrides** only. Personal settings go through the extension
-  points Caelestia provides, not into the files it deploys.
-- **Optional system integrations**, each one opt-in and each one printing what
-  it will change before it changes it.
+- **Shell extensions** built on Caelestia Shell:
+  - **OCR** of a selected screen region, including table reconstruction
+  - **Region search** and **circle search** - draw around something and search
+    for it. By default the region is read locally and the *text* is searched, so
+    no image is sent anywhere
+  - **Local AI**: a BitNet runtime on `127.0.0.1`, plus a client for any
+    OpenAI-compatible endpoint you point it at
+- **Theme adapters** for applications Caelestia does not theme itself:
+  - **KDE** - Dolphin and Ark, via `kdeglobals`, plus Qt and GTK fonts
+  - **Spotify** - re-applies the spicetify theme after a scheme change
+  - **Papirus** - folder icons follow the scheme
+  - **Microsoft Edge** - browser theme colour via managed policy
+  - **Yazi** and **rmpc** - no adapter runs at all; their themes name terminal
+    ANSI slots, so they follow the scheme with nothing to regenerate
+- **Supported overrides** only. Settings go through the extension points
+  Caelestia provides, never into the files it deploys.
+- **Optional system integrations**, including **SDDM** login-screen theming and
+  the narrow `sudoers` rules two adapters need. Every one is opt-in, prints the
+  exact change first, and asks.
 
 ## What it is not
 
@@ -32,6 +41,19 @@ it for one application.
 - Not a dotfiles dump. Every file here belongs to a named component you can
   install or skip.
 - Not a second theme engine. There is no palette in this repository.
+
+## Documentation
+
+| | |
+| --- | --- |
+| [docs/architecture.md](docs/architecture.md) | the two pipelines, and where a change belongs |
+| [docs/components.md](docs/components.md) | every override, extension, adapter and system module |
+| [docs/upstream.md](docs/upstream.md) | **taking a Caelestia update**, with exact commands |
+| [docs/security.md](docs/security.md) | search egress, the AI destination, every root operation |
+| [docs/generated.md](docs/generated.md) | what is runtime state and is never committed |
+| [docs/portability.md](docs/portability.md) | remaining machine-specific assumptions |
+| [docs/licensing.md](docs/licensing.md) | why GPL-3.0 and not something permissive |
+| [docs/migration.md](docs/migration.md) | how an existing hand-edited setup was moved onto this |
 
 ## Prerequisites
 
@@ -117,11 +139,21 @@ producing a half-patched tree. Exact commands:
 
 ## Privacy
 
-The region-search extension defaults to reading the selected region **locally**
-with OCR and searching the extracted text. No image leaves the machine. An
-upload mode exists, is off by default, and asks for confirmation naming the
-destination host every time it is used. The AI backend defaults to a local model
-on `127.0.0.1`. Full detail, including the sudo rules and the two standing
+Region search runs this by default:
+
+```text
+screen region  ->  local OCR  ->  text web search
+```
+
+No image is transmitted in that mode. An image-upload mode exists for searching
+pictures rather than text; it is **off by default**, and when enabled it asks
+before every single upload, naming the host the image would go to. Declining, a
+prompt that fails, and a prompt that is dismissed all refuse the upload. It can
+also be disabled outright.
+
+The AI backend defaults to a local model on `127.0.0.1`. Pointing it at a remote
+endpoint is a configuration choice, and the OCR popup shows the destination
+above the submit button at all times. Full detail, including the sudo rules and the two standing
 system weaknesses this project refuses to recreate:
 [docs/security.md](docs/security.md).
 
