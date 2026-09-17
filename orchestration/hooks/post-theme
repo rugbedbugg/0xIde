@@ -19,7 +19,10 @@ mkdir -p "$CM_STATE"
 failed=0
 while IFS= read -r name; do
     case "$name" in ''|'#'*) continue ;; esac
+    # An adapter's runtime action, or a system module's sync where the module
+    # is privileged enough that its whole directory lives under system/.
     apply="$CM_ROOT/adapters/$name/apply"
+    [ -x "$apply" ] || apply="$CM_ROOT/system/$name/sync"
     [ -x "$apply" ] || continue
 
     start=$SECONDS
