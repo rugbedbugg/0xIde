@@ -62,6 +62,38 @@ if [ -d "$SRC/.git" ]; then
         if git -C "$tmp" apply --check "$p" 2>/dev/null && git -C "$tmp" apply "$p" 2>/dev/null
         then ok "$(basename "$p")"; else no "$(basename "$p") does not apply to ${rev:0:9}"; fi
     done
+
+    # Checked on the patched file rather than the diff: a diff also contains
+    # the lines the patch removes.
+    AP="$tmp/modules/areapicker/AreaPicker.qml"
+    if [ -f "$AP" ]; then
+        # Every shortcut must open the picker through an IpcHandler function,
+        # because those are the one place the mode flags are reset. Upstream's
+        # screenshot shortcuts each carried their own copy of that reset, and
+        # the copy did not know about searchMode, so SUPER+SHIFT+S ran a web
+        # search after one.
+        n=$(grep -c 'onPressed: pickerIpc\.' "$AP")
+        m=$(grep -c 'onPressed: {' "$AP")
+        if [ "$m" = 0 ] && [ "$n" -ge 7 ]
+        then ok "all $n picker shortcuts reset state through one place"
+        else no "$m picker shortcut(s) still set state inline"; fi
+
+        # And that one place has to clear every flag, for every entry point.
+        if "$PY" - "$AP" <<'CHK'
+import re, sys
+src = open(sys.argv[1]).read()
+funcs = re.findall(r"function (open\w*|regionSearch|circleSearch)\(\): void \{(.*?)\n        \}", src, re.S)
+need = {"freeze", "closing", "clipboardOnly", "ocr", "askAi", "searchMode", "activeAsync"}
+missing = {n: sorted(need - set(re.findall(r"root\.(\w+) =", b))) for n, b in funcs}
+missing = {n: v for n, v in missing.items() if v}
+for n, v in missing.items():
+    print(f"        {n}() never sets: {', '.join(v)}")
+sys.exit(1 if missing or len(funcs) < 8 else 0)
+CHK
+        then ok "every picker entry point clears every mode flag"
+        else no "a picker entry point leaves a mode flag set"; fi
+    fi
+
     git -C "$SRC" worktree remove --force "$tmp" 2>/dev/null
 else skipt "no upstream checkout yet (run ./shell/build.sh)"; fi
 

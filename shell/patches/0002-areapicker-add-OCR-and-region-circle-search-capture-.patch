@@ -1,11 +1,16 @@
-From 5b9638e3327ae85061758fada12d0d56e60a1ee7 Mon Sep 17 00:00:00 2001
+From 6f0a27867f6a3eb2581ae6dca7ee2c08c9aca86b Mon Sep 17 00:00:00 2001
 From: Oxide 1-6 <yes.par781@gmail.com>
-Date: Fri, 18 Sep 2026 08:38:21 +0530
+Date: Fri, 18 Sep 2026 08:54:04 +0530
 Subject: [PATCH 2/3] areapicker: add OCR and region/circle search capture modes
 
 Routes a completed selection to one of three consumers instead of only the
 screenshot path: Ocr.capture for text extraction, region_search.sh for web
 search, or the existing clipboard/file behaviour.
+
+Every shortcut goes through the IpcHandler functions, so the mode flags are
+reset in exactly one place. Upstream's four screenshot shortcuts each carried
+their own copy of that reset, which is how they ended up not clearing a flag
+this patch added.
 
 OCR freezes the screen, so the selection is made against a still image. The
 ordinary extractor puts the recognised text on the clipboard and stops there.
@@ -13,12 +18,12 @@ askAi is a separate, explicit entry point that also opens the result window;
 it is registered as a shortcut but bound to no key here. showText opens that
 window on text you already have, without capturing anything.
 
-Web search has one shortcut, not two. The shape of the selection is chosen in
-a toolbar inside the selector, which is where Illogical Impulse puts the same
-choice, and it decides what leaves the machine: a dragged rectangle is read
-locally and searches the text, a drawn circle uploads the image after asking.
-Circle mode records the pointer track and derives the bounding box from it.
-The gesture is passed to region_search.sh, which uses it to pick that default.
+Web search has one shortcut. The shape of the selection is chosen in a toolbar
+inside the selector, which is where Illogical Impulse puts the same choice, and
+it decides what leaves the machine: a dragged rectangle is read locally and
+searches the text, a drawn circle uploads the image after asking. Circle mode
+records the pointer track and derives the bounding box from it. The gesture is
+passed to region_search.sh, which uses it to pick that default.
 
 A selection smaller than a few pixels is rejected before anything is captured,
 a capture that fails closes and says so, and neither leaves the selector up.
@@ -30,12 +35,12 @@ this patch.
 The two files are one change: Picker dispatches on loader.ocr/searchMode
 and AreaPicker owns the loaders and the result popup those modes need.
 ---
- modules/areapicker/AreaPicker.qml | 152 ++++++++++++++++++++++++++++++
- modules/areapicker/Picker.qml     |  99 ++++++++++++++++++-
- 2 files changed, 250 insertions(+), 1 deletion(-)
+ modules/areapicker/AreaPicker.qml | 176 ++++++++++++++++++++++++++----
+ modules/areapicker/Picker.qml     |  99 ++++++++++++++++-
+ 2 files changed, 250 insertions(+), 25 deletions(-)
 
 diff --git a/modules/areapicker/AreaPicker.qml b/modules/areapicker/AreaPicker.qml
-index 76cc1039..21d9205c 100644
+index 76cc1039..b2acd3b1 100644
 --- a/modules/areapicker/AreaPicker.qml
 +++ b/modules/areapicker/AreaPicker.qml
 @@ -1,5 +1,6 @@
@@ -205,38 +210,60 @@ index 76cc1039..21d9205c 100644
              root.activeAsync = true;
          }
  
-@@ -88,6 +209,7 @@ Scope {
-             root.freeze = false;
-             root.closing = false;
-             root.clipboardOnly = false;
-+            root.ocr = false;
-             root.activeAsync = true;
-         }
+@@ -84,12 +205,7 @@ Scope {
+         // qmllint enable unresolved-type
+         name: "screenshot"
+         description: "Open screenshot tool"
+-        onPressed: {
+-            root.freeze = false;
+-            root.closing = false;
+-            root.clipboardOnly = false;
+-            root.activeAsync = true;
+-        }
++        onPressed: pickerIpc.open()
      }
-@@ -101,6 +223,7 @@ Scope {
-             root.freeze = true;
-             root.closing = false;
-             root.clipboardOnly = false;
-+            root.ocr = false;
-             root.activeAsync = true;
-         }
+ 
+     // qmllint disable unresolved-type
+@@ -97,12 +213,7 @@ Scope {
+         // qmllint enable unresolved-type
+         name: "screenshotFreeze"
+         description: "Open screenshot tool (freeze mode)"
+-        onPressed: {
+-            root.freeze = true;
+-            root.closing = false;
+-            root.clipboardOnly = false;
+-            root.activeAsync = true;
+-        }
++        onPressed: pickerIpc.openFreeze()
      }
-@@ -114,6 +237,7 @@ Scope {
-             root.freeze = false;
-             root.closing = false;
-             root.clipboardOnly = true;
-+            root.ocr = false;
-             root.activeAsync = true;
-         }
+ 
+     // qmllint disable unresolved-type
+@@ -110,12 +221,7 @@ Scope {
+         // qmllint enable unresolved-type
+         name: "screenshotClip"
+         description: "Open screenshot tool (clipboard)"
+-        onPressed: {
+-            root.freeze = false;
+-            root.closing = false;
+-            root.clipboardOnly = true;
+-            root.activeAsync = true;
+-        }
++        onPressed: pickerIpc.openClip()
      }
-@@ -127,7 +251,35 @@ Scope {
-             root.freeze = true;
-             root.closing = false;
-             root.clipboardOnly = true;
-+            root.ocr = false;
-             root.activeAsync = true;
-         }
-     }
+ 
+     // qmllint disable unresolved-type
+@@ -123,11 +229,33 @@ Scope {
+         // qmllint enable unresolved-type
+         name: "screenshotFreezeClip"
+         description: "Open screenshot tool (freeze mode, clipboard)"
+-        onPressed: {
+-            root.freeze = true;
+-            root.closing = false;
+-            root.clipboardOnly = true;
+-            root.activeAsync = true;
+-        }
++        onPressed: pickerIpc.openFreezeClip()
++    }
 +
 +    // qmllint disable unresolved-type
 +    CustomShortcut {
@@ -262,7 +289,7 @@ index 76cc1039..21d9205c 100644
 +        name: "regionSearch"
 +        description: "Select a region and search the web for what it contains"
 +        onPressed: pickerIpc.regionSearch()
-+    }
+     }
 +
  }
 diff --git a/modules/areapicker/Picker.qml b/modules/areapicker/Picker.qml
