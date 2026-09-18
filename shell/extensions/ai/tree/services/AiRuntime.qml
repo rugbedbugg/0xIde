@@ -15,7 +15,6 @@ Scope {
     property string operation: "install"
     property bool removeAfterStop: false
     readonly property bool installing: worker.running
-    readonly property bool starting: server.running && !endpoint
     readonly property string helper: Qt.resolvedUrl("../assets/ai/runtime.py").toString().replace("file://", "")
 
     signal ready

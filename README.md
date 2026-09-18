@@ -108,7 +108,12 @@ than shadowing it.
 The AI-assisted capture ships with no key. It is the same selector, but it
 opens the recognised text in a panel instead of stopping at the clipboard. Run
 it with `qs -c caelestia ipc call picker openAskAi`, or bind
-`caelestia:askAi` yourself.
+`caelestia:askAi` yourself. To open that panel on text you already have,
+without capturing anything:
+
+```sh
+qs -c caelestia ipc call picker showText "$(wl-paste)"
+```
 
 The two search gestures differ in what they send, not just in how you draw. A
 rectangle is a text search and stays local; a circle is a visual search and

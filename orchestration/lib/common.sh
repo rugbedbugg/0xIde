@@ -76,28 +76,6 @@ cm_own() {
     sort -u -o "$CM_STATE/owned.list" "$CM_STATE/owned.list"
 }
 
-# Idempotent "key = value" setter for a flat config file that this project
-# does not own. Rewrites the key in place when present, appends when not.
-cm_set_key() {
-    local file="$1" key="$2" value="$3" sep="${4:-=}" tmp
-    [ -f "$file" ] || { cm_warn "$file does not exist; skipping $key"; return 1; }
-    tmp="$(mktemp)"
-    if grep -qE "^[[:space:]]*#?[[:space:]]*${key}[[:space:]]*${sep}" "$file"; then
-        awk -v k="$key" -v v="$value" -v s="$sep" '
-            !done && $0 ~ "^[[:space:]]*#?[[:space:]]*" k "[[:space:]]*" s {
-                print k s v; done = 1; next
-            } { print }
-        ' "$file" > "$tmp"
-    else
-        cat "$file" > "$tmp"
-        printf '%s%s%s\n' "$key" "$sep" "$value" >> "$tmp"
-    fi
-    if cmp -s "$tmp" "$file"; then rm -f "$tmp"; return 1; fi
-    cm_backup "$file"
-    cat "$tmp" > "$file"
-    rm -f "$tmp"
-    return 0
-}
 
 # True when a passwordless sudo rule exists for a command. Greps the rule list
 # rather than running the command, and matches NOPASSWD explicitly so a cached
