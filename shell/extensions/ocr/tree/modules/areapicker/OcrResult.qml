@@ -600,7 +600,8 @@ Item {
                     Layout.fillWidth: true
                     placeholderText: qsTr("Target language")
                     text: GlobalConfig.ai.translateLanguage
-                    onEditingFinished: GlobalConfig.ai.translateLanguage = text
+                    onEditingFinished: if (text !== GlobalConfig.ai.translateLanguage)
+                        GlobalConfig.ai.translateLanguage = text
                 }
                 StyledTextField {
                     id: custom

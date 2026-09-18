@@ -43,7 +43,8 @@ ColumnLayout {
                 text: modelData
                 isToggle: true
                 checked: root.backendIndex === index
-                onClicked: GlobalConfig.ai.backend = ["", "external", "managed"][index]
+                onClicked: if (GlobalConfig.ai.backend !== ["", "external", "managed"][index])
+                    GlobalConfig.ai.backend = ["", "external", "managed"][index]
             }
         }
         Item {
@@ -69,20 +70,23 @@ ColumnLayout {
         visible: GlobalConfig.ai.backend === "external"
         placeholderText: qsTr("Chat completions URL")
         text: GlobalConfig.ai.backendUrl
-        onEditingFinished: GlobalConfig.ai.backendUrl = text.trim()
+        onEditingFinished: if (text.trim() !== GlobalConfig.ai.backendUrl)
+            GlobalConfig.ai.backendUrl = text.trim()
     }
     StyledTextField {
         Layout.fillWidth: true
         visible: GlobalConfig.ai.backend === "external"
         placeholderText: qsTr("Model name (optional)")
         text: GlobalConfig.ai.model
-        onEditingFinished: GlobalConfig.ai.model = text.trim()
+        onEditingFinished: if (text.trim() !== GlobalConfig.ai.model)
+            GlobalConfig.ai.model = text.trim()
     }
     StyledTextField {
         Layout.fillWidth: true
         placeholderText: qsTr("System prompt (optional)")
         text: GlobalConfig.ai.systemPrompt
-        onEditingFinished: GlobalConfig.ai.systemPrompt = text
+        onEditingFinished: if (text !== GlobalConfig.ai.systemPrompt)
+            GlobalConfig.ai.systemPrompt = text
     }
     RowLayout {
         Layout.fillWidth: true
@@ -269,7 +273,8 @@ ColumnLayout {
             Layout.fillWidth: true
             placeholderText: qsTr("e.g. eng+deu. Empty uses all installed")
             text: GlobalConfig.ai.ocrLanguages
-            onEditingFinished: GlobalConfig.ai.ocrLanguages = text.trim()
+            onEditingFinished: if (text.trim() !== GlobalConfig.ai.ocrLanguages)
+                GlobalConfig.ai.ocrLanguages = text.trim()
         }
         TextButton {
             type: TextButton.Text

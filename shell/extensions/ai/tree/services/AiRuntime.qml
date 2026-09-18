@@ -4,7 +4,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Io
-import Caelestia.Config
 
 Scope {
     id: root
@@ -75,15 +74,14 @@ Scope {
             message = data.message ?? data.stage ?? "";
             if (data.stage === "download")
                 message = qsTr("Downloading model: %1 / %2 MiB").arg(Math.round(data.bytes / 1048576)).arg(Math.round(data.total / 1048576));
-            if (data.stage === "installed") {
+            // Availability, never preference. Discovering that the local
+            // model is installed says nothing about whether the user chose it,
+            // and refresh() runs on every startup, so writing the preference
+            // here silently overwrote whatever they had selected. A managed
+            // backend that is selected but not installed is caught where it
+            // matters, at submit time.
+            if (data.stage === "installed" || data.stage === "removed")
                 info = data;
-                GlobalConfig.ai.backend = "managed";
-            }
-            if (data.stage === "removed") {
-                info = data;
-                if (GlobalConfig.ai.backend === "managed")
-                    GlobalConfig.ai.backend = "";
-            }
         } catch (e) {
             error = qsTr("Invalid installer response");
         }
