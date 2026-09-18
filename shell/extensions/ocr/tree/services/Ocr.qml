@@ -7,12 +7,15 @@ import Quickshell.Io
 import Caelestia
 import Caelestia.Config
 
-// Reading text out of a captured region. One entry point, capture(), which
-// always puts the text on the clipboard and always reports it.
+// Reading text out of a captured region. Two entry points, deliberately:
 //
-// Word positions cost a Python helper and are only used by the table view, so
-// they are collected only when that view is switched on. Everything else takes
-// the short path: tesseract, wl-copy, delete the capture.
+//   capture()          the ordinary extractor. tesseract, wl-copy, delete the
+//                      capture, done. It reports nothing, so nothing downstream
+//                      can decide to open a window on the back of it.
+//   captureForPanel()  the explicit AI-assisted call. Same clipboard result,
+//                      but it also emits recognized() so the caller can open
+//                      the result panel, and it collects word positions when
+//                      the table view is switched on.
 Scope {
     id: root
 
@@ -27,17 +30,31 @@ Scope {
     // the listing failed.
     readonly property string effectiveLanguages: GlobalConfig.ai.ocrLanguages.trim() || languages.join("+") || "eng"
 
-    // Only fires when there is something to show.
+    // Only fires for captureForPanel(), and only when there is something to
+    // show. The ordinary extractor never emits it.
     signal recognized(string text, var structured)
 
-    function capture(path: string, screen: var): void {
+    // The ordinary extractor. Always the short path: the table view belongs to
+    // the panel, and the panel is not part of this flow.
+    function capture(path: string): void {
+        error = "";
+        report = false;
+        extract(path);
+    }
+
+    // The explicit AI-assisted call.
+    function captureForPanel(path: string, screen: var): void {
         resultScreen = screen;
         error = "";
+        report = true;
         if (GlobalConfig.ai.tableMode)
             scan(path);
         else
             extract(path);
     }
+
+    // Whether the capture in flight should be reported to a caller.
+    property bool report: false
 
     function refreshLanguages(): void {
         listing.running = true;
@@ -59,7 +76,8 @@ Scope {
     function publish(text: string, structured: var): void {
         copy.pending = text;
         copy.running = true;
-        root.recognized(text, structured);
+        if (report)
+            root.recognized(text, structured);
     }
 
     Component.onCompleted: refreshLanguages()
@@ -183,6 +201,8 @@ Scope {
     // that need not be installed.
     readonly property string python: "/usr/bin/python3"
 
+    // Word positions, for the table view. Only ever reached from
+    // captureForPanel(), so the ordinary extractor never runs Python.
     function scan(path: string): void {
         if (recognition.running) {
             cleanup(path);
