@@ -360,6 +360,33 @@ else
     rm -rf "$ocrtmp"
 fi
 
+cm_step "Spotify adapter"
+# Driven for real with spicetify stubbed, so a theme change cannot open
+# Spotify behind the user's back.
+if pgrep -x spotify >/dev/null 2>&1 || pgrep -f 'com\.spotify\.Client' >/dev/null 2>&1; then
+    skipt "Spotify is running, so the closed-Spotify case cannot be tested here"
+elif ! cm_have pgrep; then
+    skipt "no pgrep"
+else
+    sp="$(mktemp -d)"
+    # The adapter locks under $XDG_STATE_HOME/caelestia-mod; without that
+    # directory flock fails and the test would pass for the wrong reason.
+    mkdir -p "$sp/bin" "$sp/conf/spicetify" "$sp/state/caelestia-mod"
+    cat > "$sp/bin/spicetify" <<STUB
+#!/bin/sh
+touch "$sp/applied"
+STUB
+    chmod +x "$sp/bin/spicetify"
+    printf 'current_theme = caelestia\n' > "$sp/conf/spicetify/config-xpui.ini"
+    PATH="$sp/bin:$PATH" XDG_CONFIG_HOME="$sp/conf" XDG_STATE_HOME="$sp/state" \
+        bash "$CM_ROOT/adapters/spotify/apply" >/dev/null 2>&1 || true
+    sleep 1
+    if [ -e "$sp/applied" ]
+    then no "the spotify adapter ran spicetify with Spotify closed"
+    else ok "the spotify adapter does nothing when Spotify is not running"; fi
+    rm -rf "$sp"
+fi
+
 cm_step "Adapter metadata"
 for d in "$CM_ROOT"/adapters/*/; do
     n="$(basename "$d")"

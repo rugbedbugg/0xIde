@@ -9,6 +9,12 @@ Two separate things, deliberately split:
   `color.ini` itself but never re-applies, so without this Spotify keeps the old
   palette until something else triggers an apply.
 
+  It runs **only when Spotify is already open.** `spicetify apply` restarts
+  Spotify, which means it starts one if none was running, and a wallpaper change
+  should not launch a music player. With Spotify closed this adapter exits
+  without doing anything, and the next launch picks up the current palette on
+  its own.
+
 `color.ini` is **not** in this repository. caelestia-cli owns it and regenerates
 it from `scheme.json`; copying it here would create a second palette source.
 

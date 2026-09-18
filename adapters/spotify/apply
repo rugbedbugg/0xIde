@@ -9,6 +9,16 @@ cm_have spicetify || exit 0
 grep -qE '^current_theme[[:space:]]*=[[:space:]]*caelestia' \
     "$XDG_CONFIG_HOME/spicetify/config-xpui.ini" 2>/dev/null || exit 0
 
+# `spicetify apply` restarts Spotify, which starts it if it was closed. This
+# adapter exists to re-theme a Spotify you are already using, not to open one
+# behind your back on every wallpaper change, so it does nothing unless one is
+# running. Without pgrep there is no way to tell, and not applying is the
+# safer half of that guess.
+cm_have pgrep || exit 0
+pgrep -x spotify >/dev/null 2>&1 ||
+    pgrep -f 'com\.spotify\.Client' >/dev/null 2>&1 ||
+    exit 0
+
 # A full apply takes ~25s, so it must not block the theme change. flock keeps
 # rapid scheme switches from running two applies over the same files.
 setsid flock -n "$CM_STATE/spicetify.lock" spicetify apply >/dev/null 2>&1 &
