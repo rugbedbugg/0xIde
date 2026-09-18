@@ -38,8 +38,10 @@ if [[ "$gesture" == "circle" ]]; then
 fi
 confirm="always"
 search_url="https://www.google.com/search?q="
+# host|field=value|...|filefield=@   The reply is either the URL itself or
+# JSON containing it. Listed in order; the first that answers with a link wins.
 upload_endpoints=(
-    "https://litterbox.catbox.moe/resources/internals/api.php|reqtype=fileupload|time=1h|fileToUpload=@"
+    "https://uguu.se/upload|files[]=@"
 )
 ocr_languages="eng"
 
@@ -93,6 +95,7 @@ ask "Upload this region to ${host} and open Google Lens?" ||
     { notify-send -a caelestia-search "Search cancelled" "Nothing was uploaded."; exit 0; }
 
 image_url=""
+reason=""
 for spec in "${upload_endpoints[@]}"; do
     IFS='|' read -r endpoint rest <<<"$spec"
     args=()
@@ -101,13 +104,33 @@ for spec in "${upload_endpoints[@]}"; do
         [[ "$field" == *@ ]] && field="${field}${image}"
         args+=(-F "$field")
     done
-    image_url="$(curl --fail --location --silent --show-error --max-time 20 \
-        "${args[@]}" "$endpoint" 2>/dev/null || true)"
-    [[ "$image_url" == http* ]] && break
-    image_url=""
+    # No --fail: the status and the body are both wanted, so that a refusal can
+    # say which host refused and with what, rather than "could not upload".
+    name="${endpoint#*://}"; name="${name%%/*}"
+    reply="$(curl --location --silent --show-error --max-time 20 \
+        --write-out $'\n%{http_code}' "${args[@]}" "$endpoint" 2>/dev/null || true)"
+    status="${reply##*$'\n'}"
+    reply="${reply%$'\n'*}"
+    if [[ "$status" != 2* ]]; then
+        reason="${name} refused it (HTTP ${status:-no reply})"
+        continue
+    fi
+    # Some hosts answer with the URL, others with JSON containing it.
+    if [[ "$reply" == \{* || "$reply" == \[* ]]; then
+        reply="$(printf '%s' "$reply" |
+            jq -r '[.. | strings | select(startswith("http"))] | first // empty' 2>/dev/null)"
+    fi
+    reply="${reply//$'\n'/}"
+    if [[ "$reply" == http* ]]; then
+        image_url="$reply"
+        host="$name"
+        break
+    fi
+    reason="${name} replied without a link"
 done
 
-[[ -n "$image_url" ]] || die "Could not upload the selected image."
+[[ -n "$image_url" ]] ||
+    die "${reason:-No upload host is configured}. Set upload_endpoints in ${conf} to use a different host."
 
 notify-send -a caelestia-search "Google Lens" "Region uploaded to ${host}; search opened in your browser."
 open_search "https://lens.google.com/uploadbyurl?url=$(printf '%s' "$image_url" | jq -sRr @uri)"

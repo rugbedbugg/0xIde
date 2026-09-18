@@ -244,7 +244,7 @@ STUB
         bash "$rs" "$sdir/circle.png" circle >/dev/null 2>&1 || true
     sleep 1
     case "$(cat "$sdir/prompt" 2>/dev/null)" in
-        *catbox*) ok "a circle asks before uploading, naming the host" ;;
+        *uguu*) ok "a circle asks before uploading, naming the host" ;;
         "") no "a circle did not ask before uploading" ;;
         *) no "the upload prompt no longer names the host" ;;
     esac
