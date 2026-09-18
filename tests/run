@@ -360,6 +360,48 @@ else
     rm -rf "$ocrtmp"
 fi
 
+cm_step "Widget style follows the scheme mode"
+# dconf writes go through the session bus service, which ignores a private
+# XDG_CONFIG_HOME, so dconf is stubbed instead. Without that this test would
+# rewrite the real desktop settings.
+if ! cm_have dconf; then skipt "no dconf"
+elif [ ! -d /usr/share/themes/adw-gtk3 ] || ! ls /usr/lib/qt*/plugins/styles/breeze*.so >/dev/null 2>&1; then
+    skipt "adw-gtk3 or the Breeze Qt style is not installed"
+else
+    td="$(mktemp -d)"
+    mkdir -p "$td/conf/qtengine" "$td/conf/gtk-3.0" "$td/state" "$td/bin"
+    cat > "$td/bin/dconf" <<STUB
+#!/bin/sh
+printf '%s\n' "\$*" >> "$td/dconf.log"
+STUB
+    chmod +x "$td/bin/dconf"
+    printf '[General]\nColorScheme=Caelestia\nName=Caelestia\n\n[Colors:Window]\nBackgroundNormal=#ffffff\n' \
+        > "$td/conf/qtengine/caelestia.colors"
+    printf '{"theme":{"style":"Darkly","iconTheme":"Papirus-Light"}}\n' > "$td/conf/qtengine/config.json"
+    printf '[Settings]\ngtk-font-name=Sans 10\ngtk-theme-name=adw-gtk3-dark\n' > "$td/conf/gtk-3.0/settings.ini"
+
+    probe() { # mode -> "<qt style> <gtk theme>"
+        printf '{"mode":"%s"}\n' "$1" > "$td/state/scheme.json"
+        PATH="$td/bin:$PATH" XDG_CONFIG_HOME="$td/conf" CM_SCHEME="$td/state/scheme.json" \
+            "$CM_ROOT/adapters/kde/apply" >/dev/null 2>&1
+        printf '%s %s' \
+            "$("$PY" -c 'import json,sys;print(json.load(open(sys.argv[1]))["theme"]["style"])' "$td/conf/qtengine/config.json")" \
+            "$(grep -oP '(?<=^gtk-theme-name=).*' "$td/conf/gtk-3.0/settings.ini")"
+    }
+
+    got="$(probe light)"
+    [ "$got" = "Breeze adw-gtk3" ] && ok "a light scheme selects a light style ($got)" ||
+        no "a light scheme gave '$got', expected 'Breeze adw-gtk3'"
+    got="$(probe dark)"
+    [ "$got" = "Darkly adw-gtk3-dark" ] && ok "a dark scheme selects a dark style ($got)" ||
+        no "a dark scheme gave '$got', expected 'Darkly adw-gtk3-dark'"
+    # Going through dconf is what updates GTK applications that are already open.
+    if grep -q 'gtk-theme' "$td/dconf.log" && grep -q 'color-scheme' "$td/dconf.log"
+    then ok "the style is also written through dconf, so open apps follow"
+    else no "the style is not written through dconf; open apps would not update"; fi
+    rm -rf "$td"
+fi
+
 cm_step "Spotify adapter"
 # Driven for real with spicetify stubbed, so a theme change cannot open
 # Spotify behind the user's back.

@@ -23,6 +23,28 @@ Fonts fall back to whatever `fc-match` resolves when the configured family is
 not installed, so a machine without the Caelestia fonts still gets a coherent
 result instead of a broken one.
 
+## Widget style
+
+Caelestia generates colours on every theme change, but the GTK theme and the Qt
+widget style are set once when the dots are installed and never revisited. A
+light scheme therefore ended up drawn inside dark chrome. This adapter picks
+them from the scheme's `mode` instead:
+
+| `mode` | Qt style | GTK theme | libadwaita |
+| --- | --- | --- | --- |
+| `light` | `Breeze` | `adw-gtk3` | `prefer-light` |
+| `dark` | `Darkly` | `adw-gtk3-dark` | `prefer-dark` |
+
+Darkly is a Breeze fork, so the pair looks like one desktop rather than two. A
+name that is not installed is skipped rather than written, because a style Qt
+cannot resolve drops applications onto their fallback, which looks worse than
+the mismatch this fixes.
+
+The theme name goes into `gtk-3.0/settings.ini` and into dconf. The dconf half
+is what makes GTK applications that are **already open** change without being
+restarted. GTK4 and libadwaita ignore the theme name and follow `color-scheme`,
+so they get that instead.
+
 ## Notes
 
 - Group headers in `kdeglobals` are preserved verbatim, including compound

@@ -11,6 +11,11 @@ Fonts are handled the same way: caelestia's own families are pushed into
 qtengine (which supplies the application font to every Qt app), kdeglobals
 (the KDE-specific menu, toolbar and window title roles) and GTK's settings.ini
 plus dconf, which is what Thunar and the rest of the GTK stack read.
+
+Widget styles are the one thing caelestia sets once at install and never
+revisits, so a light scheme was being drawn inside dark chrome. The style is
+picked from the scheme's mode here instead, and written through dconf as well
+as settings.ini so GTK applications that are already open follow along.
 """
 
 import json
@@ -22,6 +27,13 @@ from pathlib import Path
 
 FONT_SANS = "Google Sans Flex"
 FONT_MONO = "CaskaydiaCove NF"
+
+# Qt style, GTK theme, libadwaita preference. Darkly is a Breeze fork, so the
+# two sit together without looking like different desktops.
+STYLES = {
+    "light": ("Breeze", "adw-gtk3", "prefer-light"),
+    "dark": ("Darkly", "adw-gtk3-dark", "prefer-dark"),
+}
 
 config_dir = Path(os.getenv("XDG_CONFIG_HOME", Path.home() / ".config"))
 src_path = config_dir / "qtengine/caelestia.colors"
@@ -138,7 +150,29 @@ def sync_fonts(dst, sans, mono):
     set_key(dst, "[WM]", "activeFont", qt_font(sans, size))
 
 
-def sync_gtk(sans, mono, icon_theme):
+def scheme_mode():
+    """light or dark, as caelestia recorded it. Unknown means leave styles alone."""
+    path = Path(os.getenv("CM_SCHEME") or Path.home() / ".local/state/caelestia/scheme.json")
+    try:
+        mode = json.loads(path.read_text()).get("mode")
+    except (OSError, json.JSONDecodeError):
+        return None
+    return mode if mode in STYLES else None
+
+
+def have_gtk_theme(name):
+    return any((base / name).is_dir() for base in (Path("/usr/share/themes"), Path.home() / ".themes"))
+
+
+def have_qt_style(name):
+    """Qt style plugins are named after the style, lowercased, plus the major version."""
+    for base in (Path("/usr/lib"), Path("/usr/lib64")):
+        if any(base.glob(f"qt*/plugins/styles/{name.lower()}*.so")):
+            return True
+    return False
+
+
+def sync_gtk(sans, mono, icon_theme, gtk_theme, colour_scheme):
     """Thunar and friends read settings.ini; dconf covers apps that use gsettings."""
     size = 10
     for version in ("gtk-3.0", "gtk-4.0"):
@@ -154,15 +188,26 @@ def sync_gtk(sans, mono, icon_theme):
         set_key(groups, "[Settings]", "gtk-font-name", f"{sans} {size}")
         if icon_theme:
             set_key(groups, "[Settings]", "gtk-icon-theme-name", icon_theme)
+        # GTK4 and libadwaita ignore the theme name and follow color-scheme, so
+        # only GTK3 gets one.
+        if gtk_theme and version == "gtk-3.0":
+            set_key(groups, "[Settings]", "gtk-theme-name", gtk_theme)
         tmp = path.with_suffix(".ini.tmp")
         tmp.write_text(dump(groups))
         tmp.replace(path)
 
-    for key, value in (
+    settings = [
         ("font-name", f"{sans} {size}"),
         ("document-font-name", f"{sans} {size}"),
         ("monospace-font-name", f"{mono} {size}"),
-    ):
+    ]
+    # Writing these through dconf is what makes already-open GTK applications
+    # change without being restarted.
+    if gtk_theme:
+        settings.append(("gtk-theme", gtk_theme))
+    if colour_scheme:
+        settings.append(("color-scheme", colour_scheme))
+    for key, value in settings:
         subprocess.run(
             ["dconf", "write", f"/org/gnome/desktop/interface/{key}", f"'{value}'"],
             check=False,
@@ -189,17 +234,33 @@ def main():
     mono = FONT_MONO if have_font(FONT_MONO) else "monospace"
     sync_fonts(dst, sans, mono)
 
+    qt_style = gtk_theme = colour_scheme = None
+    if mode := scheme_mode():
+        want_qt, want_gtk, colour_scheme = STYLES[mode]
+        # Only switch to something that is actually installed; a style name Qt
+        # cannot resolve leaves applications on their fallback, which looks
+        # worse than the mismatch this is fixing.
+        qt_style = want_qt if have_qt_style(want_qt) else None
+        gtk_theme = want_gtk if have_gtk_theme(want_gtk) else None
+
     if cfg_path.is_file():
         try:
-            cfg = json.loads(cfg_path.read_text()).get("theme", {})
+            cfg = json.loads(cfg_path.read_text())
         except json.JSONDecodeError:
             cfg = {}
-        icon_theme = cfg.get("iconTheme")
+        theme = cfg.get("theme", {})
+        if qt_style and theme.get("style") != qt_style:
+            theme["style"] = qt_style
+            cfg["theme"] = theme
+            tmp = cfg_path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(cfg, indent=4))
+            tmp.replace(cfg_path)
+        icon_theme = theme.get("iconTheme")
         if icon_theme:
             set_key(dst, "[Icons]", "Theme", icon_theme)
-        if style := cfg.get("style"):
+        if style := theme.get("style"):
             set_key(dst, "[KDE]", "widgetStyle", style)
-        sync_gtk(sans, mono, icon_theme)
+        sync_gtk(sans, mono, icon_theme, gtk_theme, colour_scheme)
 
     tmp = dst_path.with_suffix(dst_path.suffix + ".tmp")
     tmp.write_text(dump(dst))
