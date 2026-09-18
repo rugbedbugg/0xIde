@@ -1,12 +1,11 @@
-From 917ffbc982f77fc57559eca6a6329b082eb1b738 Mon Sep 17 00:00:00 2001
+From 5b9638e3327ae85061758fada12d0d56e60a1ee7 Mon Sep 17 00:00:00 2001
 From: Oxide 1-6 <yes.par781@gmail.com>
-Date: Fri, 18 Sep 2026 08:21:35 +0530
+Date: Fri, 18 Sep 2026 08:38:21 +0530
 Subject: [PATCH 2/3] areapicker: add OCR and region/circle search capture modes
 
 Routes a completed selection to one of three consumers instead of only the
 screenshot path: Ocr.capture for text extraction, region_search.sh for web
-search, or the existing clipboard/file behaviour. Circle mode records the
-pointer track and derives the bounding box from it.
+search, or the existing clipboard/file behaviour.
 
 OCR freezes the screen, so the selection is made against a still image. The
 ordinary extractor puts the recognised text on the clipboard and stops there.
@@ -14,25 +13,29 @@ askAi is a separate, explicit entry point that also opens the result window;
 it is registered as a shortcut but bound to no key here. showText opens that
 window on text you already have, without capturing anything.
 
-The gesture is passed to region_search.sh, which uses it to pick a default:
-a dragged rectangle is a text search, a drawn circle a visual one.
+Web search has one shortcut, not two. The shape of the selection is chosen in
+a toolbar inside the selector, which is where Illogical Impulse puts the same
+choice, and it decides what leaves the machine: a dragged rectangle is read
+locally and searches the text, a drawn circle uploads the image after asking.
+Circle mode records the pointer track and derives the bounding box from it.
+The gesture is passed to region_search.sh, which uses it to pick that default.
 
 A selection smaller than a few pixels is rejected before anything is captured,
 a capture that fails closes and says so, and neither leaves the selector up.
 
 The mode indicator follows the pointer rather than sitting at the top of the
-screen, and covers OCR as well as the two search modes. Its component,
-PickerGuide, is an extension file, so it is not part of this patch.
+screen. PickerGuide and PickerModes are extension files, so neither is part of
+this patch.
 
 The two files are one change: Picker dispatches on loader.ocr/searchMode
 and AreaPicker owns the loaders and the result popup those modes need.
 ---
- modules/areapicker/AreaPicker.qml | 159 ++++++++++++++++++++++++++++++
- modules/areapicker/Picker.qml     |  86 +++++++++++++++-
- 2 files changed, 244 insertions(+), 1 deletion(-)
+ modules/areapicker/AreaPicker.qml | 152 ++++++++++++++++++++++++++++++
+ modules/areapicker/Picker.qml     |  99 ++++++++++++++++++-
+ 2 files changed, 250 insertions(+), 1 deletion(-)
 
 diff --git a/modules/areapicker/AreaPicker.qml b/modules/areapicker/AreaPicker.qml
-index 76cc1039..ec026eab 100644
+index 76cc1039..21d9205c 100644
 --- a/modules/areapicker/AreaPicker.qml
 +++ b/modules/areapicker/AreaPicker.qml
 @@ -1,5 +1,6 @@
@@ -226,7 +229,7 @@ index 76cc1039..ec026eab 100644
              root.activeAsync = true;
          }
      }
-@@ -127,7 +251,42 @@ Scope {
+@@ -127,7 +251,35 @@ Scope {
              root.freeze = true;
              root.closing = false;
              root.clipboardOnly = true;
@@ -257,20 +260,13 @@ index 76cc1039..ec026eab 100644
 +    CustomShortcut {
 +        // qmllint enable unresolved-type
 +        name: "regionSearch"
-+        description: "Select a rectangle and search the web for what it contains"
++        description: "Select a region and search the web for what it contains"
 +        onPressed: pickerIpc.regionSearch()
 +    }
 +
-+    // qmllint disable unresolved-type
-+    CustomShortcut {
-+        // qmllint enable unresolved-type
-+        name: "circleSearch"
-+        description: "Circle an area and search the web for what it contains"
-+        onPressed: pickerIpc.circleSearch()
-+    }
  }
 diff --git a/modules/areapicker/Picker.qml b/modules/areapicker/Picker.qml
-index 5e847603..39045a4e 100644
+index 5e847603..65cea844 100644
 --- a/modules/areapicker/Picker.qml
 +++ b/modules/areapicker/Picker.qml
 @@ -5,6 +5,7 @@ import Quickshell
@@ -362,10 +358,23 @@ index 5e847603..39045a4e 100644
          } else {
              checkClientRects(x, y);
          }
-@@ -236,6 +276,22 @@ MouseArea {
+@@ -236,6 +276,35 @@ MouseArea {
          }
      }
  
++    // The shape of a web search is chosen here rather than by which key you
++    // pressed, so it can be changed without closing the selector.
++    PickerModes {
++        z: 5
++        visible: !!root.loader.searchMode
++        mode: root.loader.searchMode
++        onSelected: mode => root.loader.searchMode = mode
++
++        anchors.horizontalCenter: parent.horizontalCenter
++        anchors.bottom: parent.bottom
++        anchors.bottomMargin: Tokens.padding.extraLarge
++    }
++
 +    PickerGuide {
 +        z: 4
 +        visible: root.loader.ocr || !!root.loader.searchMode
@@ -385,7 +394,7 @@ index 5e847603..39045a4e 100644
      Item {
          id: selectionWrapper
  
-@@ -301,4 +357,32 @@ MouseArea {
+@@ -301,4 +370,32 @@ MouseArea {
  
          Anim {}
      }

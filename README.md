@@ -21,11 +21,11 @@ shell:
 - **Text extraction.** The screen freezes, you drag a rectangle over some text,
   and on release the text is on your clipboard. Nothing opens. Tesseract runs
   locally and the capture is deleted straight away.
-- **Region search.** Drag a rectangle over something and search the web for it.
-  The region is read with local OCR and only the recognised *text* is searched,
-  so no image leaves the machine.
-- **Circle search.** Draw freehand around something and search for the picture
-  itself. This one uploads, so it asks first, every time, naming the host.
+- **Web search.** Select part of the screen and search the web for it. A
+  toolbar in the selector picks what that means: a dragged rectangle is read
+  with local OCR and only the recognised *text* is searched, so no image leaves
+  the machine, while a freehand circle searches the picture itself and uploads
+  it, asking first, every time, naming the host.
 - **Local AI.** A BitNet runtime bound to `127.0.0.1`, plus a client for any
   OpenAI-compatible chat-completions endpoint you point it at. A separate,
   explicit capture opens the recognised text in a panel that can explain,
@@ -93,8 +93,7 @@ only its own application present.
 | Key | Action | Result appears |
 | --- | --- | --- |
 | `SUPER + SHIFT + T` | Extract text from a region | clipboard, nothing opens |
-| `SUPER + SHIFT + A` | Region search, local OCR then a text search | browser |
-| `SUPER + SHIFT + O` | Circle search, uploads the picture after asking | browser |
+| `SUPER + SHIFT + A` | Web search, rectangle or circle | browser |
 
 These are defined in `overrides/caelestia/hypr-vars.lua` and bound in
 `overrides/caelestia/hypr-user.lua`, both of which are extension points
@@ -102,8 +101,10 @@ Caelestia supports. No file that the Caelestia dots deploy is edited. A binding
 that collides with one upstream already made is skipped, with a message, rather
 than shadowing it.
 
-`SUPER + SHIFT + O` is used for circle search because upstream already binds
-`SUPER + SHIFT + C` to the colour picker.
+Web search has one key. Rectangle and circle are chosen from a toolbar at the
+bottom of the selector, which is where upstream Illogical Impulse puts the same
+choice, so you can change your mind without closing it. It opens on rectangle,
+the one that uploads nothing.
 
 The AI-assisted capture ships with no key. It is the same selector, but it
 opens the recognised text in a panel instead of stopping at the clipboard. Run
@@ -115,10 +116,9 @@ without capturing anything:
 qs -c caelestia ipc call picker showText "$(wl-paste)"
 ```
 
-The two search gestures differ in what they send, not just in how you draw. A
-rectangle is a text search and stays local; a circle is a visual search and
-uploads. `region-search.conf` overrides both if you want them to behave the
-same, or want uploading off entirely.
+The two differ in what they send, not just in how you draw, which is why the
+toolbar says which one uploads. `region-search.conf` overrides both if you want
+them to behave the same, or want uploading off entirely.
 
 ## Configuration
 

@@ -17,8 +17,7 @@ return {
     cursorTheme = "Sweet-cursors",
 
     -- Keybinds for the shell extensions, bound in hypr-user.lua.
-    -- SUPER + SHIFT + C is upstream's kbColorPicker, so circle search takes O.
+    -- Web search has one key: rectangle or circle is chosen in the selector.
     kbOcrScreenshot = "SUPER + SHIFT + T",
     kbRegionSearch = "SUPER + SHIFT + A",
-    kbCircleSearch = "SUPER + SHIFT + O",
 }

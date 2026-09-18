@@ -282,6 +282,16 @@ n=$(grep -c 'name: "askAi"' "$PICKER")
 [ "$n" = 1 ] && ok "one explicit AI-assisted action, registered" ||
     no "found $n AI-assisted actions, expected 1"
 
+# Web search has one key; the shape is chosen in the selector, not by which
+# key you pressed.
+n=$(grep -c '^bind("kb' "$CM_ROOT/overrides/caelestia/hypr-user.lua")
+[ "$n" = 2 ] && ok "two keybindings in total, extraction and web search" ||
+    no "hypr-user.lua binds $n actions, expected 2"
+if grep -q 'PickerModes' "$PICKER" &&
+   [ -s "$CM_ROOT/shell/extensions/search/tree/modules/areapicker/PickerModes.qml" ]
+then ok "the selector offers the search shape as a control"
+else no "the search shape can no longer be chosen in the selector"; fi
+
 # Runtime discovery must never write a preference.
 AIRUNTIME="$CM_ROOT/shell/extensions/ai/tree/services/AiRuntime.qml"
 if grep -q 'GlobalConfig.ai.backend *=' "$AIRUNTIME"
@@ -312,7 +322,7 @@ else no "the OCR service no longer deletes its capture"; fi
 
 # Superseded entry points must be gone, not merely unbound.
 bad=0
-for dead in ocrClipboard openOcrClipboard openFreezeOcr screenshotFreezeOcr regionOcr kbAskAi; do
+for dead in ocrClipboard openOcrClipboard openFreezeOcr screenshotFreezeOcr regionOcr kbAskAi kbCircleSearch; do
     if git -C "$CM_ROOT" grep -qIn "$dead" -- . ':!tests/run' 2>/dev/null; then
         no "the superseded OCR entry point $dead is still referenced"; bad=1
     fi
