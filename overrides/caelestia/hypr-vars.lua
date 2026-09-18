@@ -21,8 +21,4 @@ return {
     kbOcrScreenshot = "SUPER + SHIFT + T",
     kbRegionSearch = "SUPER + SHIFT + A",
     kbCircleSearch = "SUPER + SHIFT + O",
-
-    -- Opens the same selector as text extraction, but puts the result in the
-    -- window with the table and AI actions instead of on the clipboard.
-    kbAskAi = "SUPER + SHIFT + I",
 }

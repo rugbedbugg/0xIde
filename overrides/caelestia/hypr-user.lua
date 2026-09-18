@@ -25,7 +25,6 @@ local ours = {
     kbOcrScreenshot = true,
     kbRegionSearch = true,
     kbCircleSearch = true,
-    kbAskAi = true,
 }
 
 local taken = {}
@@ -51,4 +50,3 @@ end
 bind("kbOcrScreenshot", "screenshotOcr")
 bind("kbRegionSearch", "regionSearch")
 bind("kbCircleSearch", "circleSearch")
-bind("kbAskAi", "askAi")

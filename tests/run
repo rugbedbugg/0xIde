@@ -253,10 +253,19 @@ if grep -qE 'AiRuntime|AiRequest|backendUrl|systemPrompt' "$OCRQML"
 then no "the OCR service references the AI backend"
 else ok "text extraction cannot reach the AI backend"; fi
 
-# The normal path ends at the clipboard, and nowhere else.
+# The normal path always reaches the clipboard, and always reports what it
+# found so the panel can show it.
 if grep -q '"wl-copy"' "$OCRQML"
 then ok "the OCR service copies to the Wayland clipboard"
 else no "the OCR service no longer copies its result"; fi
+if grep -q 'root.recognized(text, structured)' "$OCRQML" && grep -q 'copy.running = true' "$OCRQML"
+then ok "one capture both copies and reports"
+else no "the capture path no longer both copies and reports"; fi
+
+# Exactly one action captures a region for text.
+n=$(grep -c 'name: "screenshotOcr"' "$PICKER")
+[ "$n" = 1 ] && ok "there is one text extraction action" ||
+    no "found $n text extraction actions, expected 1"
 
 # The selection is made against a frozen screen.
 if awk '/function openOcr/{f=1} f&&/freeze = true/{found=1;exit} END{exit !found}' "$PICKER"
@@ -270,7 +279,7 @@ else no "the OCR service no longer deletes its capture"; fi
 
 # Superseded entry points must be gone, not merely unbound.
 bad=0
-for dead in ocrClipboard openOcrClipboard openFreezeOcr screenshotFreezeOcr regionOcr; do
+for dead in ocrClipboard openOcrClipboard openFreezeOcr screenshotFreezeOcr regionOcr openAskAi kbAskAi; do
     if git -C "$CM_ROOT" grep -qIn "$dead" -- . ':!tests/run' 2>/dev/null; then
         no "the superseded OCR entry point $dead is still referenced"; bad=1
     fi

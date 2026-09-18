@@ -19,18 +19,19 @@ install or skip.
 shell:
 
 - **Text extraction.** The screen freezes, you drag a rectangle over some text,
-  and on release the text is on your clipboard. Tesseract runs locally, there is
-  no result window to dismiss, and the capture is deleted straight away.
+  and on release the text is on your clipboard. Tesseract runs locally and the
+  capture is deleted straight away. The recognised text also opens in a panel,
+  where you can edit it, search it, rebuild it as a table, or hand it to the AI.
+  Escape closes the panel; the clipboard is already set either way.
 - **Region search.** Drag a rectangle over something and search the web for it.
   The region is read with local OCR and only the recognised *text* is searched,
   so no image leaves the machine.
 - **Circle search.** Draw freehand around something and search for the picture
   itself. This one uploads, so it asks first, every time, naming the host.
 - **Local AI.** A BitNet runtime bound to `127.0.0.1`, plus a client for any
-  OpenAI-compatible chat-completions endpoint you point it at. It reads a
-  captured region into a result window that can explain, summarise, translate or
-  rebuild it as a table. This is a separate action from text extraction, and
-  text extraction never touches it.
+  OpenAI-compatible chat-completions endpoint you point it at. It can explain,
+  summarise or translate the extracted text from the same panel. Nothing is sent
+  anywhere unless you press Ask AI.
 
 **Theme synchronisation** for applications Caelestia does not reach:
 
@@ -92,8 +93,7 @@ only its own application present.
 
 | Key | Action | Result appears |
 | --- | --- | --- |
-| `SUPER + SHIFT + T` | Extract text from a region | clipboard, silently |
-| `SUPER + SHIFT + I` | Extract text and open it for AI | result window |
+| `SUPER + SHIFT + T` | Extract text from a region | clipboard, and a panel |
 | `SUPER + SHIFT + A` | Region search, local OCR then a text search | browser |
 | `SUPER + SHIFT + O` | Circle search, uploads the picture after asking | browser |
 
@@ -136,8 +136,9 @@ the shell's settings.
 ## Privacy and privileges
 
 - **Text extraction is local.** Tesseract runs on this machine, the recognised
-  text goes to the clipboard and nowhere else, and the captured image is deleted
-  whether it succeeded or not. It never reaches the AI backend.
+  text goes to the clipboard and to a panel on this machine, and the captured
+  image is deleted whether it succeeded or not. Nothing reaches the AI backend
+  unless you press Ask AI.
 - **Region search stays local.** The rectangle is read with local OCR and only
   the recognised *text* is sent to a web search. No image leaves the machine.
 - **Circle search uploads, and asks first.** A visual search needs the picture,

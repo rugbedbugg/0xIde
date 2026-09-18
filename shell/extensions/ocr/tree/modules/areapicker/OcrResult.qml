@@ -16,7 +16,7 @@ Item {
 
     required property string text
     property var structured: ({})
-    property int activeTab: 0
+    property bool showSettings: false
     property bool tableMode: GlobalConfig.ai.tableMode && !!structured.words
     property var rows: []
     property int tableRevision: 0
@@ -29,8 +29,16 @@ Item {
         tableRevision;
         return rows.map(row => row.join("\t")).join("\n");
     }
-    readonly property string activeQuery: activeTab === 1 ? (aiText.selectedText || request.text) : tableMode ? (activeCell?.selectedText || tableText) : (extractedText.selectedText || extractedText.text)
+    // A selection anywhere wins; otherwise the whole extracted text.
+    readonly property string activeQuery: {
+        if (aiText.selectedText)
+            return aiText.selectedText;
+        if (tableMode)
+            return activeCell?.selectedText || tableText;
+        return extractedText.selectedText || extractedText.text;
+    }
     readonly property bool busy: request.running || waiting
+    readonly property bool hasResponse: busy || !!request.text || !!request.error
     readonly property int actionIndex: action.menuItems.indexOf(action.active)
     readonly property string destination: {
         if (GlobalConfig.ai.backend === "managed")
@@ -51,7 +59,7 @@ Item {
         boundaries.text = (structured.boundaries ?? []).map(x => Math.round(x)).join(", ");
         notice = "";
         offerInstall = false;
-        activeTab = 0;
+        showSettings = false;
     }
     function cancel(): void {
         waiting = false;
@@ -68,17 +76,16 @@ Item {
         notice = "";
         if (!GlobalConfig.ai.backend) {
             if (AiRuntime.info.installed) {
-                activeTab = 2;
+                showSettings = true;
                 notice = qsTr("A local model is installed. Choose a backend in Settings, then submit again.");
                 return;
             }
             offerInstall = true;
             return;
         }
-        activeTab = 1;
         if (GlobalConfig.ai.backend === "managed") {
             if (!AiRuntime.info.installed) {
-                activeTab = 2;
+                showSettings = true;
                 notice = qsTr("Install the local model below first.");
                 return;
             }
@@ -135,8 +142,8 @@ Item {
     }
 
     anchors.centerIn: parent
-    implicitWidth: Math.min(parent.width - Tokens.padding.extraLarge * 2, 960)
-    implicitHeight: Math.min(parent.height - Tokens.padding.extraLarge * 2, 700)
+    implicitWidth: Math.min(parent.width - Tokens.padding.extraLarge * 2, 900)
+    implicitHeight: Math.min(parent.height - Tokens.padding.extraLarge * 2, 660)
     focus: true
 
     onTextChanged: Qt.callLater(reset)
@@ -150,16 +157,13 @@ Item {
         onActivated: root.submit()
     }
     Shortcut {
-        sequence: "Ctrl+Tab"
-        context: Qt.WindowShortcut
-        onActivated: root.activeTab = (root.activeTab + 1) % 3
-    }
-    Shortcut {
         sequence: "Escape"
         context: Qt.WindowShortcut
         onActivated: {
             if (root.busy)
                 root.cancel();
+            else if (root.showSettings)
+                root.showSettings = false;
             else
                 root.dismissed();
         }
@@ -199,7 +203,8 @@ Item {
             anchors.margins: Tokens.padding.large
             spacing: Tokens.spacing.medium
 
-            // Header: what this is, where the AI would send it, and a way out.
+            // Header: what this is, where the AI would send it, and the only
+            // two things that are not about the text itself.
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Tokens.spacing.medium
@@ -217,7 +222,7 @@ Item {
 
                     StyledText {
                         Layout.fillWidth: true
-                        text: qsTr("Text extraction")
+                        text: root.showSettings ? qsTr("OCR and AI settings") : qsTr("Text extraction")
                         font: Tokens.font.title.medium
                         elide: Text.ElideRight
                     }
@@ -233,11 +238,11 @@ Item {
                             elide: Text.ElideMiddle
                         }
                         TextButton {
-                            visible: !GlobalConfig.ai.backend
+                            visible: !GlobalConfig.ai.backend && !root.showSettings
                             type: TextButton.Text
                             font: Tokens.font.label.small
                             text: qsTr("Set one up")
-                            onClicked: root.activeTab = 2
+                            onClicked: root.showSettings = true
                         }
                         Item {
                             Layout.fillWidth: true
@@ -247,31 +252,16 @@ Item {
                 IconButton {
                     Layout.alignment: Qt.AlignTop
                     type: IconButton.Text
+                    isToggle: true
+                    checked: root.showSettings
+                    icon: "settings"
+                    onClicked: root.showSettings = !root.showSettings
+                }
+                IconButton {
+                    Layout.alignment: Qt.AlignTop
+                    type: IconButton.Text
                     icon: "close"
                     onClicked: root.dismissed()
-                }
-            }
-
-            // Navigation. Nothing else in the card is a filled pill, so these
-            // read as tabs rather than as one more row of buttons.
-            RowLayout {
-                spacing: Tokens.spacing.extraSmall
-
-                Repeater {
-                    model: [qsTr("Text"), qsTr("AI response"), qsTr("Settings")]
-
-                    TextButton {
-                        required property int index
-                        required property string modelData
-
-                        text: modelData
-                        isToggle: true
-                        checked: root.activeTab === index
-                        onClicked: root.activeTab = index
-                    }
-                }
-                Item {
-                    Layout.fillWidth: true
                 }
             }
 
@@ -314,20 +304,12 @@ Item {
 
                         TextButton {
                             type: TextButton.Text
-                            text: qsTr("Install it for me")
+                            text: qsTr("Install")
                             onClicked: {
                                 root.offerInstall = false;
-                                root.activeTab = 2;
+                                root.showSettings = true;
                                 settings.confirmInstall = true;
                                 AiRuntime.refresh();
-                            }
-                        }
-                        TextButton {
-                            type: TextButton.Text
-                            text: qsTr("I'll do it myself")
-                            onClicked: {
-                                root.offerInstall = false;
-                                root.activeTab = 2;
                             }
                         }
                         TextButton {
@@ -349,18 +331,36 @@ Item {
                 radius: Tokens.rounding.medium
                 color: Colours.palette.m3surfaceContainerHigh
 
+                ScrollView {
+                    anchors.fill: parent
+                    anchors.margins: Tokens.padding.medium
+                    visible: root.showSettings
+                    clip: true
+                    contentWidth: availableWidth
+
+                    AiSettings {
+                        id: settings
+
+                        width: parent.width
+                    }
+                }
+
                 ColumnLayout {
                     anchors.fill: parent
                     anchors.margins: Tokens.padding.medium
+                    visible: !root.showSettings
                     spacing: Tokens.spacing.small
 
-                    // Editing controls, kept light so they do not compete with
-                    // the tabs above or the actions below.
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: root.activeTab === 0
                         spacing: Tokens.spacing.extraSmall
 
+                        StyledText {
+                            Layout.fillWidth: true
+                            text: qsTr("Extracted text")
+                            color: Colours.palette.m3outline
+                            font: Tokens.font.label.large
+                        }
                         TextButton {
                             visible: !!root.structured.words
                             type: TextButton.Text
@@ -370,15 +370,6 @@ Item {
                                 root.tableMode = !root.tableMode;
                                 GlobalConfig.ai.tableMode = root.tableMode;
                             }
-                        }
-                        TextButton {
-                            type: TextButton.Text
-                            font: Tokens.font.label.large
-                            text: qsTr("Restore original")
-                            onClicked: root.reset()
-                        }
-                        Item {
-                            Layout.fillWidth: true
                         }
                         IconButton {
                             visible: !root.tableMode
@@ -397,7 +388,7 @@ Item {
                     }
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: root.activeTab === 0 && root.tableMode
+                        visible: root.tableMode
                         spacing: Tokens.spacing.small
 
                         StyledTextField {
@@ -414,79 +405,76 @@ Item {
                             onClicked: root.rebuildTable()
                         }
                     }
-
-                    StackLayout {
+                    Item {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        currentIndex: root.activeTab
+                        Layout.preferredHeight: 100
 
-                        Item {
-                            ScrollView {
-                                anchors.fill: parent
-                                visible: !root.tableMode
-                                clip: true
+                        ScrollView {
+                            anchors.fill: parent
+                            visible: !root.tableMode
+                            clip: true
 
-                                TextArea {
-                                    id: extractedText
+                            TextArea {
+                                id: extractedText
 
-                                    objectName: "ocrEditor"
+                                objectName: "ocrEditor"
 
-                                    selectByMouse: true
-                                    persistentSelection: true
-                                    Keys.onTabPressed: nextItemInFocusChain(true).forceActiveFocus(Qt.TabFocusReason)
-                                    Keys.onBacktabPressed: nextItemInFocusChain(false).forceActiveFocus(Qt.BacktabFocusReason)
-                                    wrapMode: TextArea.Wrap
-                                    font: Tokens.font.mono.medium
-                                    color: Colours.palette.m3onSurface
-                                    padding: 0
-                                    background: null
-                                }
+                                selectByMouse: true
+                                persistentSelection: true
+                                Keys.onTabPressed: nextItemInFocusChain(true).forceActiveFocus(Qt.TabFocusReason)
+                                Keys.onBacktabPressed: nextItemInFocusChain(false).forceActiveFocus(Qt.BacktabFocusReason)
+                                wrapMode: TextArea.Wrap
+                                font: Tokens.font.mono.medium
+                                color: Colours.palette.m3onSurface
+                                padding: 0
+                                background: null
                             }
-                            ScrollView {
-                                anchors.fill: parent
-                                visible: root.tableMode
-                                clip: true
+                        }
+                        ScrollView {
+                            anchors.fill: parent
+                            visible: root.tableMode
+                            clip: true
 
-                                Column {
-                                    spacing: Tokens.spacing.extraSmall
+                            Column {
+                                spacing: Tokens.spacing.extraSmall
 
-                                    Repeater {
-                                        model: root.rows
+                                Repeater {
+                                    model: root.rows
 
-                                        Row {
-                                            id: tableRow
+                                    Row {
+                                        id: tableRow
 
-                                            required property int index
-                                            required property var modelData
+                                        required property int index
+                                        required property var modelData
 
-                                            spacing: Tokens.spacing.extraSmall
+                                        spacing: Tokens.spacing.extraSmall
 
-                                            Repeater {
-                                                model: tableRow.modelData
+                                        Repeater {
+                                            model: tableRow.modelData
 
-                                                TextField {
-                                                    required property int index
-                                                    required property string modelData
+                                            TextField {
+                                                required property int index
+                                                required property string modelData
 
-                                                    objectName: "ocrCell_" + tableRow.index + "_" + index
-                                                    width: 200
-                                                    text: modelData
-                                                    selectByMouse: true
-                                                    persistentSelection: true
-                                                    color: Colours.palette.m3onSurface
-                                                    font: Tokens.font.mono.small
-                                                    leftPadding: Tokens.padding.small
-                                                    rightPadding: Tokens.padding.small
-                                                    background: StyledRect {
-                                                        radius: Tokens.rounding.small
-                                                        color: Colours.palette.m3surfaceContainerHighest
-                                                    }
-                                                    onActiveFocusChanged: if (activeFocus)
-                                                        root.activeCell = this
-                                                    onTextEdited: {
-                                                        root.rows[tableRow.index][index] = text;
-                                                        root.tableRevision++;
-                                                    }
+                                                objectName: "ocrCell_" + tableRow.index + "_" + index
+                                                width: 200
+                                                text: modelData
+                                                selectByMouse: true
+                                                persistentSelection: true
+                                                color: Colours.palette.m3onSurface
+                                                font: Tokens.font.mono.small
+                                                leftPadding: Tokens.padding.small
+                                                rightPadding: Tokens.padding.small
+                                                background: StyledRect {
+                                                    radius: Tokens.rounding.small
+                                                    color: Colours.palette.m3surfaceContainerHighest
+                                                }
+                                                onActiveFocusChanged: if (activeFocus)
+                                                    root.activeCell = this
+                                                onTextEdited: {
+                                                    root.rows[tableRow.index][index] = text;
+                                                    root.tableRevision++;
                                                 }
                                             }
                                         }
@@ -494,59 +482,52 @@ Item {
                                 }
                             }
                         }
-                        ColumnLayout {
-                            spacing: Tokens.spacing.small
+                    }
 
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: Tokens.spacing.small
+                    // The response grows under the text rather than beside it in
+                    // a tab, and takes no room at all until there is one.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.topMargin: Tokens.spacing.small
+                        visible: root.hasResponse
+                        spacing: Tokens.spacing.small
 
-                                MaterialIcon {
-                                    text: request.error ? "error" : request.status === "complete" ? "check_circle" : "auto_awesome"
-                                    color: request.error ? Colours.palette.m3error : Colours.palette.m3outline
-                                    fontStyle: Tokens.font.icon.small
-                                }
-                                StyledText {
-                                    Layout.fillWidth: true
-                                    wrapMode: Text.Wrap
-                                    color: request.error ? Colours.palette.m3error : Colours.palette.m3outline
-                                    font: Tokens.font.label.large
-                                    text: root.waiting ? qsTr("Starting the local model...") : request.error || (request.status === "stopped" ? qsTr("Stopped. Partial response kept.") : request.status === "loading" ? qsTr("Generating...") : request.status === "complete" ? qsTr("Complete") : qsTr("Pick an action below, then Ask AI."))
-                                }
-                            }
-                            ScrollView {
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                clip: true
-
-                                TextArea {
-                                    id: aiText
-
-                                    objectName: "aiResponse"
-
-                                    readOnly: true
-                                    selectByMouse: true
-                                    persistentSelection: true
-                                    Keys.onTabPressed: nextItemInFocusChain(true).forceActiveFocus(Qt.TabFocusReason)
-                                    Keys.onBacktabPressed: nextItemInFocusChain(false).forceActiveFocus(Qt.BacktabFocusReason)
-                                    text: request.text
-                                    wrapMode: TextArea.Wrap
-                                    font: Tokens.font.mono.medium
-                                    color: Colours.palette.m3onSurface
-                                    padding: 0
-                                    background: null
-                                }
-                            }
+                        MaterialIcon {
+                            text: request.error ? "error" : request.status === "complete" ? "check_circle" : "auto_awesome"
+                            color: request.error ? Colours.palette.m3error : Colours.palette.m3outline
+                            fontStyle: Tokens.font.icon.small
                         }
-                        ScrollView {
-                            clip: true
-                            contentWidth: availableWidth
+                        StyledText {
+                            Layout.fillWidth: true
+                            wrapMode: Text.Wrap
+                            color: request.error ? Colours.palette.m3error : Colours.palette.m3outline
+                            font: Tokens.font.label.large
+                            text: root.waiting ? qsTr("Starting the local model...") : request.error || (request.status === "stopped" ? qsTr("Stopped. Partial response kept.") : request.status === "loading" ? qsTr("Generating...") : qsTr("AI response"))
+                        }
+                    }
+                    ScrollView {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.preferredHeight: 140
+                        visible: root.hasResponse
+                        clip: true
 
-                            AiSettings {
-                                id: settings
+                        TextArea {
+                            id: aiText
 
-                                width: parent.width
-                            }
+                            objectName: "aiResponse"
+
+                            readOnly: true
+                            selectByMouse: true
+                            persistentSelection: true
+                            Keys.onTabPressed: nextItemInFocusChain(true).forceActiveFocus(Qt.TabFocusReason)
+                            Keys.onBacktabPressed: nextItemInFocusChain(false).forceActiveFocus(Qt.BacktabFocusReason)
+                            text: request.text
+                            wrapMode: TextArea.Wrap
+                            font: Tokens.font.mono.medium
+                            color: Colours.palette.m3onSurface
+                            padding: 0
+                            background: null
                         }
                     }
                 }
@@ -555,7 +536,7 @@ Item {
             // One filled button, so it is obvious which control submits.
             RowLayout {
                 Layout.fillWidth: true
-                visible: root.activeTab !== 2
+                visible: !root.showSettings
                 spacing: Tokens.spacing.small
 
                 SplitButton {
@@ -564,9 +545,9 @@ Item {
                     Layout.alignment: Qt.AlignVCenter
                     type: SplitButton.Tonal
                     menuOnTop: true
-                    // Menu resolves its own parent from QsWindow, which is not
-                    // there yet while this card is incubating, and the window is
-                    // masked to the card anyway. Parent it here and open it
+                    // Menu resolves its own parent through QsWindow, which is
+                    // not attached while this card is incubating, and the window
+                    // is masked to the card anyway. Parent it here and open it
                     // rightwards so all of it stays inside the mask.
                     menu.parent: root
                     menu.attachSideX: Menu.Left
@@ -611,13 +592,6 @@ Item {
                 Item {
                     Layout.fillWidth: true
                     visible: root.actionIndex < 2
-                }
-                IconTextButton {
-                    type: IconTextButton.Tonal
-                    icon: "content_copy"
-                    text: qsTr("Copy")
-                    disabled: !root.activeQuery.trim()
-                    onClicked: Quickshell.execDetached(["wl-copy", "-n", "--", root.activeQuery])
                 }
                 IconTextButton {
                     type: IconTextButton.Tonal

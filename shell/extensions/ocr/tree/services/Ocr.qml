@@ -7,23 +7,37 @@ import Quickshell.Io
 import Caelestia
 import Caelestia.Config
 
-// Reading text out of a captured region, in two shapes.
+// Reading text out of a captured region. One entry point, capture(), which
+// always puts the text on the clipboard and always reports it.
 //
-//   extract()  plain text straight to the clipboard. This is what the text
-//              extraction keybind uses: tesseract, wl-copy, nothing else.
-//   scan()     word positions as well as text, for the result window's table
-//              reconstruction. Needs a helper, so it is not on the fast path.
+// Word positions cost a Python helper and are only used by the table view, so
+// they are collected only when that view is switched on. Everything else takes
+// the short path: tesseract, wl-copy, delete the capture.
 Scope {
     id: root
 
     // Installed Tesseract languages. "osd" is orientation and script detection
     // rather than a recognition model, so it is not one.
     property var languages: []
+    property var resultScreen: null
+    property string error: ""
 
     // Configured languages win when set; otherwise every installed one, which
     // is what Illogical Impulse does. "eng" is only the last resort for when
     // the listing failed.
     readonly property string effectiveLanguages: GlobalConfig.ai.ocrLanguages.trim() || languages.join("+") || "eng"
+
+    // Only fires when there is something to show.
+    signal recognized(string text, var structured)
+
+    function capture(path: string, screen: var): void {
+        resultScreen = screen;
+        error = "";
+        if (GlobalConfig.ai.tableMode)
+            scan(path);
+        else
+            extract(path);
+    }
 
     function refreshLanguages(): void {
         listing.running = true;
@@ -42,7 +56,19 @@ Scope {
         Quickshell.execDetached(args.concat([title, body]));
     }
 
+    function publish(text: string, structured: var): void {
+        copy.pending = text;
+        copy.running = true;
+        root.recognized(text, structured);
+    }
+
     Component.onCompleted: refreshLanguages()
+    Component.onDestruction: {
+        recognition.running = false;
+        extraction.running = false;
+        cleanup(scanPath);
+        cleanup(extractPath);
+    }
 
     Process {
         id: listing
@@ -58,7 +84,7 @@ Scope {
         }
     }
 
-    // --- extract: region -> tesseract -> clipboard ---------------------------
+    // --- short path: region -> tesseract -> clipboard ------------------------
 
     property string extractPath: ""
 
@@ -119,8 +145,7 @@ Scope {
                 return;
             }
             root.settleExtraction("", false);
-            copy.pending = text;
-            copy.running = true;
+            root.publish(text, ({}));
         }
     }
 
@@ -149,38 +174,23 @@ Scope {
         }
     }
 
-    // --- scan: region -> word positions -> result window ---------------------
+    // --- structured path: also collects word positions, for the table view ---
 
-    property var result: ({})
-    property string error: ""
     property string scanPath: ""
-    property var resultScreen: null
-    readonly property bool busy: recognition.running
     readonly property string helper: Qt.resolvedUrl("../assets/ocr/recognize.py").toString().replace("file://", "")
     // recognize.py is stdlib-only, so the distribution interpreter runs it.
     // Going through a version manager would add a dependency and pin a release
     // that need not be installed.
     readonly property string python: "/usr/bin/python3"
 
-    signal recognized
-
-    function scan(path: string, screen: var): void {
+    function scan(path: string): void {
         if (recognition.running) {
             cleanup(path);
-            error = qsTr("OCR is still processing the previous capture. Try again when it finishes.");
+            root.notify(qsTr("Still reading the last region"), qsTr("Try again once it finishes."), false);
             return;
         }
         scanPath = path;
-        resultScreen = screen;
-        error = "";
         recognition.running = true;
-    }
-
-    Component.onDestruction: {
-        recognition.running = false;
-        extraction.running = false;
-        cleanup(scanPath);
-        cleanup(extractPath);
     }
 
     Process {
@@ -195,10 +205,14 @@ Scope {
                     const data = JSON.parse(text);
                     if (data.error) {
                         root.error = data.error;
-                    } else {
-                        root.result = data;
-                        root.recognized();
+                        return;
                     }
+                    const recognised = (data.text ?? "").trim();
+                    if (!recognised) {
+                        root.notify(qsTr("No text found"), qsTr("Nothing was recognised in the selected region."), false);
+                        return;
+                    }
+                    root.publish(recognised, data);
                 } catch (error) {
                     root.error = qsTr("OCR helper failed. Check the Tesseract installation.");
                 }
