@@ -143,8 +143,16 @@ Item {
 
     anchors.centerIn: parent
     implicitWidth: Math.min(parent.width - Tokens.padding.extraLarge * 2, 900)
-    implicitHeight: Math.min(parent.height - Tokens.padding.extraLarge * 2, 660)
+    // Hug the content rather than always taking a fixed slab, so a short
+    // capture and the settings view do not leave half the card empty.
+    implicitHeight: Math.min(parent.height - Tokens.padding.extraLarge * 2, Math.max(360, layout.implicitHeight + Tokens.padding.large * 2))
     focus: true
+
+    Behavior on implicitHeight {
+        Anim {
+            type: Anim.Emphasized
+        }
+    }
 
     onTextChanged: Qt.callLater(reset)
     onStructuredChanged: Qt.callLater(reset)
@@ -199,6 +207,8 @@ Item {
         color: Qt.alpha(Colours.palette.m3surfaceContainer, 1)
 
         ColumnLayout {
+            id: layout
+
             anchors.fill: parent
             anchors.margins: Tokens.padding.large
             spacing: Tokens.spacing.medium
@@ -328,10 +338,15 @@ Item {
             StyledRect {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                // Anchored children do not size their parent, so report what
+                // whichever view is showing actually needs.
+                implicitHeight: (root.showSettings ? settings.implicitHeight : content.implicitHeight) + Tokens.padding.medium * 2
                 radius: Tokens.rounding.medium
                 color: Colours.palette.m3surfaceContainerHigh
 
                 ScrollView {
+                    id: settingsView
+
                     anchors.fill: parent
                     anchors.margins: Tokens.padding.medium
                     visible: root.showSettings
@@ -341,11 +356,16 @@ Item {
                     AiSettings {
                         id: settings
 
-                        width: parent.width
+                        // parent here is the scroll view's own content item,
+                        // whose width follows this item's, so binding to it
+                        // leaves wrapping text with no width to wrap against.
+                        width: settingsView.availableWidth
                     }
                 }
 
                 ColumnLayout {
+                    id: content
+
                     anchors.fill: parent
                     anchors.margins: Tokens.padding.medium
                     visible: !root.showSettings
@@ -408,7 +428,7 @@ Item {
                     Item {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        Layout.preferredHeight: 100
+                        Layout.preferredHeight: 180
 
                         ScrollView {
                             anchors.fill: parent
@@ -508,7 +528,7 @@ Item {
                     ScrollView {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        Layout.preferredHeight: 140
+                        Layout.preferredHeight: 200
                         visible: root.hasResponse
                         clip: true
 

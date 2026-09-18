@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import Caelestia
 import Caelestia.Config
@@ -15,26 +14,56 @@ ColumnLayout {
     property bool confirmInstall: false
     property bool confirmRemove: false
 
-    spacing: Tokens.spacing.medium
+    readonly property var missing: AiRuntime.info.missing ?? []
+    readonly property int backendIndex: GlobalConfig.ai.backend === "managed" ? 2 : GlobalConfig.ai.backend === "external" ? 1 : 0
+
+    spacing: Tokens.spacing.small
 
     Component.onDestruction: probe.cancel()
 
     StyledText {
         Layout.fillWidth: true
         text: qsTr("AI backend")
-        font: Tokens.font.title.medium
+        font: Tokens.font.title.small
     }
-    ComboBox {
+
+    // A row of toggles rather than a dropdown: there are three options, they
+    // are short, and a popup inside a scrolling view would be clipped by it.
+    RowLayout {
         Layout.fillWidth: true
-        model: [qsTr("Not configured"), qsTr("Existing OpenAI-compatible server"), qsTr("Experimental local BitNet")]
-        currentIndex: GlobalConfig.ai.backend === "managed" ? 2 : GlobalConfig.ai.backend === "external" ? 1 : 0
-        onActivated: index => GlobalConfig.ai.backend = ["", "external", "managed"][index]
+        spacing: Tokens.spacing.extraSmall
+
+        Repeater {
+            model: [qsTr("Off"), qsTr("Server"), qsTr("Local")]
+
+            TextButton {
+                required property int index
+                required property string modelData
+
+                text: modelData
+                isToggle: true
+                checked: root.backendIndex === index
+                onClicked: GlobalConfig.ai.backend = ["", "external", "managed"][index]
+            }
+        }
+        Item {
+            Layout.fillWidth: true
+        }
     }
     StyledText {
         Layout.fillWidth: true
         wrapMode: Text.Wrap
-        text: GlobalConfig.ai.backend === "external" ? qsTr("Text is sent to the URL below only when you submit an AI action.") : qsTr("BitNet runs on this computer. This experimental backend can produce repetitive or incorrect answers. The existing-server option lets you try another model.")
+        color: Colours.palette.m3outline
+        font: Tokens.font.label.large
+        text: {
+            if (GlobalConfig.ai.backend === "external")
+                return qsTr("Text goes to this URL, only when you press Ask AI.");
+            if (GlobalConfig.ai.backend === "managed")
+                return qsTr("Runs on this computer. Small and experimental.");
+            return qsTr("Nothing is sent anywhere until you pick a backend.");
+        }
     }
+
     StyledTextField {
         Layout.fillWidth: true
         visible: GlobalConfig.ai.backend === "external"
@@ -55,146 +84,200 @@ ColumnLayout {
         text: GlobalConfig.ai.systemPrompt
         onEditingFinished: GlobalConfig.ai.systemPrompt = text
     }
-    TextButton {
+    RowLayout {
+        Layout.fillWidth: true
         visible: GlobalConfig.ai.backend === "external"
-        text: probe.running ? qsTr("Cancel test") : qsTr("Test connection")
-        onClicked: {
-            if (probe.running) {
-                probe.cancel();
-                return;
+        spacing: Tokens.spacing.small
+
+        TextButton {
+            type: TextButton.Tonal
+            text: probe.running ? qsTr("Cancel test") : qsTr("Test connection")
+            onClicked: {
+                if (probe.running) {
+                    probe.cancel();
+                    return;
+                }
+                const payload = {
+                    messages: [
+                        {
+                            role: "user",
+                            content: "Reply with OK."
+                        }
+                    ],
+                    max_tokens: 8,
+                    stream: true
+                };
+                if (GlobalConfig.ai.model)
+                    payload.model = GlobalConfig.ai.model;
+                probe.send(GlobalConfig.ai.backendUrl, JSON.stringify(payload));
             }
-            const payload = {
-                messages: [
-                    {
-                        role: "user",
-                        content: "Reply with OK."
-                    }
-                ],
-                max_tokens: 8,
-                stream: true
-            };
-            if (GlobalConfig.ai.model)
-                payload.model = GlobalConfig.ai.model;
-            probe.send(GlobalConfig.ai.backendUrl, JSON.stringify(payload));
+        }
+        StyledText {
+            Layout.fillWidth: true
+            visible: !!probe.status
+            wrapMode: Text.Wrap
+            font: Tokens.font.label.large
+            color: probe.error ? Colours.palette.m3error : Colours.palette.m3outline
+            text: probe.error || (probe.status === "complete" ? qsTr("Connection succeeded") : probe.status)
         }
     }
+
     StyledText {
         Layout.fillWidth: true
-        visible: !!probe.status
-        wrapMode: Text.Wrap
-        text: probe.error || (probe.status === "complete" ? qsTr("Connection succeeded") : probe.status)
+        Layout.topMargin: Tokens.spacing.medium
+        text: qsTr("Local model")
+        font: Tokens.font.title.small
     }
     StyledText {
         Layout.fillWidth: true
         wrapMode: Text.Wrap
-        text: qsTr("Local model: %1\nDisk usage: %2 MiB\nLocation: %3").arg(AiRuntime.info.installed ? qsTr("Installed") : qsTr("Not installed")).arg(Math.round((AiRuntime.info.diskBytes ?? 0) / 1048576)).arg(AiRuntime.info.destination ?? "")
+        color: Colours.palette.m3outline
+        font: Tokens.font.label.large
+        text: AiRuntime.info.installed ? qsTr("Installed, %1 MiB").arg(Math.round((AiRuntime.info.diskBytes ?? 0) / 1048576)) : qsTr("Not installed")
     }
     RowLayout {
+        Layout.fillWidth: true
+        spacing: Tokens.spacing.extraSmall
+
         TextButton {
-            text: qsTr("Refresh status")
+            type: TextButton.Text
+            text: qsTr("Refresh")
             onClicked: AiRuntime.refresh()
         }
         TextButton {
+            type: TextButton.Text
             visible: !AiRuntime.info.installed && !AiRuntime.installing
-            text: qsTr("Install local model")
+            text: qsTr("Install")
             onClicked: {
                 AiRuntime.refresh();
                 root.confirmInstall = true;
             }
         }
         TextButton {
+            type: TextButton.Text
             visible: AiRuntime.installing
             text: qsTr("Cancel installation")
             onClicked: AiRuntime.cancel()
         }
         TextButton {
+            type: TextButton.Text
             visible: !!AiRuntime.info.installed
             text: qsTr("Stop server")
             onClicked: AiRuntime.stop()
         }
         TextButton {
+            type: TextButton.Text
             visible: !!AiRuntime.info.installed
             text: qsTr("Uninstall")
             onClicked: root.confirmRemove = true
         }
+        Item {
+            Layout.fillWidth: true
+        }
     }
+
+    // Only shown when something is actually missing, rather than as a standing
+    // paragraph about tools most people already have.
+    StyledText {
+        Layout.fillWidth: true
+        visible: !AiRuntime.info.installed && root.missing.length > 0
+        wrapMode: Text.Wrap
+        color: Colours.palette.m3error
+        font: Tokens.font.label.large
+        text: qsTr("Install first: %1").arg(root.missing.join(", "))
+    }
+
     StyledText {
         Layout.fillWidth: true
         visible: root.confirmInstall
         wrapMode: Text.Wrap
-        text: qsTr("Download %1 MiB; requires %2 MiB free. Available: %3 MiB. Installs only under %4.\nMissing prerequisites: %5").arg(Math.round((AiRuntime.info.downloadBytes ?? 0) / 1048576)).arg(Math.round((AiRuntime.info.requiredBytes ?? 0) / 1048576)).arg(Math.round((AiRuntime.info.freeBytes ?? 0) / 1048576)).arg(AiRuntime.info.destination ?? "").arg((AiRuntime.info.missing ?? []).join(", ") || qsTr("None"))
+        font: Tokens.font.label.large
+        text: qsTr("Downloads %1 MiB into %2. %3 MiB free.").arg(Math.round((AiRuntime.info.downloadBytes ?? 0) / 1048576)).arg(AiRuntime.info.destination ?? "").arg(Math.round((AiRuntime.info.freeBytes ?? 0) / 1048576))
     }
     RowLayout {
         visible: root.confirmInstall
+        spacing: Tokens.spacing.small
 
         TextButton {
-            text: qsTr("Download and install")
-            enabled: !!AiRuntime.info.destination && !(AiRuntime.info.missing ?? []).length && AiRuntime.info.freeBytes >= AiRuntime.info.requiredBytes
+            type: TextButton.Tonal
+            text: qsTr("Download")
+            disabled: !AiRuntime.info.destination || root.missing.length > 0 || AiRuntime.info.freeBytes < AiRuntime.info.requiredBytes
             onClicked: {
                 root.confirmInstall = false;
                 AiRuntime.install();
             }
         }
         TextButton {
+            type: TextButton.Text
             text: qsTr("Cancel")
             onClicked: root.confirmInstall = false
         }
     }
+
     StyledText {
         Layout.fillWidth: true
         visible: root.confirmRemove
         wrapMode: Text.Wrap
-        text: qsTr("Remove the managed model and its runtime? Your external servers and settings are kept.")
+        font: Tokens.font.label.large
+        text: qsTr("Remove the local model and its runtime? Server settings are kept.")
     }
     RowLayout {
         visible: root.confirmRemove
+        spacing: Tokens.spacing.small
 
         TextButton {
-            text: qsTr("Remove managed files")
+            type: TextButton.Tonal
+            text: qsTr("Remove")
             onClicked: {
                 root.confirmRemove = false;
                 AiRuntime.uninstall();
             }
         }
         TextButton {
-            text: qsTr("Keep files")
+            type: TextButton.Text
+            text: qsTr("Keep")
             onClicked: root.confirmRemove = false
         }
     }
     StyledText {
         Layout.fillWidth: true
+        visible: !!(AiRuntime.error || AiRuntime.message)
         wrapMode: Text.Wrap
+        font: Tokens.font.label.large
+        color: AiRuntime.error ? Colours.palette.m3error : Colours.palette.m3outline
         text: AiRuntime.error || AiRuntime.message
     }
+
     StyledText {
         Layout.fillWidth: true
-        wrapMode: Text.Wrap
-        text: qsTr("Manual setup: run an OpenAI-compatible server, select Existing server, and enter its chat completions URL and model name above. Managed installation requires uv, git, CMake, Ninja, clang and clang++. Install missing system prerequisites with your distribution's package manager, then retry.")
-    }
-    StyledText {
+        Layout.topMargin: Tokens.spacing.medium
         text: qsTr("OCR languages")
-        font: Tokens.font.title.medium
+        font: Tokens.font.title.small
     }
     StyledText {
         Layout.fillWidth: true
         wrapMode: Text.Wrap
-        text: qsTr("Installed: %1").arg(Ocr.languages.join(", ") || qsTr("None found"))
+        color: Colours.palette.m3outline
+        font: Tokens.font.label.large
+        text: qsTr("Installed: %1").arg(Ocr.languages.join(", ") || qsTr("none found"))
     }
-    StyledTextField {
+    RowLayout {
         Layout.fillWidth: true
-        placeholderText: qsTr("Tesseract languages, for example eng+deu. Empty uses all installed")
-        text: GlobalConfig.ai.ocrLanguages
-        onEditingFinished: GlobalConfig.ai.ocrLanguages = text.trim()
+        spacing: Tokens.spacing.small
+
+        StyledTextField {
+            Layout.fillWidth: true
+            placeholderText: qsTr("e.g. eng+deu. Empty uses all installed")
+            text: GlobalConfig.ai.ocrLanguages
+            onEditingFinished: GlobalConfig.ai.ocrLanguages = text.trim()
+        }
+        TextButton {
+            type: TextButton.Text
+            text: qsTr("Refresh")
+            onClicked: Ocr.refreshLanguages()
+        }
     }
-    TextButton {
-        text: qsTr("Refresh languages")
-        onClicked: Ocr.refreshLanguages()
-    }
-    StyledText {
-        Layout.fillWidth: true
-        wrapMode: Text.Wrap
-        text: qsTr("Leave this empty to recognise every installed language. Install more language data with your distribution's package manager. Changes apply to your next capture.")
-    }
+
     AiRequest {
         id: probe
     }
