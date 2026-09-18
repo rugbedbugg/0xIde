@@ -258,14 +258,47 @@ else ok "text extraction cannot reach the AI backend"; fi
 if grep -q '"wl-copy"' "$OCRQML"
 then ok "the OCR service copies to the Wayland clipboard"
 else no "the OCR service no longer copies its result"; fi
-if grep -q 'root.recognized(text, structured)' "$OCRQML" && grep -q 'copy.running = true' "$OCRQML"
-then ok "one capture both copies and reports"
-else no "the capture path no longer both copies and reports"; fi
+if grep -q 'copy.running = true' "$OCRQML"
+then ok "the capture path copies its result"
+else no "the capture path no longer copies its result"; fi
 
-# Exactly one action captures a region for text.
+# The contract: the ordinary extractor ends at the clipboard. It must not be
+# able to report anything, because reporting is what opens the result panel.
+if awk '/function capture\(path: string\): void/{f=1} f&&/^    }/{exit} f&&/recognized|captureForPanel|scan\(/{print}' "$OCRQML" | grep -q .
+then no "capture() can reach the panel path"
+else ok "capture() ends at the clipboard and reports nothing"; fi
+if grep -q 'if (report)' "$OCRQML"
+then ok "only an explicit panel capture reports"
+else no "reporting is no longer gated on an explicit panel capture"; fi
+if awk '/root.loader.askAi/{f=1} f&&/Ocr.capture\(path\)/{found=1} END{exit !found}' "$PICKER"
+then ok "the picker sends the ordinary path to the silent extractor"
+else no "the picker no longer distinguishes the two OCR calls"; fi
+
+# The two OCR actions, one bound and one deliberately not.
 n=$(grep -c 'name: "screenshotOcr"' "$PICKER")
-[ "$n" = 1 ] && ok "there is one text extraction action" ||
+[ "$n" = 1 ] && ok "one keybound text extraction action" ||
     no "found $n text extraction actions, expected 1"
+n=$(grep -c 'name: "askAi"' "$PICKER")
+[ "$n" = 1 ] && ok "one explicit AI-assisted action, registered" ||
+    no "found $n AI-assisted actions, expected 1"
+
+# Runtime discovery must never write a preference.
+AIRUNTIME="$CM_ROOT/shell/extensions/ai/tree/services/AiRuntime.qml"
+if grep -q 'GlobalConfig.ai.backend *=' "$AIRUNTIME"
+then no "AiRuntime still writes the backend preference"
+else ok "runtime discovery does not touch the backend preference"; fi
+bad=0
+while IFS= read -r f; do
+    if grep -n 'onEditingFinished: GlobalConfig' "$f" >/dev/null 2>&1; then
+        no "${f#$CM_ROOT/} persists a field the user may not have changed"; bad=1
+    fi
+done < <(git -C "$CM_ROOT" ls-files 'shell/extensions/*.qml' | sed "s|^|$CM_ROOT/|")
+[ "$bad" = 0 ] && ok "no field writes a preference it did not change"
+
+# A selection too small to hold text is rejected before anything is captured.
+if awk '/readonly property int minSelection/{print $NF}' "$PICKER" | grep -qE '^[2-9]|^1[0-9]'
+then ok "a too-small selection is rejected before capture"
+else no "the selector no longer rejects a too-small selection"; fi
 
 # The selection is made against a frozen screen.
 if awk '/function openOcr/{f=1} f&&/freeze = true/{found=1;exit} END{exit !found}' "$PICKER"
@@ -279,7 +312,7 @@ else no "the OCR service no longer deletes its capture"; fi
 
 # Superseded entry points must be gone, not merely unbound.
 bad=0
-for dead in ocrClipboard openOcrClipboard openFreezeOcr screenshotFreezeOcr regionOcr openAskAi kbAskAi; do
+for dead in ocrClipboard openOcrClipboard openFreezeOcr screenshotFreezeOcr regionOcr kbAskAi; do
     if git -C "$CM_ROOT" grep -qIn "$dead" -- . ':!tests/run' 2>/dev/null; then
         no "the superseded OCR entry point $dead is still referenced"; bad=1
     fi
