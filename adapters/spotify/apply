@@ -15,9 +15,33 @@ grep -qE '^current_theme[[:space:]]*=[[:space:]]*caelestia' \
 # running. Without pgrep there is no way to tell, and not applying is the
 # safer half of that guess.
 cm_have pgrep || exit 0
-pgrep -x spotify >/dev/null 2>&1 ||
-    pgrep -f 'com\.spotify\.Client' >/dev/null 2>&1 ||
-    exit 0
+
+# Check for live (non-zombie) Spotify processes.
+# pgrep matches zombies; filter via ps state.
+spotify_running() {
+    local pids
+    # Collect PIDs from both detectors independently; combine and deduplicate.
+    local pids1 pids2
+    pids1=$(pgrep -x spotify 2>/dev/null)
+    pids2=$(pgrep -f 'com\.spotify\.Client' 2>/dev/null)
+    # Combine and deduplicate PIDs
+    local pids
+    pids=$(printf '%s\n%s\n' "$pids1" "$pids2" | sort -u | sed '/^$/d')
+    [ -n "$pids" ] || return 1
+    # Check each PID individually; any non-Z state means a live process exists.
+    local pid
+    for pid in $pids; do
+        local stat
+        stat=$(ps -o stat= -p "$pid" 2>/dev/null) || continue
+        case "$stat" in
+            Z*) continue ;;  # zombie
+            *) return 0 ;;    # live process found
+        esac
+    done
+    return 1
+}
+
+spotify_running || exit 0
 
 # A full apply takes ~25s, so it must not block the theme change. flock keeps
 # rapid scheme switches from running two applies over the same files.
