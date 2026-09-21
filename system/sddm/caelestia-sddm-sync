@@ -1,0 +1,282 @@
+#!/usr/bin/python3
+"""
+Privileged helper for Caelestia SDDM theme synchronization.
+
+Installed at: /usr/local/libexec/caelestia-sddm-sync
+Owner: root:root
+Mode: 0755
+
+Derives caller from sudo metadata. Uses fixed state directory.
+Opens fixed basenames safely via dir_fd + O_NOFOLLOW.
+Validates via fstat. Writes to fixed destinations.
+"""
+
+import os
+import sys
+import stat
+import tempfile
+import pwd
+import subprocess
+import configparser
+from pathlib import Path
+
+# Fixed destinations
+WALLPAPER_DEST_DIR = Path("/usr/share/sddm/themes/corners/backgrounds")
+THEME_CONF_USER_DEST = Path("/usr/share/sddm/themes/corners/theme.conf.user")
+
+# Fixed input basenames
+WALLPAPER_BASENAMES = ["wallpaper.png", "wallpaper.jpg"]
+THEME_CONF_USER_BASENAME = "theme.conf.user"
+
+# Size limits
+MAX_WALLPAPER_SIZE = 50 * 1024 * 1024
+MAX_THEME_CONF_SIZE = 64 * 1024
+
+def parse_args():
+    """Parse command line arguments."""
+    if len(sys.argv) > 1:
+        if sys.argv[1] in ('-h', '--help'):
+            print("Caelestia SDDM privileged sync helper")
+            print("Usage: sudo /usr/local/libexec/caelestia-sddm-sync")
+            print("Derives caller from SUDO_USER/SUDO_UID")
+            print("Reads fixed files from ~/.local/state/caelestia/sddm/")
+            print("Writes: theme.conf.user, caelestia_wallpaper.{png,jpg}")
+            sys.exit(0)
+        print(f"ERROR: Unexpected argument: {sys.argv[1]}", file=sys.stderr)
+        print("Usage: sudo /usr/local/libexec/caelestia-sddm-sync [--help]", file=sys.stderr)
+        sys.exit(1)
+
+def get_sudo_user():
+    sudo_user = os.environ.get("SUDO_USER")
+    sudo_uid_str = os.environ.get("SUDO_UID")
+    if not sudo_user or not sudo_uid_str:
+        sys.exit("ERROR: Not invoked via sudo (SUDO_USER/SUDO_UID missing)")
+    try:
+        sudo_uid = int(sudo_uid_str)
+    except ValueError:
+        sys.exit("ERROR: Invalid SUDO_UID")
+    try:
+        pw = pwd.getpwnam(sudo_user)
+    except KeyError:
+        sys.exit(f"ERROR: User {sudo_user} not found")
+    if pw.pw_uid != sudo_uid:
+        sys.exit("ERROR: SUDO_UID does not match SUDO_USER")
+    return pw
+
+def get_state_dir(pw):
+    return Path(pw.pw_dir) / ".local/state/caelestia/sddm"
+
+def open_state_dir(state_dir, expected_uid):
+    """Open and validate state directory using directory fd."""
+    try:
+        state_dir_fd = os.open(state_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        sys.exit(f"ERROR: State directory {state_dir} does not exist")
+    except OSError as e:
+        sys.exit(f"ERROR: Cannot open state directory: {e}")
+    try:
+        st = os.fstat(state_dir_fd)
+    except OSError as e:
+        os.close(state_dir_fd)
+        sys.exit(f"ERROR: Cannot fstat state directory: {e}")
+    if not stat.S_ISDIR(st.st_mode):
+        os.close(state_dir_fd)
+        sys.exit("ERROR: State path is not a directory")
+    if st.st_uid != expected_uid:
+        os.close(state_dir_fd)
+        sys.exit(f"ERROR: State directory owned by {st.st_uid}, expected {expected_uid}")
+    if st.st_mode & 0o022:
+        os.close(state_dir_fd)
+        sys.exit("ERROR: State directory is group/world-writable")
+    return state_dir_fd
+
+def read_fixed_file(state_dir_fd, basename, max_size, expected_uid):
+    """Open fixed basename via dir_fd, validate via fstat, read in loop."""
+    try:
+        fd = os.open(basename, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=state_dir_fd)
+    except FileNotFoundError:
+        return None, 0
+    except OSError as e:
+        sys.exit(f"ERROR: Failed to open {basename}: {e}")
+    try:
+        st = os.fstat(fd)
+    except OSError as e:
+        os.close(fd)
+        sys.exit(f"ERROR: Cannot fstat {basename}: {e}")
+    if not stat.S_ISREG(st.st_mode):
+        os.close(fd)
+        sys.exit(f"ERROR: {basename} is not a regular file")
+    if st.st_uid != expected_uid:
+        os.close(fd)
+        sys.exit(f"ERROR: {basename} owned by {st.st_uid}, expected {expected_uid}")
+    if st.st_size > max_size:
+        os.close(fd)
+        sys.exit(f"ERROR: {basename} exceeds size limit ({st.st_size} > {max_size})")
+    
+    # Read in loop to handle partial reads
+    content = bytearray()
+    bytes_read = 0
+    try:
+        while bytes_read < max_size + 1:
+            chunk = os.read(fd, max_size + 1 - bytes_read)
+            if not chunk:
+                break
+            content.extend(chunk)
+            bytes_read += len(chunk)
+    except OSError as e:
+        os.close(fd)
+        sys.exit(f"ERROR: Failed to read {basename}: {e}")
+    os.close(fd)
+    
+    if bytes_read > max_size:
+        sys.exit(f"ERROR: {basename} exceeds size limit ({bytes_read} > {max_size})")
+    
+    return bytes(content), bytes_read
+
+def validate_wallpaper(content):
+    if len(content) < 8:
+        return False, None
+    if content[:3] == b'\xff\xd8\xff':  # JPEG
+        return True, ".jpg"
+    if content[:8] == b'\x89PNG\r\n\x1a\n':  # PNG
+        return True, ".png"
+    return False, None
+
+def validate_theme_conf_user(content):
+    try:
+        text = content.decode('utf-8')
+    except UnicodeDecodeError:
+        return False
+    parser = configparser.ConfigParser()
+    try:
+        parser.read_string(text)
+    except configparser.Error:
+        return False
+    if not parser.has_section('General'):
+        return False
+    if not parser.has_option('General', 'BgSource'):
+        return False
+    bg = parser.get('General', 'BgSource', fallback='').strip().strip('"\'')
+    if '..' in bg or bg.startswith('/') or os.path.isabs(bg):
+        return False
+    if not (bg.startswith('backgrounds/caelestia_wallpaper.') or bg == 'backgrounds/glacier.png'):
+        return False
+    return True
+
+def validate_destination(dest):
+    """Validate destination before atomic replace."""
+    try:
+        st = os.lstat(dest)
+        if not stat.S_ISREG(st.st_mode):
+            return False
+        if st.st_uid != 0:
+            return False
+        return True
+    except FileNotFoundError:
+        return True  # New file is OK
+    except OSError:
+        return False
+
+def install_file_atomic(dest, content):
+    """Atomically install content to destination as root:root 0644."""
+    if not validate_destination(dest):
+        print(f"ERROR: Destination {dest} validation failed", file=sys.stderr)
+        return False
+    
+    dest_dir = dest.parent
+    tmp_path = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(dir=dest_dir, prefix=f".{dest.name}.tmp.")
+        try:
+            os.write(fd, content)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        
+        os.chmod(tmp_path, 0o644)
+        os.chown(tmp_path, 0, 0)
+        
+        # Atomic replace
+        os.rename(tmp_path, dest)
+        return True
+    except Exception as e:
+        print(f"ERROR: Failed to install {dest}: {e}", file=sys.stderr)
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
+        return False
+
+def main():
+    parse_args()
+    
+    pw = get_sudo_user()
+    expected_uid = pw.pw_uid
+    state_dir = get_state_dir(pw)
+    
+    state_dir_fd = open_state_dir(state_dir, expected_uid)
+    
+    try:
+        success = True
+
+        # Process wallpaper
+        wallpaper_content = None
+        wallpaper_ext = None
+        for basename in ["wallpaper.png", "wallpaper.jpg"]:
+            content, size = read_fixed_file(state_dir_fd, basename, 50 * 1024 * 1024, expected_uid)
+            if content is not None:
+                valid, ext = validate_wallpaper(content)
+                if not valid:
+                    print(f"ERROR: {basename} is not a valid PNG/JPEG", file=sys.stderr)
+                    success = False
+                else:
+                    wallpaper_content = content
+                    wallpaper_ext = ext
+                    break
+        
+        if success and wallpaper_content:
+            wallpaper_dest = WALLPAPER_DEST_DIR / f"caelestia_wallpaper{wallpaper_ext}"
+            if not install_file_atomic(wallpaper_dest, wallpaper_content):
+                success = False
+            else:
+                print(f"Installed wallpaper: {wallpaper_dest}")
+                alt_ext = ".jpg" if wallpaper_ext == ".png" else ".png"
+                alt_dest = WALLPAPER_DEST_DIR / f"caelestia_wallpaper{alt_ext}"
+                if alt_dest.exists():
+                    try:
+                        alt_dest.unlink()
+                    except:
+                        pass
+
+        # Process theme.conf.user
+        theme_content, size = read_fixed_file(state_dir_fd, "theme.conf.user", 64 * 1024, expected_uid)
+        if theme_content is not None:
+            if not validate_theme_conf_user(theme_content):
+                print("ERROR: theme.conf.user validation failed", file=sys.stderr)
+                success = False
+            else:
+                if not install_file_atomic(THEME_CONF_USER_DEST, theme_content):
+                    success = False
+                else:
+                    print(f"Installed theme.conf.user: {THEME_CONF_USER_DEST}")
+
+        if not success:
+            sys.exit(1)
+
+    finally:
+        if 'state_dir_fd' in locals():
+            try:
+                os.close(state_dir_fd)
+            except:
+                pass
+
+if __name__ == '__main__':
+    if len(sys.argv) > 1 and sys.argv[1] in ('-h', '--help'):
+        print("Caelestia SDDM privileged sync helper")
+        print("Usage: sudo /usr/local/libexec/caelestia-sddm-sync")
+        print("Derives caller from SUDO_USER/SUDO_UID")
+        print("Reads fixed files from ~/.local/state/caelestia/sddm/")
+        print("Writes: theme.conf.user, caelestia_wallpaper.{png,jpg}")
+        sys.exit(0)
+    main()

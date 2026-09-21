@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+. "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
+
+echo "Removing Caelestia SDDM integration..."
+
+# Remove privileged helper
+HELPER_DEST="/usr/local/libexec/caelestia-sddm-sync"
+[ -e "$HELPER_DEST" ] && {
+    sudo rm -f "$HELPER_DEST"
+    cm_log "removed $HELPER_DEST"
+}
+
+# Remove sudoers rule
+SUDOERS_FILE="/etc/sudoers.d/caelestia-sddm"
+[ -e "$SUDOERS_FILE" ] && {
+    sudo rm -f "$SUDOERS_FILE"
+    cm_log "removed $SUDOERS_FILE"
+}
+
+# Remove Caelestia-generated theme files (NOT package-owned)
+THEME_DIR="${CM_SDDM_THEME_DIR:-/usr/share/sddm/themes/corners}"
+
+# theme.conf.user (Caelestia overlay)
+USER_CONF="$THEME_DIR/theme.conf.user"
+[ -e "$USER_CONF" ] && {
+    sudo rm -f "$USER_CONF"
+    cm_log "removed $USER_CONF"
+}
+
+# Caelestia wallpaper files (non-package-owned additions)
+for f in "$THEME_DIR/backgrounds/caelestia_wallpaper.png" \
+         "$THEME_DIR/backgrounds/caelestia_wallpaper.jpg"; do
+    [ -e "$f" ] && {
+        sudo rm -f "$f"
+        cm_log "removed $f"
+    }
+done
+
+# Disable adapter
+grep -qx sddm "$CM_CONFIG/adapters.enabled" 2>/dev/null && {
+    sed -i '/^sddm$/d' "$CM_CONFIG/adapters.enabled"
+    cm_log "disabled sddm adapter"
+}
+
+cm_log "Caelestia SDDM integration removed"

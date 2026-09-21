@@ -1,31 +1,68 @@
 #!/usr/bin/env bash
-# Enables login-screen theming. This writes into a package-owned directory, so
-# it is opt-in, prints what it will do, and asks.
+# Enables login-screen theming via a root-owned privileged helper.
+# The theme directory remains package-owned (root:root, 0755).
+# Caelestia generates state unprivileged; a fixed helper installs to /usr.
 set -euo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
 
 THEME_DIR="${CM_SDDM_THEME_DIR:-/usr/share/sddm/themes/corners}"
 [ -d "$THEME_DIR" ] || cm_die "$THEME_DIR does not exist; install the corners SDDM theme first"
 
+# Verify package integrity (must be root-owned)
+if [ "$(stat -c '%U:%G' "$THEME_DIR")" != "root:root" ]; then
+    cm_warn "$THEME_DIR is not root-owned; reinstall sddm-theme-corners-git to restore"
+fi
+
 echo
-echo "SDDM's theme lives in a directory owned by its package:"
+echo "SDDM theme sync uses a privileged helper for atomic root-owned updates."
+echo "The theme directory remains package-owned (root:root, 0755)."
+echo "Caelestia writes theme.conf.user (overlay) and caelestia_wallpaper.* (additions)."
 echo
-echo "    $THEME_DIR"
+
+if [ "${CM_ASSUME_YES:-0}" != 1 ]; then
+    printf 'Enable SDDM theme sync? [y/N] '
+    read -r reply
+    case "$reply" in [yY]*) ;; *) cm_log "not enabled"; exit 0 ;; esac
+fi
+
+# Must run as non-root; derive target user from effective identity
+if [ "$(id -u)" -eq 0 ]; then
+    cm_die "do not run this installer as root; run as your normal user"
+fi
+TARGET_USER="$(id -un)"
+
+# Install privileged helper from tracked source
+HELPER_SRC="$CM_ROOT/system/sddm/caelestia-sddm-sync"
+HELPER_DEST="/usr/local/libexec/caelestia-sddm-sync"
+if [ -x "$HELPER_SRC" ]; then
+    sudo install -Dm0755 "$HELPER_SRC" "$HELPER_DEST"
+    cm_log "installed privileged helper to $HELPER_DEST"
+else
+    cm_die "helper source $HELPER_SRC not found or not executable"
+fi
+
+# Generate sudoers rule for current non-root user
+TARGET_USER="${TARGET_USER:-$(id -un)}"
+SUDOERS_FILE="/etc/sudoers.d/caelestia-sddm"
+SUDOERS_RULE="$TARGET_USER ALL=(root) NOPASSWD: /usr/local/libexec/caelestia-sddm-sync"
+sudo tee "$SUDOERS_FILE.tmp" >/dev/null <<EOF
+# Caelestia SDDM theme sync — narrow privileged helper
+$SUDOERS_RULE
+EOF
+if sudo visudo -cf "$SUDOERS_FILE.tmp" >/dev/null 2>&1; then
+    sudo mv "$SUDOERS_FILE.tmp" "$SUDOERS_FILE"
+    sudo chmod 0440 "$SUDOERS_FILE"
+    cm_log "installed sudoers rule: $SUDOERS_RULE"
+else
+    cm_die "generated sudoers rule failed visudo validation"
+fi
+
 echo
-echo "Colours and the wallpaper are regenerated there on every Caelestia theme"
-echo "change. Two ways to allow that, in order of preference:"
+echo "SDDM theme sync uses a privileged helper for atomic root-owned updates."
+echo "The theme directory remains package-owned (root:root, 0755)."
+echo "Caelestia writes theme.conf.user (overlay) and caelestia_wallpaper.* (additions)."
 echo
-echo "  1. keep the directory root-owned, and let the sync escalate per write"
-echo "     (a sudo password prompt during a wallpaper change)"
-echo "  2. give your login group write access to it, once"
-echo "     (no prompts; a system directory stays group-writable afterwards)"
-echo
-echo "This installer does option 1 and never performs a chown. If you want"
-echo "option 2 you must do it deliberately yourself:"
-echo
-echo "    sudo chown -R root:\$(id -gn) $THEME_DIR"
-echo "    sudo chmod -R g+w $THEME_DIR"
-echo
+
 if [ "${CM_ASSUME_YES:-0}" != 1 ]; then
     printf 'Enable SDDM theme sync? [y/N] '
     read -r reply
@@ -36,7 +73,13 @@ mkdir -p "$CM_CONFIG"
 grep -qx sddm "$CM_CONFIG/adapters.enabled" 2>/dev/null ||
     printf 'sddm\n' >> "$CM_CONFIG/adapters.enabled"
 cm_log "sddm sync enabled"
-if [ -w "$THEME_DIR" ]; then
-    cm_log "note: $THEME_DIR is already writable by you, so no prompts will occur"
-    cm_warn "that is option 2 above; this machine already has it."
+
+# Verify helper is available
+if [ ! -x /usr/local/libexec/caelestia-sddm-sync ]; then
+    cm_warn "privileged helper /usr/local/libexec/caelestia-sddm-sync not found; sync will fail"
+fi
+
+# Verify sudoers rule exists
+if ! sudo -n -l 2>/dev/null | grep -q "caelestia-sddm-sync"; then
+    cm_warn "sudoers rule for caelestia-sddm-sync not found; sync will fail"
 fi

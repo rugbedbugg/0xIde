@@ -488,3 +488,46 @@ cm_step "Dependencies"
 
 printf '\n%s passed, %s failed, %s skipped\n' "$pass" "$fail" "$skip"
 [ "$fail" -eq 0 ]
+
+cm_step "SDDM reproducibility"
+# Tracked helper exists
+[ -x "$CM_ROOT/system/sddm/caelestia-sddm-sync" ] && ok "tracked helper exists" || no "tracked helper missing"
+
+# Helper shebang is fixed /usr/bin/python3
+head -1 "$CM_ROOT/system/sddm/caelestia-sddm-sync" | grep -q '^#!/usr/bin/python3$' && ok "helper shebang is /usr/bin/python3" || no "helper shebang is not /usr/bin/python3"
+
+# Installer references tracked helper
+grep -q 'HELPER_SRC.*system/sddm/caelestia-sddm-sync' "$CM_ROOT/system/sddm/install" && ok "installer references tracked helper" || no "installer does not reference tracked helper"
+
+# Installer installs to correct destination
+grep -q 'HELPER_DEST="/usr/local/libexec/caelestia-sddm-sync"' "$CM_ROOT/system/sddm/install" && ok "installer targets /usr/local/libexec/caelestia-sddm-sync" || no "installer does not target /usr/local/libexec/caelestia-sddm-sync"
+
+# Helper source in Git is never executed directly with sudo
+! grep -q 'sudo.*system/sddm/caelestia-sddm-sync' "$CM_ROOT/system/sddm/install" && ok "helper source never executed directly with sudo" || no "helper source executed directly with sudo"
+
+# Installer uses tracked helper with install -Dm0755
+grep -q 'install -Dm0755.*HELPER_SRC.*HELPER_DEST' "$CM_ROOT/system/sddm/install" && ok "installer uses install -Dm0755" || no "installer does not use install -Dm0755"
+
+# Sudoers rule is exact
+grep -q '\$TARGET_USER ALL=(root) NOPASSWD: /usr/local/libexec/caelestia-sddm-sync' "$CM_ROOT/system/sddm/install" && ok "sudoers rule is exact" || no "sudoers rule is not exact"
+
+# Sudoers mode target is 0440
+grep -q 'chmod 0440.*SUDOERS_FILE' "$CM_ROOT/system/sddm/install" && ok "sudoers mode target is 0440" || no "sudoers mode target is not 0440"
+
+# visudo validation occurs before installation
+grep -q 'visudo -cf.*SUDOERS_FILE' "$CM_ROOT/system/sddm/install" && ok "visudo validation occurs before installation" || no "visudo validation missing"
+
+# No hardcoded username in sudoers (check install script only)
+! python3 -c "import sys, re; sys.exit(0 if not re.search(r'[a-zA-Z][a-zA-Z0-9_-]{2,} ALL=', open('$CM_ROOT/system/sddm/install').read()) else 1)" && ok "no hardcoded username in sudoers" || no "hardcoded username found in sudoers"
+
+# Uninstall removes only Caelestia additions
+grep -q 'theme.conf.user' "$CM_ROOT/system/sddm/remove" && grep -q 'caelestia_wallpaper' "$CM_ROOT/system/sddm/remove" && ok "uninstall removes Caelestia additions" || no "uninstall does not remove Caelestia additions"
+
+# Uninstall never touches package theme.conf
+! grep -q 'rm.*theme.conf[^.]' "$CM_ROOT/system/sddm/remove" && ok "uninstall never touches package theme.conf" || no "uninstall touches package theme.conf"
+
+# No root-requiring SDDM integration enabled by default
+! grep -q 'sddm.*on' "$CM_ROOT/installer/components.conf" || grep -q 'sddm.*off' "$CM_ROOT/installer/components.conf" && ok "SDDM not enabled by default" || no "SDDM enabled by default"
+
+# Remove script exists
+[ -x "$CM_ROOT/system/sddm/remove" ] && ok "remove script exists" || no "remove script missing"
