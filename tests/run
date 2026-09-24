@@ -18,7 +18,7 @@ cm_step "Shell script syntax"
 while IFS= read -r f; do
     head -1 "$f" | grep -q 'bin/\(env \)\?\(ba\)\?sh' || continue
     if bash -n "$f" 2>/dev/null; then ok "${f#$CM_ROOT/}"; else no "${f#$CM_ROOT/}"; fi
-done < <(find "$CM_ROOT" -path "$CM_ROOT/build" -prune -o -path "$CM_ROOT/.work" -prune -o -type f -perm -u+x -print; echo "$CM_ROOT/orchestration/lib/common.sh")
+done < <(find "$CM_ROOT" -path "$CM_ROOT/.git" -prune -o -path "$CM_ROOT/build" -prune -o -path "$CM_ROOT/.work" -prune -o -type f -perm -u+x -print; echo "$CM_ROOT/orchestration/lib/common.sh")
 
 cm_step "Python syntax"
 while IFS= read -r f; do
@@ -391,13 +391,16 @@ else
         *) no "tesseract did not read the test image, got: $got" ;;
     esac
     if [ -n "${WAYLAND_DISPLAY:-}" ] && cm_have wl-copy && cm_have wl-paste; then
+        # wl-copy stays behind to serve the clipboard, so it must not inherit
+        # this script's output: a pipe reading the suite would never see EOF.
         before="$(wl-paste 2>/dev/null || true)"
-        wl-copy -n -- "$got"
+        wl-copy -n -- "$got" </dev/null >/dev/null 2>&1
         case "$(wl-paste 2>/dev/null)" in
             *CAELESTIA*) ok "the recognised text reaches the Wayland clipboard" ;;
             *) no "the recognised text did not reach the clipboard" ;;
         esac
-        [ -n "$before" ] && wl-copy -n -- "$before"
+        if [ -n "$before" ]; then wl-copy -n -- "$before" </dev/null >/dev/null 2>&1
+        else wl-copy --clear </dev/null >/dev/null 2>&1; fi
     else skipt "no Wayland clipboard to check"; fi
     rm -rf "$ocrtmp"
 fi
@@ -483,12 +486,6 @@ cm_step "No broken symlinks"
 if [ -n "$(find "$CM_ROOT" -path "$CM_ROOT/build" -prune -o -xtype l -print 2>/dev/null)" ]
 then no "broken symlink(s) in the repository"; else ok "none"; fi
 
-cm_step "Dependencies"
-"$CM_ROOT/installer/check_deps.sh" || true
-
-printf '\n%s passed, %s failed, %s skipped\n' "$pass" "$fail" "$skip"
-[ "$fail" -eq 0 ]
-
 cm_step "SDDM reproducibility"
 # Tracked helper exists
 [ -x "$CM_ROOT/system/sddm/caelestia-sddm-sync" ] && ok "tracked helper exists" || no "tracked helper missing"
@@ -532,110 +529,65 @@ grep -q 'theme.conf.user' "$CM_ROOT/system/sddm/remove" && grep -q 'caelestia_wa
 # Remove script exists
 [ -x "$CM_ROOT/system/sddm/remove" ] && ok "remove script exists" || no "remove script missing"
 
-cm_step "Spotify process liveness detection"
-# Test the spotify_running() helper with mocked ps/pgrep outputs.
-# We can't easily spawn real processes in all 7 states, so we test the
-# decision logic by injecting a stub ps that returns specific STAT codes.
-spotify_running_test() {
-    local pids pids2 pid stat
-    pids=$(pgrep -x spotify 2>/dev/null)
-    pids2=$(pgrep -f 'com\.spotify\.Client' 2>/dev/null)
-    # Combine and deduplicate
-    local pids
-    pids=$(printf '%s\n%s\n' "$pids" "$pids2" | sort -u | sed '/^$/d')
-    [ -n "$pids" ] || return 1
-    for pid in $pids; do
-        stat=$(ps -o stat= -p "$pid" 2>/dev/null) || continue
-        case "$stat" in
-            Z*) continue ;;
-            *) return 0 ;;
-        esac
-    done
-    return 1
+cm_step "Spotify process liveness"
+# Drives the real adapter with pgrep, ps and spicetify stubbed, so each case is
+# a process table the adapter has to read rather than a copy of its logic.
+# pgrep -x spotify is the native detector, pgrep -f com.spotify.Client the
+# Flatpak one; ps reports each PID's state from a file, and a missing file is a
+# process that exited between the two calls.
+sp="$(mktemp -d)"
+mkdir -p "$sp/bin" "$sp/conf/spicetify" "$sp/state/caelestia-mod" "$sp/stat"
+printf 'current_theme = caelestia\n' > "$sp/conf/spicetify/config-xpui.ini"
+cat > "$sp/bin/pgrep" <<STUB
+#!/bin/sh
+case "\$*" in *-x*) f="$sp/native" ;; *) f="$sp/flatpak" ;; esac
+[ -s "\$f" ] || exit 1
+cat "\$f"
+STUB
+cat > "$sp/bin/ps" <<STUB
+#!/bin/sh
+for a in "\$@"; do pid="\$a"; done
+[ -f "$sp/stat/\$pid" ] || exit 1
+cat "$sp/stat/\$pid"
+STUB
+cat > "$sp/bin/spicetify" <<STUB
+#!/bin/sh
+touch "$sp/applied"
+STUB
+chmod +x "$sp/bin/pgrep" "$sp/bin/ps" "$sp/bin/spicetify"
+
+# spotify_case <description> <expect: apply|skip> <native pids> <flatpak pids> [pid=STAT ...]
+spotify_case() {
+    local what="$1" expect="$2" i entry got
+    printf '%s' "$3" | tr ' ' '\n' > "$sp/native"
+    printf '%s' "$4" | tr ' ' '\n' > "$sp/flatpak"
+    shift 4
+    rm -f "$sp/applied" "$sp"/stat/*
+    for entry in "$@"; do printf '%s\n' "${entry#*=}" > "$sp/stat/${entry%%=*}"; done
+    PATH="$sp/bin:$PATH" XDG_CONFIG_HOME="$sp/conf" XDG_STATE_HOME="$sp/state" \
+        bash "$CM_ROOT/adapters/spotify/apply" >/dev/null 2>&1 || true
+    # spicetify runs detached; give it a moment to land before deciding.
+    for i in 1 2 3 4 5 6 7 8 9 10; do [ -e "$sp/applied" ] && break; sleep 0.1; done
+    got=skip; [ -e "$sp/applied" ] && got=apply
+    if [ "$got" = "$expect" ]; then ok "$what -> $expect"; else no "$what -> $got, expected $expect"; fi
 }
 
-# Test the decision logic directly by mocking ps output
-# We test the core decision function in isolation
-spotify_decision() {
-    local input="$1"  # newline-separated STAT lines
-    local stat
-    while IFS= read -r stat; do
-        case "$stat" in
-            Z*) continue ;;
-            "") continue ;;
-            *) return 0 ;;
-        esac
-    done <<< "$input"
-    return 1
-}
+spotify_case "no Spotify process"                skip  ""        ""
+spotify_case "one live native process"           apply "101"     ""        101=Sl
+spotify_case "one zombie native process"         skip  "101"     ""        101=Z
+spotify_case "one live Flatpak process"          apply ""        "201"     201=S
+spotify_case "one zombie Flatpak process"        skip  ""        "201"     201=Z+
+spotify_case "native zombie, Flatpak live"       apply "101"     "201"     101=Z 201=Sl
+spotify_case "native live, Flatpak zombie"       apply "101"     "201"     101=S 201=Z
+spotify_case "native and Flatpak both zombies"   skip  "101"     "201"     101=Z 201=Z
+spotify_case "zombie then live, same detector"   apply "101 102" ""        101=Z 102=Sl
+spotify_case "PID exited before ps saw it"       skip  "101"     ""
+spotify_case "one PID seen by both detectors"    apply "101"     "101"     101=Sl
+rm -rf "$sp"
 
-# Case 1: no Spotify PID
-if spotify_decision ""; then
-    no "no Spotify PID -> should not be running"
-else
-    ok "no Spotify PID -> not running"
-fi
+cm_step "Dependencies"
+"$CM_ROOT/installer/check_deps.sh" || true
 
-# Case 2: one live spotify PID (STAT=S)
-if spotify_decision "S"; then
-    ok "one live spotify PID -> running"
-else
-    no "one live spotify PID -> should be running"
-fi
-
-# Case 3: one zombie spotify PID (STAT=Z)
-if spotify_decision "Z"; then
-    no "one zombie spotify PID -> should not be running"
-else
-    ok "one zombie spotify PID -> not running"
-fi
-
-# Case 4: zombie + live (STAT=Z then STAT=S)
-if spotify_decision $'Z\nS'; then
-    ok "zombie + live -> running"
-else
-    no "zombie + live -> should be running"
-fi
-
-# Case 5: live com.spotify.Client (STAT=S)
-if spotify_decision "S"; then
-    ok "live com.spotify.Client -> running"
-else
-    no "live com.spotify.Client -> should be running"
-fi
-
-# Case 6: zombie com.spotify.Client (STAT=Z)
-if spotify_decision "Z"; then
-    no "zombie com.spotify.Client -> should not be running"
-else
-    ok "zombie com.spotify.Client -> not running"
-fi
-
-# Case 7: neither
-if spotify_decision ""; then
-    no "neither -> should not be running"
-else
-    ok "neither -> not running"
-fi
-
-# Cross-detector cases (native + Flatpak combined)
-# Case 8: native zombie + Flatpak live
-if spotify_decision $'Z\nS'; then
-    ok "native zombie + Flatpak live -> running"
-else
-    no "native zombie + Flatpak live -> should be running"
-fi
-
-# Case 9: native live + Flatpak zombie
-if spotify_decision $'S\nZ'; then
-    ok "native live + Flatpak zombie -> running"
-else
-    no "native live + Flatpak zombie -> should be running"
-fi
-
-# Case 10: native zombie + Flatpak zombie
-if spotify_decision $'Z\nZ'; then
-    no "native zombie + Flatpak zombie -> should not be running"
-else
-    ok "native zombie + Flatpak zombie -> not running"
-fi
+# Nothing may follow this: the script's exit status is this comparison.
+printf '\n%s passed, %s failed, %s skipped\n' "$pass" "$fail" "$skip"
+[ "$fail" -eq 0 ]
