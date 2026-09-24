@@ -14,6 +14,13 @@ PY="$(cm_python)"
 # Compiling a checker must not leave __pycache__ in the working tree.
 export PYTHONDONTWRITEBYTECODE=1
 
+# The --exclude arguments of shell/build.sh's shell deploy, read from the
+# script itself so the checks below run the real patterns, not a copy.
+deploy_excludes() {
+    awk '/^rsync -a --delete \\$/{f=1} f{print} f&&/CM_SHELLDIR\/"$/{exit}' "$CM_ROOT/shell/build.sh" |
+        grep -oE -- "--exclude '[^']+'" | sed -E "s/^--exclude '(.*)'$/--exclude=\1/"
+}
+
 cm_step "Shell script syntax"
 while IFS= read -r f; do
     head -1 "$f" | grep -q 'bin/\(env \)\?\(ba\)\?sh' || continue
@@ -94,6 +101,26 @@ CHK
         else no "a picker entry point leaves a mode flag set"; fi
     fi
 
+    # Deploy the patched upstream tree with the real exclusions into an empty
+    # directory, as a fresh install would, and check that every script a QML
+    # file imports arrived. utils/Searcher.qml importing scripts/fzf.js is the
+    # case an unanchored "scripts" exclusion broke.
+    if cm_have rsync; then
+        mapfile -t excl < <(deploy_excludes)
+        dep="$(mktemp -d)"
+        rsync -a --delete "${excl[@]}" "$tmp/" "$dep/"
+        missing=""
+        while IFS= read -r qml; do
+            while IFS= read -r js; do
+                [ -f "$(dirname "$qml")/$js" ] || missing="$missing ${qml#$dep/} -> $js"
+            done < <(grep -oE '^import "[^"]+\.js"' "$qml" | sed -E 's/^import "(.*)"$/\1/')
+        done < <(find "$dep" -name '*.qml')
+        if [ -z "$missing" ] && [ -f "$dep/utils/scripts/fzf.js" ]
+        then ok "a fresh deploy keeps every script the QML imports"
+        else no "a fresh deploy is missing imported scripts:$missing"; fi
+        rm -rf "$dep"
+    fi
+
     git -C "$SRC" worktree remove --force "$tmp" 2>/dev/null
 else skipt "no upstream checkout yet (run ./shell/build.sh)"; fi
 
@@ -157,6 +184,38 @@ for t in AiConfig backend backendUrl model systemPrompt ocrLanguages translateLa
 done
 grep -q "class AiRequest" "$CM_ROOT/shell/plugin/src/airequest.hpp" &&
     ok "plugin still declares both recovered types" || no "airequest.hpp lost AiRequest"
+
+cm_step "Shell deploy exclusions"
+# rsync matches an unanchored exclude at any depth, so "scripts" also removed
+# upstream's utils/scripts/. Runs the real patterns over a fixture: top-level
+# build entries must go, same-named nested ones must stay.
+if ! cm_have rsync; then skipt "no rsync"
+else
+    mapfile -t excl < <(deploy_excludes)
+    if [ ${#excl[@]} -eq 0 ]; then
+        no "could not read the deploy exclusions from shell/build.sh"
+    else
+        fx="$(mktemp -d)"
+        for f in scripts/lint.py plugin/CMakeLists.txt nix/package.nix extras/x flake.nix flake.lock \
+                 CMakeLists.txt .git/HEAD assets/ai/__pycache__/runtime.pyc \
+                 utils/scripts/fzf.js utils/scripts/fuzzysort.js modules/plugin/Page.qml \
+                 modules/nix/Page.qml modules/extras/Page.qml modules/scripts/helper.js shell.qml; do
+            mkdir -p "$fx/src/$(dirname "$f")"; : > "$fx/src/$f"
+        done
+        mkdir -p "$fx/dst"
+        rsync -a --delete "${excl[@]}" "$fx/src/" "$fx/dst/"
+        bad=0
+        for f in scripts plugin nix extras flake.nix flake.lock CMakeLists.txt .git assets/ai/__pycache__; do
+            [ -e "$fx/dst/$f" ] && { no "the deploy copies $f, which it should leave out"; bad=1; }
+        done
+        for f in utils/scripts/fzf.js utils/scripts/fuzzysort.js modules/plugin/Page.qml \
+                 modules/nix/Page.qml modules/extras/Page.qml modules/scripts/helper.js shell.qml; do
+            [ -e "$fx/dst/$f" ] || { no "the deploy drops $f, a nested path it should keep"; bad=1; }
+        done
+        [ "$bad" = 0 ] && ok "top-level build entries are excluded, nested same-named ones are kept"
+        rm -rf "$fx"
+    fi
+fi
 
 cm_step "Safe defaults"
 # Nothing needing root may be installed by a plain ./install.

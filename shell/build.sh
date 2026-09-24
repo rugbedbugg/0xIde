@@ -105,9 +105,14 @@ fi
 
 cm_backup "$CM_SHELLDIR"
 mkdir -p "$CM_SHELLDIR"
+# Upstream's top-level build and packaging entries are anchored with a leading
+# "/". Unanchored, rsync matches a name at any depth, which dropped the
+# utils/scripts/ that utils/Searcher.qml imports; --delete then left an older
+# copy in place, so only a fresh install showed it. VCS data, build files and
+# bytecode are unwanted wherever they appear, so those stay unanchored.
 rsync -a --delete \
-    --exclude '.git' --exclude 'plugin' --exclude 'nix' --exclude 'scripts' \
-    --exclude 'extras' --exclude 'CMakeLists.txt' --exclude 'flake.*' \
+    --exclude '.git' --exclude '/plugin' --exclude '/nix' --exclude '/scripts' \
+    --exclude '/extras' --exclude 'CMakeLists.txt' --exclude '/flake.*' \
     --exclude '__pycache__' \
     "$SRC/" "$CM_SHELLDIR/"
 cm_own "$CM_SHELLDIR"
