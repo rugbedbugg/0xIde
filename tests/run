@@ -588,6 +588,77 @@ grep -q 'theme.conf.user' "$CM_ROOT/system/sddm/remove" && grep -q 'caelestia_wa
 # Remove script exists
 [ -x "$CM_ROOT/system/sddm/remove" ] && ok "remove script exists" || no "remove script missing"
 
+cm_step "SDDM wallpaper hand-off"
+# Runs the real sync with HOME in a sandbox and sudo stubbed, so nothing is
+# installed. The stub snapshots the state directory at the moment the helper
+# would run, and the snapshot is judged with the helper's own validators:
+# exactly one wallpaper.{png,jpg}, named by its bytes, and BgSource naming the
+# file the helper will install from it. Or no wallpaper and the theme's own.
+if [ ! -d /usr/share/sddm/themes/corners ]; then
+    skipt "the corners SDDM theme is not installed, so sync does nothing"
+else
+    sd="$(mktemp -d)"
+    st="$sd/home/.local/state/caelestia"
+    mkdir -p "$sd/bin" "$st/wallpaper" "$st/sddm" "$sd/walls"
+    cat > "$sd/bin/sudo" <<STUB
+#!/bin/sh
+rm -rf "$sd/snap"; cp -a "$st/sddm" "$sd/snap"
+STUB
+    chmod +x "$sd/bin/sudo"
+    printf '\x89PNG\r\n\x1a\npng-body' > "$sd/walls/a.png"
+    printf '\xff\xd8\xff\xe0jpeg-body' > "$sd/walls/b.jpg"
+    printf '\xff\xd8\xff\xe0jpeg-body' > "$sd/walls/c.jpeg"
+    printf '\x89PNG\r\n\x1a\npng-body' > "$sd/walls/d.jpg"
+    printf 'RIFF\0\0\0\0WEBPVP8 ' > "$sd/walls/e.webp"
+
+    # sddm_case <description> <wallpaper or ""> <expect: png|jpg|none> [stale state files...]
+    sddm_case() {
+        local what="$1" wall="$2" expect="$3" s
+        shift 3
+        rm -rf "$st/sddm" "$sd/snap"; mkdir -p "$st/sddm"
+        for s in "$@"; do printf 'stale' > "$st/sddm/$s"; done
+        if [ -n "$wall" ]; then printf '%s\n' "$sd/walls/$wall" > "$st/wallpaper/path.txt"
+        else rm -f "$st/wallpaper/path.txt"; fi
+        HOME="$sd/home" PATH="$sd/bin:$PATH" SCHEME_COLOURS='{"primary":"b4befe","surface":"1e1e2e"}' \
+            "$PY" "$CM_ROOT/system/sddm/sync" >/dev/null 2>&1
+        if "$PY" - "$CM_ROOT/system/sddm/caelestia-sddm-sync" "$sd/snap" "$expect" \
+               "${wall:+$sd/walls/$wall}" <<'CHK'
+import configparser, importlib.machinery, importlib.util, pathlib, sys
+loader = importlib.machinery.SourceFileLoader("helper", sys.argv[1])
+helper = importlib.util.module_from_spec(importlib.util.spec_from_loader("helper", loader))
+loader.exec_module(helper)
+snap, expect = pathlib.Path(sys.argv[2]), sys.argv[3]
+source = pathlib.Path(sys.argv[4]) if len(sys.argv) > 4 else None
+conf = (snap / "theme.conf.user").read_bytes()
+bg = configparser.ConfigParser()
+bg.read_string(conf.decode())
+bg = bg.get("General", "BgSource").strip('"')
+walls = sorted(p.name for p in snap.glob("wallpaper.*"))
+ok = helper.validate_theme_conf_user(conf)
+if expect == "none":
+    ok = ok and walls == [] and bg == "backgrounds/glacier.png"
+else:
+    data = (snap / f"wallpaper.{expect}").read_bytes() if walls == [f"wallpaper.{expect}"] else b""
+    ok = (ok and data == source.read_bytes()
+          and helper.validate_wallpaper(data)[1] == f".{expect}"
+          and bg == f"backgrounds/caelestia_wallpaper.{expect}")
+if not ok:
+    print(f"        state: {walls}, BgSource: {bg}")
+sys.exit(0 if ok else 1)
+CHK
+        then ok "$what"; else no "$what"; fi
+    }
+
+    sddm_case "a PNG wallpaper is handed over as PNG"                  a.png  png
+    sddm_case "a JPEG replacing an earlier PNG is the one installed"   b.jpg  jpg  wallpaper.png
+    sddm_case "a PNG replacing an earlier JPEG is the one installed"   a.png  png  wallpaper.jpg
+    sddm_case "a .jpeg file is handed over as JPEG"                    c.jpeg jpg  wallpaper.jpeg
+    sddm_case "a PNG named .jpg is handed over as PNG"                 d.jpg  png
+    sddm_case "an unsupported format falls back, leaving no stale file" e.webp none wallpaper.png wallpaper.webp
+    sddm_case "no wallpaper falls back to the theme's background"      ""     none   wallpaper.jpg
+    rm -rf "$sd"
+fi
+
 cm_step "Spotify process liveness"
 # Drives the real adapter with pgrep, ps and spicetify stubbed, so each case is
 # a process table the adapter has to read rather than a copy of its logic.

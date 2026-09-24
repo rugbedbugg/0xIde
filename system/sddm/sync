@@ -53,6 +53,63 @@ def get_wallpaper():
         return current_symlink.resolve()
     return None
 
+# The helper's limit; a larger file makes it refuse the whole sync.
+MAX_WALLPAPER_SIZE = 50 * 1024 * 1024
+
+def image_type(path):
+    """The extension the helper will give this file, from its bytes, or None."""
+    with open(path, "rb") as f:
+        head = f.read(8)
+    if head[:3] == b"\xff\xd8\xff":
+        return ".jpg"
+    if head == b"\x89PNG\r\n\x1a\n":
+        return ".png"
+    return None
+
+def prepare_wallpaper(wall):
+    """Leaves exactly one wallpaper.{png,jpg} in STATE_DIR, or none.
+
+    The helper installs the first of wallpaper.png and wallpaper.jpg it finds
+    and names the result by the file's bytes, not its name. So the state file
+    is named by content, and any other wallpaper.* is removed first: a copy
+    left from an earlier wallpaper would otherwise be installed in place of
+    this one, under a name BgSource does not point at. Returns the extension
+    BgSource should use, or None for the theme's own background.
+    """
+    ext = None
+    if wall:
+        try:
+            ext = image_type(wall)
+            if ext is None:
+                print(f"Warning: {wall.name} is not PNG or JPEG; the login screen keeps its own background",
+                      file=sys.stderr)
+            elif wall.stat().st_size > MAX_WALLPAPER_SIZE:
+                print(f"Warning: {wall.name} is over 50 MiB; the login screen keeps its own background",
+                      file=sys.stderr)
+                ext = None
+        except OSError as e:
+            print(f"Warning: cannot read wallpaper: {e}", file=sys.stderr)
+            ext = None
+
+    target = STATE_DIR / f"wallpaper{ext}" if ext else None
+    for old in STATE_DIR.glob("wallpaper.*"):
+        if old != target:
+            old.unlink(missing_ok=True)
+    if target is None:
+        return None
+
+    tmp = STATE_DIR / f".wallpaper{ext}.tmp"
+    try:
+        shutil.copyfile(wall, tmp)
+        tmp.chmod(0o644)
+        os.replace(tmp, target)
+    except OSError as e:
+        print(f"Warning: failed to prepare wallpaper: {e}", file=sys.stderr)
+        tmp.unlink(missing_ok=True)
+        target.unlink(missing_ok=True)
+        return None
+    return ext
+
 def main():
     if not CORNERS_DIR.exists():
         return
@@ -76,21 +133,11 @@ def main():
     alpha = "E6"
 
     # --- Generate wallpaper in user state ---
-    wall = get_wallpaper()
-    dest_ext = ".png"
-    if wall:
-        try:
-            dest_ext = wall.suffix if wall.suffix else ".png"
-            state_wallpaper = STATE_DIR / f"wallpaper{dest_ext}"
-            shutil.copy2(wall, state_wallpaper)
-            state_wallpaper.chmod(0o644)
-        except Exception as e:
-            print(f"Warning: failed to prepare wallpaper: {e}", file=sys.stderr)
-            dest_ext = ".png"
+    ext = prepare_wallpaper(get_wallpaper())
 
     # --- Generate theme.conf.user in user state ---
-    if wall:
-        bg_relative = f"backgrounds/caelestia_wallpaper{dest_ext}"
+    if ext:
+        bg_relative = f"backgrounds/caelestia_wallpaper{ext}"
     else:
         bg_relative = "backgrounds/glacier.png"
     
