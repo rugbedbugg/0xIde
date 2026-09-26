@@ -19,6 +19,11 @@ QtObject {
 
     property bool light: false
     property real wallLuminance
+    // The greeter's own choice (frostedSurfaces in theme.conf) of which
+    // surfaces take the shell's translucency: account, buttons, password,
+    // clock. The rest stay solid, as the shell draws everything with
+    // transparency off.
+    property var frosted: []
 
     // The plugin's defaults (appearanceconfig.hpp) until sync says otherwise.
     readonly property QtObject transparency: QtObject {
@@ -99,6 +104,17 @@ QtObject {
         return Qt.rgba(r, g, b, a);
     }
 
+    // Whether a named surface is translucent, and blurred behind (Frost).
+    function frostedOn(surface: string): bool {
+        return transparency.enabled && frosted.includes(surface);
+    }
+
+    // A named surface's colour: tPalette's layer() when it is frosted, the
+    // plain colour when it is solid.
+    function surface(c: color, name: string, layer: var): color {
+        return frosted.includes(name) ? root.layer(c, layer) : c;
+    }
+
     function layer(c: color, layer: var): color {
         if (!transparency.enabled)
             return c;
@@ -118,9 +134,8 @@ QtObject {
         }
         light = String(config.mode ?? "") === "light";
 
-        // solidSurfaces (theme.conf) takes the shell's transparency-off path
-        // on the login screen alone.
-        transparency.enabled = String(config.transparencyEnabled ?? "") === "true" && String(config.solidSurfaces ?? "") !== "true";
+        transparency.enabled = String(config.transparencyEnabled ?? "") === "true";
+        frosted = String(config.frostedSurfaces ?? "").split(",").map(n => n.trim()).filter(n => n);
         const unit = v => {
             const n = parseFloat(String(v ?? ""));
             return isFinite(n) && n >= 0 && n <= 1 ? n : NaN;

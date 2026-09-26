@@ -18,12 +18,13 @@ is shown greyed out (in `preview`, with no daemon to ask, that is all of
 them). With a menu open, the arrow keys, Tab, Enter and Escape work it. Only the primary screen has the form; the others show the
 wallpaper, clock and date.
 
-Surfaces are solid, as the shell draws them with transparency off:
-`solidSurfaces=true` in `theme/theme.conf` is the greeter's own choice. Set it
-to `false` to follow `appearance.transparency` instead, when the pill, field,
-chip and buttons take the desktop panels' translucent colours (from that
-setting and the wallpaper's brightness) over the wallpaper blurred as Hyprland
-blurs behind them.
+`frostedSurfaces` in `theme/theme.conf`, the greeter's own choice, names the
+surfaces that take the desktop panels' translucency: `account,buttons` by
+default, and `password` and `clock` can be added. Those get the shell's
+translucent colours (from `appearance.transparency` and the wallpaper's
+brightness) over the wallpaper blurred as Hyprland blurs behind the shell's
+panels. The rest are solid, as the shell draws everything with transparency
+off, and so is everything when the shell's transparency is off.
 
 It needs SDDM's Qt 6 greeter. Shape morphing comes from `qt6-m3shapes-git`,
 which `caelestia-shell` already depends on; without it, rounded squares stand

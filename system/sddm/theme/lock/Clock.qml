@@ -85,7 +85,7 @@ Item {
         y: hourMetrics.tightBoundingRect.height - height
 
         visible: root.twelveHour
-        color: Colours.tPalette.m3surfaceContainerHigh
+        color: Colours.surface(Colours.palette.m3surfaceContainerHigh, "clock")
         radius: Math.min(Tokens.rounding.large, height / 2)
 
         implicitWidth: minuteMetrics.tightBoundingRect.width
@@ -99,6 +99,7 @@ Item {
         Frost {
             anchors.fill: parent
             z: -1
+            surface: "clock"
             radius: chip.radius
         }
 

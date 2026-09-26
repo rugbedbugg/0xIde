@@ -13,10 +13,10 @@ import "../components"
 //
 // It is components/controls/StyledTextField.qml's Filled type: rounded at the
 // top by rounding.small, square where the line runs, filled with
-// tPalette.surfaceContainerHigh (Highest while it has the keyboard), with a
-// state layer over it. With the shell's transparency on, that fill is
-// translucent over the blurred wallpaper (Frost), as Hyprland blurs what is
-// behind the shell's own panels.
+// surfaceContainerHigh (Highest while it has the keyboard), with a state layer
+// over it. Frosted (frostedSurfaces "account"), that fill is tPalette's,
+// translucent over the blurred wallpaper, as Hyprland blurs what is behind the
+// shell's own panels.
 Item {
     id: root
 
@@ -46,6 +46,7 @@ Item {
 
     Frost {
         anchors.fill: parent
+        surface: "account"
         topLeftRadius: root.radius
         topRightRadius: root.radius
         bottomLeftRadius: 0
@@ -67,7 +68,7 @@ Item {
 
         StyledRect {
             anchors.fill: parent
-            color: input.activeFocus ? Colours.tPalette.m3surfaceContainerHighest : Colours.tPalette.m3surfaceContainerHigh
+            color: Colours.surface(input.activeFocus ? Colours.palette.m3surfaceContainerHighest : Colours.palette.m3surfaceContainerHigh, "account")
         }
 
         StateLayer {

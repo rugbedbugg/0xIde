@@ -1,8 +1,7 @@
 import QtQuick
 import "../components"
 
-// components/controls/IconButton.qml as a Filled toggle: tPalette
-// surfaceContainer and onSurfaceVariant at rest, primary and onPrimary with
+// components/controls/IconButton.qml as a Filled toggle: (t)surfaceContainer and onSurfaceVariant at rest, primary and onPrimary with
 // the filled symbol while its menu is open, and ButtonBase's rounding, which
 // tightens under a press and settles at medium while checked.
 StyledRect {
@@ -21,7 +20,7 @@ StyledRect {
     }
 
     radius: stateLayer.pressed ? Tokens.rounding.small : checked ? Tokens.rounding.medium : Tokens.rounding.large
-    color: checked ? Colours.palette.m3primary : Colours.tPalette.m3surfaceContainer
+    color: checked ? Colours.palette.m3primary : Colours.surface(Colours.palette.m3surfaceContainer, "buttons")
 
     Behavior on radius {
         Anim {
@@ -33,6 +32,7 @@ StyledRect {
     Frost {
         anchors.fill: parent
         z: -1
+        surface: "buttons"
         radius: root.radius
     }
 

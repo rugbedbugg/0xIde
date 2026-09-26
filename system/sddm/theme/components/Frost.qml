@@ -12,17 +12,20 @@ import QtQuick.Effects
 // multiplier widens this blur to that reach, and the same two adjustments
 // follow it.
 //
-// Fill the translucent surface with it, as its first child.
+// Fill the translucent surface with it, as its first child, naming the
+// surface as frostedSurfaces does; it shows only while that surface is
+// frosted.
 Item {
     id: root
 
+    required property string surface
     property real radius
     property real topLeftRadius: radius
     property real topRightRadius: radius
     property real bottomLeftRadius: radius
     property real bottomRightRadius: radius
 
-    visible: Colours.transparency.enabled && Backdrop.source !== null
+    visible: Colours.frostedOn(surface) && Backdrop.source !== null
 
     layer.enabled: visible
     layer.effect: MultiEffect {

@@ -22,7 +22,7 @@ StyledRect {
     implicitWidth: auth.buffer ? fullWidth : Math.min(fullWidth, inputField.placeholderWidth + iconWrapper.implicitWidth + enterButton.implicitWidth + input.spacing * 2 + Tokens.padding.medium * 2)
     implicitHeight: input.implicitHeight + Tokens.padding.small
 
-    color: Colours.tPalette.m3surfaceContainer
+    color: Colours.surface(Colours.palette.m3surfaceContainer, "password")
     radius: height / 2
 
     focus: true
@@ -49,6 +49,7 @@ StyledRect {
     Frost {
         anchors.fill: parent
         z: -1
+        surface: "password"
         radius: root.radius
     }
 
@@ -136,7 +137,7 @@ StyledRect {
 
                 anchors.fill: parent
 
-                color: root.auth.buffer ? Colours.palette.m3primary : Colours.layer(Colours.palette.m3surfaceContainerHigh, 2)
+                color: root.auth.buffer ? Colours.palette.m3primary : Colours.surface(Colours.palette.m3surfaceContainerHigh, "password", 2)
                 shape: root.auth.buffer ? "Arrow" : "Circle"
                 scale: !root.auth.buffer ? 1 : mouse.pressed ? 0.6 : mouse.containsMouse ? 0.8 : 0.7
                 rotation: 90
