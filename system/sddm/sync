@@ -3,8 +3,9 @@
 Caelestia SDDM theme synchronization (unprivileged adapter).
 
 Writes the current Caelestia scheme, wallpaper and profile picture into user
-state for the caelestia SDDM theme, then invokes the fixed privileged helper
-to install them.
+state for the caelestia SDDM theme, then, once the theme is installed, invokes
+the fixed privileged helper to install them. The state is written either way,
+so system/sddm/preview shows the current desktop before anything is installed.
 """
 
 import json
@@ -22,7 +23,8 @@ STATE_DIR.chmod(0o700)
 # Privileged helper
 HELPER = "/usr/local/libexec/caelestia-sddm-sync"
 
-# The theme system/sddm/install places; nothing to do without it.
+# The theme system/sddm/install places; there is nothing to hand over to
+# before it exists.
 THEME_DIR = Path("/usr/share/sddm/themes/caelestia")
 
 # Every palette role the theme reads (theme/components/Colours.qml). The helper
@@ -142,9 +144,6 @@ def twelve_hour_clock():
         return False
 
 def main():
-    if not THEME_DIR.exists():
-        return
-
     colours, mode = get_scheme_data()
     if not colours:
         return
@@ -171,6 +170,9 @@ def main():
         state_theme_conf.chmod(0o644)
     except Exception as e:
         print(f"Warning: failed to prepare theme.conf.user: {e}", file=sys.stderr)
+        return
+
+    if not THEME_DIR.exists():
         return
 
     # --- Invoke privileged helper ---

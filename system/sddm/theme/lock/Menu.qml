@@ -22,7 +22,7 @@ MouseArea {
     // bottom edge.
     property bool above
     property real minWidth: 200
-    // [{ icon, text }]
+    // [{ icon, text, detail }]
     property var items: []
     property int activeIndex: -1
     property int keyIndex: -1
@@ -192,6 +192,15 @@ MouseArea {
                                 elide: Text.ElideRight
                                 color: item.active ? Colours.palette.m3onTertiaryContainer : Colours.palette.m3onSurface
                                 font.pointSize: Tokens.font.bodyMedium
+                            }
+
+                            StyledText {
+                                Layout.alignment: Qt.AlignVCenter
+                                Layout.leftMargin: Tokens.spacing.small
+                                visible: text !== ""
+                                text: item.modelData.detail ?? ""
+                                color: item.active ? Colours.palette.m3onTertiaryContainer : Colours.palette.m3onSurfaceVariant
+                                font.pointSize: Tokens.font.bodySmall
                             }
                         }
                     }

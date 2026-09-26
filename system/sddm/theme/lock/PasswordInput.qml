@@ -21,12 +21,14 @@ StyledRect {
     radius: height / 2
 
     focus: true
-    onActiveFocusChanged: {
-        if (!activeFocus)
-            forceActiveFocus();
-    }
+    activeFocusOnTab: true
 
     Keys.onPressed: event => {
+        // Tab moves between this and the account field.
+        if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
+            event.accepted = false;
+            return;
+        }
         if (event.key === Qt.Key_Enter || event.key === Qt.Key_Return)
             inputField.placeholder.animate = false;
 

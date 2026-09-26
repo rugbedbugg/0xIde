@@ -27,7 +27,11 @@ Item {
     readonly property real scaleFactor: Math.max(0.75, height / 1080)
     readonly property int formWidth: Math.round(360 * scaleFactor)
 
-    property int userIndex: Math.max(0, userModel.lastIndex)
+    // The name in the account field: SDDM's last user to start with, then
+    // whatever is typed or picked. It is what SDDM is asked to log in, listed
+    // or not; userIndex is its row in SDDM's list, or -1.
+    property string userName: userModel.lastUser ?? ""
+    property int userIndex: -1
     property int sessionIndex: Math.max(0, sessionModel.lastIndex)
 
     width: 1920
@@ -70,16 +74,21 @@ Item {
     property var sessionItems: []
 
     function refresh(): void {
-        currentUser = users.objectAt(userIndex) ?? null;
         currentSession = sessions.objectAt(sessionIndex)?.name ?? "";
 
         const u = [];
+        let found = -1;
         for (let i = 0; i < users.count; i++) {
             const o = users.objectAt(i);
-            if (o)
-                u.push({ icon: "person", text: o.realName || o.name });
+            if (!o)
+                continue;
+            u.push({ icon: "person", text: o.realName || o.name, detail: o.realName && o.realName !== o.name ? o.name : "" });
+            if (o.name === userName)
+                found = i;
         }
         userItems = u;
+        userIndex = found;
+        currentUser = found < 0 ? null : users.objectAt(found);
 
         const s = [];
         for (let i = 0; i < sessions.count; i++) {
@@ -90,7 +99,7 @@ Item {
         sessionItems = s;
     }
 
-    onUserIndexChanged: refresh()
+    onUserNameChanged: refresh()
     onSessionIndexChanged: refresh()
 
     // Only the actions SDDM says it can perform, with the session menu's
@@ -111,7 +120,7 @@ Item {
     Auth {
         id: authState
 
-        user: root.currentUser?.name ?? userModel.lastUser
+        user: root.userName
         userNeedsPassword: root.currentUser?.needsPassword ?? true
         sessionIndex: root.sessionIndex
         onStateChanged: {
@@ -202,8 +211,12 @@ Item {
             sourceComponent: ColumnLayout {
                 readonly property alias userField: userField
 
+                // The password, unless there is no name yet to go with it.
                 function focusInput(): void {
-                    input.forceActiveFocus();
+                    if (root.userName)
+                        input.forceActiveFocus();
+                    else
+                        userField.focusInput();
                 }
 
                 width: root.formWidth
@@ -214,12 +227,14 @@ Item {
 
                     Layout.fillWidth: true
                     scaleFactor: root.scaleFactor
-                    userName: authState.user
-                    displayName: root.currentUser?.realName || authState.user
+                    text: root.userName
+                    knownUser: root.currentUser?.name ?? ""
                     modelIcon: root.currentUser?.icon ?? ""
-                    expandable: root.userItems.length > 1
+                    expandable: root.userItems.length > 0
                     expanded: userMenu.expanded
-                    onClicked: userMenu.open()
+                    onEdited: name => root.userName = name
+                    onAccepted: input.forceActiveFocus()
+                    onMenuRequested: userMenu.open()
                 }
 
                 PasswordInput {
@@ -288,7 +303,7 @@ Item {
         items: root.userItems
         activeIndex: root.userIndex
         onSelected: index => {
-            root.userIndex = index;
+            root.userName = users.objectAt(index)?.name ?? root.userName;
             form.item?.focusInput();
         }
     }

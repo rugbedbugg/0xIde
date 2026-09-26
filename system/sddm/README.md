@@ -6,13 +6,15 @@ scheme, wallpaper and profile picture, updated on every theme change.
 `theme/` builds it from the shell's `modules/lock` at the pinned revision and
 Caelestia's own design tokens, colours and motion. One column sits centred over
 the wallpaper: the lockscreen's condensed two-colour clock and date, then the
-account (picture and name over an underline, opening a menu of accounts when
-there are several), then the lockscreen's password pill, whose characters
-arrive as Material 3 shapes and settle into circles. Two buttons in the
-bottom-left corner open the power actions and the session to start, in the
-shell's menu style. With a menu open, the arrow keys, Tab, Enter and Escape
-work it; otherwise every key goes to the password. Only the primary screen has
-the form; the others show the wallpaper, clock and date.
+account field, then the lockscreen's password pill, whose characters arrive as
+Material 3 shapes and settle into circles. The account field holds a user name
+over an underline, with that account's picture beside it: type any name, or
+open the chevron (or press Down) to pick from the accounts SDDM lists. It
+starts on the last user, and Tab moves between it and the password. Two
+buttons in the bottom-left corner open the power actions and the session to
+start, in the shell's menu style. With a menu open, the arrow keys, Tab, Enter
+and Escape work it. Only the primary screen has the form; the others show the
+wallpaper, clock and date.
 
 It needs SDDM's Qt 6 greeter. Shape morphing comes from `qt6-m3shapes-git`,
 which `caelestia-shell` already depends on; without it, rounded squares stand
@@ -70,5 +72,9 @@ directory, only into root-owned directories, atomically.
 ## Testing without logging out
 
 ```sh
-sddm-greeter-qt6 --test-mode --theme /usr/share/sddm/themes/caelestia
+system/sddm/preview    # this checkout's theme, with the current wallpaper and picture
+sddm-greeter-qt6 --test-mode --theme /usr/share/sddm/themes/caelestia    # what is installed
 ```
+
+`preview` needs nothing installed: `sync` writes its state whether or not the
+theme is there, and only hands it over once it is.

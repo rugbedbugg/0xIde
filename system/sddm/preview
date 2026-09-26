@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Shows the login screen in a window, as it will look with the current scheme,
+# wallpaper and profile picture, without installing anything or asking for a
+# password.
+#
+# It runs sync, which writes that state (and, if the theme is installed, hands
+# it over as the post-theme hook does), then lays the state out beside a copy
+# of theme/ exactly where the helper would put it, and starts SDDM's greeter in
+# test mode on that copy. Logging in from the preview does nothing.
+set -euo pipefail
+
+here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+state="$HOME/.local/state/caelestia/sddm"
+XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+
+command -v sddm-greeter-qt6 >/dev/null || { echo "sddm-greeter-qt6 is not installed" >&2; exit 1; }
+
+"$here/sync" || echo "sync reported a problem; previewing what state there is" >&2
+
+tmp="$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/caelestia-sddm-preview.XXXXXX")"
+trap 'rm -rf -- "$tmp"' EXIT
+
+cp -r -- "$here/theme/." "$tmp/"
+mkdir -p -- "$tmp/backgrounds" "$tmp/faces" "$tmp/fonts"
+[ -f "$state/theme.conf.user" ] && cp -- "$state/theme.conf.user" "$tmp/theme.conf.user"
+for ext in png jpg; do
+    [ -f "$state/wallpaper.$ext" ] && cp -- "$state/wallpaper.$ext" "$tmp/backgrounds/caelestia_wallpaper.$ext"
+    [ -f "$state/avatar.$ext" ] && cp -- "$state/avatar.$ext" "$tmp/faces/$(id -un)"
+done
+font="$(find "$XDG_DATA_HOME/fonts" -maxdepth 2 -name 'GoogleSansFlex*.ttf' -print -quit 2>/dev/null || true)"
+[ -n "$font" ] && cp -- "$font" "$tmp/fonts/GoogleSansFlex.ttf"
+
+sddm-greeter-qt6 --test-mode --theme "$tmp"

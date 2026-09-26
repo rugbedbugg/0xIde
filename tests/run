@@ -993,6 +993,7 @@ Item {
         property int lastIndex: 0
         property string lastUser: "alice"
         ListElement { name: "alice"; realName: "Alice"; icon: ""; needsPassword: true }
+        ListElement { name: "bob"; realName: "Bob"; icon: ""; needsPassword: true }
     }
     ListModel {
         id: sessionModel
@@ -1037,15 +1038,45 @@ Item {
             compare(m.auth.buffer, "a", "Escape closed the menu without clearing the password");
             keyClick(Qt.Key_Return);
             compare(JSON.stringify(harness.calls[0]), '["alice","a",1]', "with the menu closed, Enter logs in");
+            sddm.loginFailed();
+        }
+
+        function test_typedUser() {
+            const m = main.item;
+            keyClick("x");
+            keyClick(Qt.Key_Backtab);
+            compare(m.auth.buffer, "x", "Shift+Tab leaves the password as it is");
+            keyClick(Qt.Key_A, Qt.ControlModifier);
+            keyClick("b"); keyClick("o"); keyClick("b");
+            compare(m.auth.user, "bob", "the typed name is the account asked for");
+            compare(m.userIndex, 1, "a typed name that SDDM lists is that account");
+            compare(m.auth.buffer, "", "a different account starts the password over");
+            keyClick(Qt.Key_Return);
+            keyClick("p");
+            compare(m.auth.buffer, "p", "Enter in the name moves to the password");
+            keyClick(Qt.Key_Return);
+            compare(JSON.stringify(harness.calls[1]), '["bob","p",1]');
+            sddm.loginFailed();
+            keyClick(Qt.Key_Tab);
+            keyClick(Qt.Key_A, Qt.ControlModifier);
+            for (const c of "carol/..") keyClick(c);
+            compare(m.auth.user, "carol..", "a name SDDM does not list can be typed, but never a path");
+            compare(m.userIndex, -1);
+            keyClick(Qt.Key_Tab);
+            keyClick("q");
+            keyClick(Qt.Key_Return);
+            compare(JSON.stringify(harness.calls[2]), '["carol..","q",1]');
         }
     }
 }
 EOF
-    if QT_FORCE_STDERR_LOGGING=1 QT_QPA_PLATFORM=offscreen timeout 30 "$QMLTEST" -input "$kx/tst_keys.qml" > "$kx/log" 2>&1; then
-        ok "with a menu open, the arrow keys, Enter and Escape work the menu, not the password"
-    else
-        no "the menu keys reached the password field:"; grep -E 'FAIL|Actual|Expected' "$kx/log" | head -5 | sed 's/^/        /'
-    fi
+    QT_FORCE_STDERR_LOGGING=1 QT_QPA_PLATFORM=offscreen timeout 30 "$QMLTEST" -input "$kx/tst_keys.qml" > "$kx/log" 2>&1
+    for t in "test_menuKeys:with a menu open, the arrow keys, Enter and Escape work the menu, not the password" \
+             "test_typedUser:a user name can be typed or picked, and Tab moves between it and the password"; do
+        if grep -q "^PASS *: .*::${t%%:*}()" "$kx/log"; then ok "${t#*:}"
+        else no "${t#*:}:"; grep -A2 "${t%%:*}" "$kx/log" | grep -E 'FAIL|Actual|Expected' | head -3 | sed 's/^/        /'
+        fi
+    done
     rm -rf "$kx"
 fi
 
