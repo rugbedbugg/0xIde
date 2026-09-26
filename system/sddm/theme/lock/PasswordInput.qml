@@ -4,17 +4,22 @@ import QtQuick
 import QtQuick.Layouts
 import "../components"
 
-// modules/lock/center/PasswordInput.qml: a full-round pill. The lock symbol
-// gives way to the loading indicator while SDDM checks the password; the enter
-// button is a circle until there is something to submit, then morphs into a
-// primary arrow. The lockscreen's pill grows as you type; this one keeps the
-// width of the account field above it, so the two read as one form.
+// modules/lock/center/PasswordInput.qml: a full-round pill, only as wide as
+// its placeholder until there is something typed, then out to a fixed full
+// width. The lock symbol gives way to the loading indicator while SDDM checks
+// the password; the enter button is a circle until there is something to
+// submit, then morphs into a primary arrow.
+//
+// The lockscreen's full width is 80% of its centre column; here it is the
+// account field's, so the two line up while you type.
 StyledRect {
     id: root
 
     required property real centerScale
     required property Auth auth
+    required property real fullWidth
 
+    implicitWidth: auth.buffer ? fullWidth : Math.min(fullWidth, inputField.placeholderWidth + iconWrapper.implicitWidth + enterButton.implicitWidth + input.spacing * 2 + Tokens.padding.medium * 2)
     implicitHeight: input.implicitHeight + Tokens.padding.small
 
     color: Colours.tPalette.m3surfaceContainer
@@ -34,6 +39,10 @@ StyledRect {
 
         root.auth.handleKey(event);
         event.accepted = true;
+    }
+
+    Behavior on implicitWidth {
+        Anim {}
     }
 
     // Hyprland's blur behind a translucent surface; see Frost.

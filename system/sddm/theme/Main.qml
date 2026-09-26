@@ -294,9 +294,10 @@ Item {
                 PasswordInput {
                     id: input
 
-                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignHCenter
                     centerScale: root.scaleFactor
                     auth: authState
+                    fullWidth: root.formWidth
                 }
 
                 StateMessage {

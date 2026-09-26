@@ -904,9 +904,10 @@ Item {
         main.item.auth.handleKey({ key: k, text: text ?? "", modifiers: mods ?? 0 });
     }
 
+    // Once the entrance has settled, so sizes are the resting ones.
     Timer {
         running: main.status === Loader.Ready
-        interval: 50
+        interval: 1000
         onTriggered: {
             const a = main.item.auth;
             const r = harness.results;
@@ -917,6 +918,8 @@ Item {
                 clock.now = new Date(2026, 0, 1, 15, 4);
             r.twelveHourClock = clock !== null && clock.hourStr === "03" && clock.minuteStr === "04" && clock.amPmStr === "PM";
             r.chipClear = clock !== null && clock.chipTop >= clock.minutesBottom;
+            const pill = harness.find(main.item, "fullWidth");
+            r.pillCompact = pill !== null && pill.width < pill.fullWidth - 1;
             const m = main.item;
             const powerMenu = harness.menu(m.powerActions);
             r.powerOffered = JSON.stringify(m.powerActions.map(a => a.text + (a.disabled ? " (off)" : "")));
@@ -973,6 +976,8 @@ Item {
             const k = (lum + 0.3 * (1 - 0.85) * (1 + (128 / 255) * 2.5)) / lum;
             const t = Colours.tPalette.m3surfaceContainerHigh;
             r.tPalette = Math.abs(t.a - 0.4) < 0.01 && Math.abs(t.r - Math.min(1, c.r * k)) < 0.01 && Math.abs(t.g - Math.min(1, c.g * k)) < 0.01;
+            const pill = harness.find(main.item, "fullWidth");
+            r.pillFull = main.item.auth.buffer !== "" && Math.abs(pill.width - pill.fullWidth) < 0.5;
             // theme.conf's solidSurfaces takes the shell's transparency-off path.
             Colours.load(Object.assign({}, harness.config, { "solidSurfaces": "true" }));
             const solid = Colours.tPalette.m3surfaceContainerHigh;
@@ -994,6 +999,8 @@ want = {
     "lastUserChosen": (True, "the last user is preselected"),
     "twelveHourClock": (True, "a twelve-hour clock shows 01-12 and AM/PM, as the shell does"),
     "chipClear": (True, "the AM/PM chip sits below the minutes, not over them"),
+    "pillCompact": (True, "an empty password pill is only as wide as its placeholder, as on the lockscreen"),
+    "pillFull": (True, "typing widens the pill to its fixed full width"),
     "wallLuminance": (True, "the wallpaper's luminance is measured as the shell's ImageAnalyser does"),
     "tPalette": (True, "translucent surfaces follow the shell's transparency and the wallpaper, as tPalette does"),
     "solidSurfaces": (True, "solidSurfaces draws the greeter solid, as the shell does with transparency off"),
@@ -1021,7 +1028,7 @@ sys.exit(bad)
 CHK
         n=$?
         # The checker printed its own lines; count them into the totals.
-        pass=$((pass + 18 - n)); fail=$((fail + n))
+        pass=$((pass + 20 - n)); fail=$((fail + n))
     fi
     rm -rf "$hx"
 fi
