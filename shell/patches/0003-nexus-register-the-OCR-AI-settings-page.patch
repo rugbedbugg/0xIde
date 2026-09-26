@@ -1,46 +1,53 @@
-From 6eefa913df230adc1e34d0791d24927901e0489b Mon Sep 17 00:00:00 2001
+From 74c36c6124babc6a3f1b2a02dbbb9da7917327b7 Mon Sep 17 00:00:00 2001
 From: Oxide 1-6 <yes.par781@gmail.com>
 Date: Thu, 17 Sep 2026 13:25:00 +0530
 Subject: [PATCH 3/3] nexus: register the OCR & AI settings page
 
 Upstream has no runtime page-registration hook, so a new settings page has
-to be appended to both registries by hand.
+to be added to both registries by hand. It sits at the end of the Shell group,
+before About, since the two registries are matched by position and the
+navigation groups consecutive pages of one category.
 ---
- modules/nexus/PageCompRegistry.qml | 7 +++++++
+ modules/nexus/PageCompRegistry.qml | 8 ++++++++
  modules/nexus/PageRegistry.qml     | 6 ++++++
- 2 files changed, 13 insertions(+)
+ 2 files changed, 14 insertions(+)
 
 diff --git a/modules/nexus/PageCompRegistry.qml b/modules/nexus/PageCompRegistry.qml
-index d7d59245..20e0902c 100644
+index d7d59245..ea21603e 100644
 --- a/modules/nexus/PageCompRegistry.qml
 +++ b/modules/nexus/PageCompRegistry.qml
-@@ -182,6 +182,13 @@ QtObject {
-                     AboutPage {}
+@@ -174,6 +174,14 @@ QtObject {
                  }
              }
-+        },
+         },
 +        Component {
++            // OCR & AI
 +            StackPage {
 +                Component {
 +                    AiPage {}
 +                }
 +            }
-         }
-     ]
++        },
  
+         // About
+         Component {
 diff --git a/modules/nexus/PageRegistry.qml b/modules/nexus/PageRegistry.qml
-index 38bd19ef..314e8697 100644
+index 38bd19ef..e0b30c5d 100644
 --- a/modules/nexus/PageRegistry.qml
 +++ b/modules/nexus/PageRegistry.qml
-@@ -89,5 +89,11 @@ QtObject {
-             description: qsTr("System information, credits"),
-             category: "about"
+@@ -81,6 +81,12 @@ QtObject {
+             description: qsTr("UI language, weather location, display units"),
+             category: "shell"
          },
 +        {
 +            label: qsTr("OCR & AI"),
 +            icon: "auto_awesome",
-+            description: qsTr("OCR languages, AI backend and local model"),
++            description: qsTr("OCR, AI backend, local model"),
 +            category: "shell"
 +        },
-     ]
- }
+ 
+         // About
+         {
+-- 
+2.55.0
+
