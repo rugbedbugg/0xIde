@@ -4,8 +4,8 @@ import QtQuick
 import QtQuick.Effects
 import "../components"
 
-// modules/lock/center/ProfilePic.qml: the avatar masked into a ClamShell, on
-// surfaceContainerHighest, with the person symbol when there is no picture.
+// The account's picture in a circle on surfaceContainerHigh, with the person
+// symbol while there is none, as the shell draws avatars outside the lock.
 //
 // The lockscreen reads ~/.face; the greeter cannot, because home directories
 // are private. system/sddm/sync hands the helper the same file, which installs
@@ -13,29 +13,30 @@ import "../components"
 Item {
     id: root
 
-    required property int centerWidth
     property string userName
     property string modelIcon
+    property color colour: Colours.palette.m3surfaceContainerHigh
+    property color onColour: Colours.palette.m3onSurfaceVariant
 
-    implicitWidth: Math.round(centerWidth * 0.7)
-    implicitHeight: shape.morphing ? shape.item.pathBounds().height : implicitWidth
+    Rectangle {
+        id: circle
 
-    Shape {
-        id: shape
-
-        anchors.centerIn: parent
-        width: root.implicitWidth
-        height: root.implicitWidth
-        shape: "ClamShell"
-        color: Colours.palette.m3surfaceContainerHighest
+        anchors.fill: parent
+        radius: width / 2
+        color: root.colour
         layer.enabled: true
+
+        Behavior on color {
+            CAnim {}
+        }
     }
 
     MaterialIcon {
         anchors.centerIn: parent
+        anchors.verticalCenterOffset: 1
         text: "person"
-        color: Colours.palette.m3onSurfaceVariant
-        size: root.centerWidth / 4
+        color: root.onColour
+        size: Math.round(root.width * 0.45)
         visible: pfp.status !== Image.Ready
     }
 
@@ -44,18 +45,21 @@ Item {
 
         property int attempt
 
-        anchors.fill: shape
+        anchors.fill: parent
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
         cache: false
-        sourceSize.width: width
-        sourceSize.height: height
+        sourceSize.width: width * 2
+        sourceSize.height: height * 2
         source: {
             if (!root.userName)
                 return "";
             if (attempt === 0)
                 return Qt.resolvedUrl("../faces/" + root.userName);
-            return attempt === 1 ? root.modelIcon : "";
+            // SDDM's generic face, which it gives every account it cannot
+            // read a picture for, is not a picture of anyone: the symbol is.
+            const generic = /\/sddm\/faces\/\.face\.icon$/.test(String(root.modelIcon));
+            return attempt === 1 && !generic ? root.modelIcon : "";
         }
         onStatusChanged: {
             if (status === Image.Error)
@@ -66,11 +70,11 @@ Item {
     }
 
     MultiEffect {
-        anchors.fill: shape
+        anchors.fill: parent
         source: pfp
         visible: pfp.status === Image.Ready
         maskEnabled: true
-        maskSource: shape
+        maskSource: circle
         maskThresholdMin: 0.5
         maskSpreadAtMin: 1
     }

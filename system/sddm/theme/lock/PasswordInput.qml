@@ -4,21 +4,17 @@ import QtQuick
 import QtQuick.Layouts
 import "../components"
 
-// modules/lock/center/PasswordInput.qml: a full-round pill that grows as you
-// type. The lock symbol gives way to the loading indicator while SDDM checks
-// the password; the enter button is a circle until there is something to
-// submit, then morphs into a primary arrow.
+// modules/lock/center/PasswordInput.qml: a full-round pill. The lock symbol
+// gives way to the loading indicator while SDDM checks the password; the enter
+// button is a circle until there is something to submit, then morphs into a
+// primary arrow. The lockscreen's pill grows as you type; this one keeps the
+// width of the account field above it, so the two read as one form.
 StyledRect {
     id: root
 
     required property real centerScale
-    required property int centerWidth
     required property Auth auth
 
-    implicitWidth: {
-        const w = centerWidth * 0.8;
-        return auth.buffer ? w : Math.min(w, inputField.placeholderWidth + iconWrapper.implicitWidth + enterButton.implicitWidth + input.spacing * 2 + Tokens.padding.medium * 2);
-    }
     implicitHeight: input.implicitHeight + Tokens.padding.small
 
     color: Colours.palette.m3surfaceContainer
@@ -36,10 +32,6 @@ StyledRect {
 
         root.auth.handleKey(event);
         event.accepted = true;
-    }
-
-    Behavior on implicitWidth {
-        Anim {}
     }
 
     StateLayer {

@@ -571,24 +571,24 @@ def check(ok, what):
     if not ok:
         bad.append(what)
 
-good = b'[General]\nBgSource=\nmode=dark\nuseTwelveHourClock=false\nosName="Arch Linux"\nprimary="#aabbcc"\n'
+good = b'[General]\nBgSource=\nmode=dark\nuseTwelveHourClock=false\nprimary="#aabbcc"\n'
 check(h.parse_theme_conf_user(good) is not None, "a well-formed file is refused")
 for name, data in {
-    "a continuation line": b'[General]\nBgSource=\nosName="x"\n BgSource=/etc/shadow\n',
+    "a continuation line": b'[General]\nBgSource=\nmode=dark\n BgSource=/etc/shadow\n',
     "an unknown key": b'[General]\nBgSource=\nFontFamily=Evil\n',
     "a second section": b'[General]\nBgSource=\n[Other]\nx=1\n',
     "a BgSource outside the fixed names": b'[General]\nBgSource="backgrounds/caelestia_wallpaper.webp"\n',
     "a BgSource path": b'[General]\nBgSource="/etc/shadow"\n',
     "a colour that is not #rrggbb": b'[General]\nBgSource=\nprimary="red"\n',
-    "a backslash escape": b'[General]\nBgSource=\nosName="a\\nb"\n',
+    "a backslash escape": b'[General]\nBgSource=\nprimary="#aa\\nbbc"\n',
     "a repeated key": b'[General]\nBgSource=\nBgSource="backgrounds/caelestia_wallpaper.png"\n',
-    "a stray quote": b'[General]\nBgSource=\nosName="a"b"\n',
+    "a stray quote": b'[General]\nBgSource=\nprimary="#aab"bc"\n',
     "no BgSource": b'[General]\nmode=dark\n',
-    "invalid UTF-8": b'[General]\nBgSource=\nosName="\xff"\n',
+    "invalid UTF-8": b'[General]\nBgSource=\nmode="\xff"\n',
 }.items():
     check(h.parse_theme_conf_user(data) is None, f"accepts {name}")
 out = h.render_theme_conf_user(h.parse_theme_conf_user(good)).decode()
-check(out.startswith("[General]\n") and 'osName="Arch Linux"' in out, "the re-written file is not canonical")
+check(out.startswith("[General]\n") and 'primary="#aabbcc"' in out, "the re-written file is not canonical")
 
 # Every write lands in the theme directory, and only in a directory root owns.
 for p in (h.THEME_CONF_USER_DEST, h.BACKGROUNDS_DIR, h.FACES_DIR):
@@ -794,8 +794,9 @@ Item {
     height: 720
 
     property bool primaryScreen: true
-    property var config: ({ "BgSource": "", "mode": "dark", "useTwelveHourClock": "true", "osName": "Test OS", "primary": "#aabbcc" })
+    property var config: ({ "BgSource": "", "mode": "dark", "useTwelveHourClock": "true", "primary": "#aabbcc" })
     property var calls: []
+    property var power: []
     property var results: ({})
 
     QtObject {
@@ -809,10 +810,10 @@ Item {
         signal loginSucceeded
         signal informationMessage(string message)
         function login(u, p, s) { harness.calls.push([u, p, s]); }
-        function powerOff() { harness.calls.push(["powerOff"]); }
-        function reboot() {}
-        function suspend() {}
-        function hibernate() {}
+        function powerOff() { harness.power.push("powerOff"); }
+        function reboot() { harness.power.push("reboot"); }
+        function suspend() { harness.power.push("suspend"); }
+        function hibernate() { harness.power.push("hibernate"); }
     }
     ListModel {
         id: userModel
@@ -852,6 +853,11 @@ Item {
         return null;
     }
 
+    // The menus, told apart by what they list.
+    function menu(items) {
+        return main.item.children.find(c => c.expanded !== undefined && c.items === items) ?? null;
+    }
+
     function key(k, text, mods) {
         main.item.auth.handleKey({ key: k, text: text ?? "", modifiers: mods ?? 0 });
     }
@@ -868,6 +874,12 @@ Item {
             if (clock)
                 clock.now = new Date(2026, 0, 1, 15, 4);
             r.twelveHourClock = clock !== null && clock.hourStr === "03" && clock.minuteStr === "04" && clock.amPmStr === "PM";
+            const m = main.item;
+            const powerMenu = harness.menu(m.powerActions);
+            r.powerOffered = JSON.stringify(m.powerActions.map(a => a.text));
+            powerMenu.open();
+            powerMenu.choose(m.powerActions.findIndex(a => a.text === "Shut down"));
+            r.powerRuns = JSON.stringify(harness.power) + " " + powerMenu.expanded;
             for (const c of "pw1") harness.key(0, c);
             harness.key(Qt.Key_Backspace, "");
             harness.key(0, "2");
@@ -883,11 +895,15 @@ Item {
             harness.key(Qt.Key_Backspace, "", Qt.ControlModifier);
             r.ctrlBackspaceClears = a.buffer === "";
             harness.key(0, "b");
-            main.item.userIndex = 0;
+            const userMenu = harness.menu(m.userItems);
+            userMenu.open();
+            userMenu.choose(0);
             r.userSwitchClears = a.user === "alice" && a.buffer === "";
             harness.key(Qt.Key_Return, "");
             r.emptyPasswordNotSent = harness.calls.length === 1;
-            main.item.sessionIndex = 0;
+            const sessionMenu = harness.menu(m.sessionItems);
+            sessionMenu.open();
+            sessionMenu.choose(0);
             harness.key(0, "z");
             harness.key(Qt.Key_Enter, "");
             r.secondCall = JSON.stringify(harness.calls[1]);
@@ -911,14 +927,16 @@ r = json.loads(sys.argv[1])
 want = {
     "lastUserChosen": (True, "the last user is preselected"),
     "twelveHourClock": (True, "a twelve-hour clock shows 01-12 and AM/PM, as the shell does"),
+    "powerOffered": ('["Suspend","Reboot","Shut down"]', "the power menu offers only what SDDM can do"),
+    "powerRuns": ('["powerOff"] false', "choosing Shut down powers off, once, and closes the menu"),
     "loginCall": ('["bob","pw2",1]', "Enter sends the user, the password as typed, and the session"),
     "busyWhileChecking": (True, "the field shows it is checking while SDDM does"),
     "inputIgnoredWhileChecking": (True, "typing is ignored while a login is in flight"),
     "failedClears": (True, "a failed login clears the password and reports it"),
     "ctrlBackspaceClears": (True, "Ctrl+Backspace clears the field, as on the lockscreen"),
-    "userSwitchClears": (True, "choosing another account clears the field"),
+    "userSwitchClears": (True, "choosing another account from its menu clears the field"),
     "emptyPasswordNotSent": (True, "an empty password is not sent for an account that needs one"),
-    "secondCall": ('["alice","z",0]', "the chosen account and session are the ones sent"),
+    "secondCall": ('["alice","z",0]', "the account and session chosen from the menus are the ones sent"),
     "succeeded": (True, "a successful login starts the exit"),
     "frozenAfterSuccess": (True, "input stops once the login has succeeded"),
 }
@@ -933,9 +951,102 @@ sys.exit(bad)
 CHK
         n=$?
         # The checker printed its own lines; count them into the totals.
-        pass=$((pass + 12 - n)); fail=$((fail + n))
+        pass=$((pass + 14 - n)); fail=$((fail + n))
     fi
     rm -rf "$hx"
+fi
+
+# The password field keeps the keyboard, so the menus take their keys through
+# shortcuts: real key events, from Qt's test runner, check they get them first.
+QMLTEST=/usr/lib/qt6/bin/qmltestrunner
+if [ ! -x "$QMLTEST" ]; then skipt "no qmltestrunner for the menu keys"
+else
+    kx="$(mktemp -d)"
+    cat > "$kx/tst_keys.qml" <<EOF
+import QtQuick
+import QtTest
+
+Item {
+    id: harness
+    width: 1280
+    height: 720
+
+    property bool primaryScreen: true
+    property var config: ({ "BgSource": "", "mode": "dark" })
+    property var calls: []
+
+    QtObject {
+        id: sddm
+        property bool canPowerOff: true
+        property bool canReboot: true
+        property bool canSuspend: false
+        property bool canHibernate: false
+        signal loginFailed
+        signal loginSucceeded
+        signal informationMessage(string message)
+        function login(u, p, s) { harness.calls.push([u, p, s]); }
+        function powerOff() {}
+        function reboot() {}
+    }
+    ListModel {
+        id: userModel
+        property int lastIndex: 0
+        property string lastUser: "alice"
+        ListElement { name: "alice"; realName: "Alice"; icon: ""; needsPassword: true }
+    }
+    ListModel {
+        id: sessionModel
+        property int lastIndex: 0
+        ListElement { name: "One"; comment: "" }
+        ListElement { name: "Two"; comment: "" }
+    }
+    QtObject {
+        id: keyboard
+        property bool capsLock: false
+        property bool numLock: false
+        property var layouts: []
+        property int currentLayout: 0
+    }
+
+    Loader {
+        id: main
+        anchors.fill: parent
+        source: "file://$THEME/Main.qml"
+    }
+
+    TestCase {
+        name: "keys"
+        when: windowShown && main.status === Loader.Ready
+
+        function test_menuKeys() {
+            wait(1200);
+            const m = main.item;
+            const menu = m.children.find(c => c.expanded !== undefined && c.items === m.sessionItems);
+            keyClick("a");
+            compare(m.auth.buffer, "a");
+            menu.open();
+            keyClick(Qt.Key_Down);
+            keyClick(Qt.Key_Return);
+            compare(m.sessionIndex, 1, "Down then Enter picks the next session");
+            compare(menu.expanded, false);
+            compare(harness.calls.length, 0, "Enter went to the menu, not the login");
+            compare(m.auth.buffer, "a", "the menu keys did not reach the password");
+            menu.open();
+            keyClick(Qt.Key_Escape);
+            compare(menu.expanded, false, "Escape closes the menu");
+            compare(m.auth.buffer, "a", "Escape closed the menu without clearing the password");
+            keyClick(Qt.Key_Return);
+            compare(JSON.stringify(harness.calls[0]), '["alice","a",1]', "with the menu closed, Enter logs in");
+        }
+    }
+}
+EOF
+    if QT_FORCE_STDERR_LOGGING=1 QT_QPA_PLATFORM=offscreen timeout 30 "$QMLTEST" -input "$kx/tst_keys.qml" > "$kx/log" 2>&1; then
+        ok "with a menu open, the arrow keys, Enter and Escape work the menu, not the password"
+    else
+        no "the menu keys reached the password field:"; grep -E 'FAIL|Actual|Expected' "$kx/log" | head -5 | sed 's/^/        /'
+    fi
+    rm -rf "$kx"
 fi
 
 # The whole SDDM component stays opt-in.

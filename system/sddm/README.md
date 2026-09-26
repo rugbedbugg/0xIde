@@ -1,17 +1,18 @@
 # system/sddm
 
-The Caelestia lockscreen as the SDDM login screen, kept in step with the
-desktop: the same scheme, wallpaper and profile picture, updated on every
-theme change.
+A Caelestia login screen for SDDM, kept in step with the desktop: the same
+scheme, wallpaper and profile picture, updated on every theme change.
 
-`theme/` is a port of the shell's `modules/lock` at the pinned revision: the
-lock tile that spins in over the blurred wallpaper and opens into the panel,
-the condensed two-colour clock, the ClamShell profile picture, and the
-password field whose characters arrive as Material 3 shapes and settle into
-circles. The side columns hold what a greeter needs instead of what a
-lockscreen shows: the machine and the session to start on the left, the power
-actions and the accounts on the right. Only the primary screen has a password
-field; the others show the wallpaper and the lock tile.
+`theme/` builds it from the shell's `modules/lock` at the pinned revision and
+Caelestia's own design tokens, colours and motion. One column sits centred over
+the wallpaper: the lockscreen's condensed two-colour clock and date, then the
+account (picture and name over an underline, opening a menu of accounts when
+there are several), then the lockscreen's password pill, whose characters
+arrive as Material 3 shapes and settle into circles. Two buttons in the
+bottom-left corner open the power actions and the session to start, in the
+shell's menu style. With a menu open, the arrow keys, Tab, Enter and Escape
+work it; otherwise every key goes to the password. Only the primary screen has
+the form; the others show the wallpaper, clock and date.
 
 It needs SDDM's Qt 6 greeter. Shape morphing comes from `qt6-m3shapes-git`,
 which `caelestia-shell` already depends on; without it, rounded squares stand
@@ -45,7 +46,7 @@ caelestia scheme/wallpaper change
   -> orchestration/hooks/post-theme
        -> system/sddm/sync                 as you, no privileges
             ~/.local/state/caelestia/sddm/
-              theme.conf.user              palette, mode, clock format, OS name
+              theme.conf.user              palette, mode, clock format
               wallpaper.{png,jpg}          named by its bytes
               avatar.{png,jpg}             from ~/.face
        -> sudo -n caelestia-sddm-sync      no arguments, no environment

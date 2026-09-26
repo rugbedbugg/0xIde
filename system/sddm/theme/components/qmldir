@@ -5,9 +5,7 @@ CAnim 1.0 CAnim.qml
 StyledRect 1.0 StyledRect.qml
 StyledText 1.0 StyledText.qml
 MaterialIcon 1.0 MaterialIcon.qml
-MonoText 1.0 MonoText.qml
 Shape 1.0 Shape.qml
 ShapeFallback 1.0 ShapeFallback.qml
 LoadingIndicator 1.0 LoadingIndicator.qml
 StateLayer 1.0 StateLayer.qml
-Logo 1.0 Logo.qml

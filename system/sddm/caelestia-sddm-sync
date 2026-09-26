@@ -57,7 +57,6 @@ PALETTE_ROLES = frozenset((
 ))
 
 COLOUR = re.compile(r"#[0-9a-fA-F]{6}")
-OS_NAME = re.compile(r"[^\"\\\x00-\x1f\x7f]{0,64}")
 USER_NAME = re.compile(r"[a-z_][a-z0-9_-]{0,31}")
 
 # Every other key, with the exact values it may take.
@@ -65,7 +64,6 @@ FIXED_KEYS = {
     "BgSource": lambda v: v in ("", "backgrounds/caelestia_wallpaper.png", "backgrounds/caelestia_wallpaper.jpg"),
     "mode": lambda v: v in ("dark", "light"),
     "useTwelveHourClock": lambda v: v in ("true", "false"),
-    "osName": lambda v: OS_NAME.fullmatch(v) is not None,
 }
 
 USAGE = """Caelestia SDDM privileged sync helper

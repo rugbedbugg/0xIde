@@ -133,19 +133,6 @@ def get_avatar():
     face = Path.home() / ".face"
     return face if face.is_file() else None
 
-def os_name():
-    """PRETTY_NAME from os-release, reduced to what the helper accepts."""
-    for path in ("/etc/os-release", "/usr/lib/os-release"):
-        try:
-            for line in Path(path).read_text().splitlines():
-                if line.startswith("PRETTY_NAME="):
-                    name = line.split("=", 1)[1].strip().strip('"').strip("'")
-                    name = "".join(c for c in name if c.isprintable() and c not in '"\\')
-                    return name[:64]
-        except OSError:
-            continue
-    return ""
-
 def twelve_hour_clock():
     """The shell's own setting, so the login clock matches the lockscreen's."""
     config = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "caelestia/shell.json"
@@ -172,7 +159,6 @@ def main():
         f'BgSource="backgrounds/caelestia_wallpaper{wallpaper}"' if wallpaper else "BgSource=",
         f"mode={'light' if mode == 'light' else 'dark'}",
         f"useTwelveHourClock={'true' if twelve_hour_clock() else 'false'}",
-        f'osName="{os_name()}"',
     ]
     for role in PALETTE_ROLES:
         value = str(colours.get(role, "")).lstrip("#")

@@ -96,10 +96,36 @@ Item {
         }
     }
 
-    implicitHeight: Math.max(message.implicitHeight, stateMessage.implicitHeight)
+    implicitHeight: Math.max(message.implicitHeight, stateMessage.implicitHeight) + Tokens.padding.small * 2
 
     Behavior on implicitHeight {
         Anim {}
+    }
+
+    // The lockscreen's messages sit on its panel; here they would sit on the
+    // wallpaper, so they get a chip of the same surface to keep them legible.
+    StyledRect {
+        readonly property Text shown: root.msg ? message : stateMessage
+
+        anchors.horizontalCenter: parent.horizontalCenter
+        implicitWidth: Math.min(root.width, shown.contentWidth + Tokens.padding.large * 2)
+        implicitHeight: shown.contentHeight + Tokens.padding.small * 2
+        radius: Math.min(height / 2, Tokens.rounding.large)
+        color: Colours.palette.m3surfaceContainer
+        opacity: root.msg || root.stateMsgShouldBeVisible ? 1 : 0
+        scale: root.msg || root.stateMsgShouldBeVisible ? 1 : 0.7
+
+        Behavior on implicitWidth {
+            Anim {}
+        }
+        Behavior on opacity {
+            Anim {
+                type: Anim.DefaultEffects
+            }
+        }
+        Behavior on scale {
+            Anim {}
+        }
     }
 
     StyledText {
@@ -107,6 +133,9 @@ Item {
 
         anchors.left: parent.left
         anchors.right: parent.right
+        anchors.leftMargin: Tokens.padding.large
+        anchors.rightMargin: Tokens.padding.large
+        y: Tokens.padding.small
 
         scale: root.stateMsgShouldBeVisible && !root.msg ? 1 : 0.7
         opacity: root.stateMsgShouldBeVisible && !root.msg ? 1 : 0
@@ -132,6 +161,9 @@ Item {
 
         anchors.left: parent.left
         anchors.right: parent.right
+        anchors.leftMargin: Tokens.padding.large
+        anchors.rightMargin: Tokens.padding.large
+        y: Tokens.padding.small
 
         scale: 0.7
         opacity: 0

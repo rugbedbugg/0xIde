@@ -1,23 +1,18 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Effects
 import QtQuick.Layouts
 import QtQml.Models
 import "components"
 import "lock"
 
-// The Caelestia lockscreen as an SDDM greeter (modules/lock/LockSurface.qml
-// and Content.qml at the pinned shell revision).
+// A Caelestia login screen: the lockscreen's clock, date and password pill
+// (modules/lock/center at the pinned shell revision) as one centred column
+// over the wallpaper, with the account above the pill, and the power actions
+// and the session to start behind two buttons in the bottom-left corner.
 //
-// The same entrance: the lock tile spins in over the blurred wallpaper, then
-// opens into the 16:9 panel as the symbol fades and the content grows in; and
-// on a successful login, the same exit. The side columns hold what a greeter
-// needs instead of what a lockscreen shows: the machine and the session to
-// start on the left, the power actions and the accounts on the right.
-//
-// SDDM creates this once per screen. The panel is only on the primary one, so
-// there is a single password field; the others show the wallpaper and tile.
+// SDDM creates this once per screen. The form is only on the primary one, so
+// there is a single password field; the others show the wallpaper and clock.
 Item {
     id: root
 
@@ -26,6 +21,11 @@ Item {
     readonly property alias unlocking: unlockAnim.running
     // For tests/run, which drives the login flow without a daemon.
     readonly property Auth auth: authState
+
+    // Sizes are drawn for a 1080-pixel-high screen and follow the screen's
+    // height from there, so the column keeps its proportions on any display.
+    readonly property real scaleFactor: Math.max(0.75, height / 1080)
+    readonly property int formWidth: Math.round(360 * scaleFactor)
 
     property int userIndex: Math.max(0, userModel.lastIndex)
     property int sessionIndex: Math.max(0, sessionModel.lastIndex)
@@ -44,6 +44,7 @@ Item {
 
         model: userModel
         onObjectAdded: root.refresh()
+        onObjectRemoved: root.refresh()
         delegate: QtObject {
             required property string name
             required property string realName
@@ -57,6 +58,7 @@ Item {
 
         model: sessionModel
         onObjectAdded: root.refresh()
+        onObjectRemoved: root.refresh()
         delegate: QtObject {
             required property string name
         }
@@ -64,14 +66,47 @@ Item {
 
     property QtObject currentUser: null
     property string currentSession
+    property var userItems: []
+    property var sessionItems: []
 
     function refresh(): void {
         currentUser = users.objectAt(userIndex) ?? null;
         currentSession = sessions.objectAt(sessionIndex)?.name ?? "";
+
+        const u = [];
+        for (let i = 0; i < users.count; i++) {
+            const o = users.objectAt(i);
+            if (o)
+                u.push({ icon: "person", text: o.realName || o.name });
+        }
+        userItems = u;
+
+        const s = [];
+        for (let i = 0; i < sessions.count; i++) {
+            const o = sessions.objectAt(i);
+            if (o)
+                s.push({ icon: "desktop_windows", text: o.name });
+        }
+        sessionItems = s;
     }
 
     onUserIndexChanged: refresh()
     onSessionIndexChanged: refresh()
+
+    // Only the actions SDDM says it can perform, with the session menu's
+    // symbols (modules/session/Content.qml).
+    readonly property var powerActions: {
+        const a = [];
+        if (sddm.canSuspend)
+            a.push({ icon: "bedtime", text: qsTr("Suspend"), run: () => sddm.suspend() });
+        if (sddm.canHibernate)
+            a.push({ icon: "downloading", text: qsTr("Hibernate"), run: () => sddm.hibernate() });
+        if (sddm.canReboot)
+            a.push({ icon: "cached", text: qsTr("Reboot"), run: () => sddm.reboot() });
+        if (sddm.canPowerOff)
+            a.push({ icon: "power_settings_new", text: qsTr("Shut down"), run: () => sddm.powerOff() });
+        return a;
+    }
 
     Auth {
         id: authState
@@ -90,90 +125,226 @@ Item {
         color: Colours.palette.m3surface
     }
 
-    Item {
+    Image {
         id: background
 
         anchors.fill: parent
+        source: root.cfg.BgSource ? Qt.resolvedUrl(root.cfg.BgSource) : ""
+        fillMode: Image.PreserveAspectCrop
+        asynchronous: true
+        sourceSize.width: root.width
+        sourceSize.height: root.height
         opacity: 0
+    }
 
-        layer.enabled: true
-        layer.effect: MultiEffect {
-            autoPaddingEnabled: false
-            blurEnabled: true
-            blur: 1
-            blurMax: 64
-            blurMultiplier: 1
+    ColumnLayout {
+        id: column
+
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        anchors.topMargin: Math.round(root.height * 0.13)
+        spacing: 0
+
+        Clock {
+            id: clock
+
+            property real rise: Tokens.spacing.extraLarge
+
+            Layout.alignment: Qt.AlignHCenter
+            centerScale: root.scaleFactor * 0.45
+            twelveHour: String(root.cfg.useTwelveHourClock ?? "") === "true"
+            opacity: 0
+            transform: Translate {
+                y: clock.rise
+            }
         }
 
-        Image {
-            anchors.fill: parent
-            source: root.cfg.BgSource ? Qt.resolvedUrl(root.cfg.BgSource) : ""
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            sourceSize.width: root.width
-            sourceSize.height: root.height
+        StyledText {
+            id: date
+
+            property date now: new Date()
+            property real rise: Tokens.spacing.extraLarge
+
+            Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: Math.round(Tokens.spacing.extraExtraLarge * root.scaleFactor)
+
+            text: Qt.formatDate(now, "dddd • d MMM").toUpperCase()
+            color: Colours.palette.m3onSurfaceVariant
+            font.pointSize: Tokens.font.titleMedium * root.scaleFactor
+            font.weight: Font.DemiBold
+            font.letterSpacing: 1
+            opacity: 0
+            transform: Translate {
+                y: date.rise
+            }
+
+            Timer {
+                interval: 60000
+                running: true
+                repeat: true
+                onTriggered: date.now = new Date()
+            }
+        }
+
+        Loader {
+            id: form
+
+            property real rise: Tokens.spacing.extraLarge
+
+            Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: Math.round(110 * root.scaleFactor)
+            active: root.primary
+            opacity: 0
+            transform: Translate {
+                y: form.rise
+            }
+
+            sourceComponent: ColumnLayout {
+                readonly property alias userField: userField
+
+                function focusInput(): void {
+                    input.forceActiveFocus();
+                }
+
+                width: root.formWidth
+                spacing: Tokens.spacing.large
+
+                UserField {
+                    id: userField
+
+                    Layout.fillWidth: true
+                    scaleFactor: root.scaleFactor
+                    userName: authState.user
+                    displayName: root.currentUser?.realName || authState.user
+                    modelIcon: root.currentUser?.icon ?? ""
+                    expandable: root.userItems.length > 1
+                    expanded: userMenu.expanded
+                    onClicked: userMenu.open()
+                }
+
+                PasswordInput {
+                    id: input
+
+                    Layout.fillWidth: true
+                    centerScale: root.scaleFactor
+                    auth: authState
+                }
+
+                StateMessage {
+                    Layout.fillWidth: true
+                    auth: authState
+                }
+            }
         }
     }
 
-    SequentialAnimation {
-        id: unlockAnim
+    Loader {
+        id: corner
 
-        ParallelAnimation {
-            Anim {
-                target: lockContent
-                properties: "implicitWidth,implicitHeight"
-                to: lockContent.size
+        property real rise: Tokens.spacing.extraLarge
+
+        anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        anchors.margins: Math.round(Tokens.padding.extraExtraLarge * 1.4 * root.scaleFactor)
+        active: root.primary
+        opacity: 0
+        transform: Translate {
+            y: corner.rise
+        }
+
+        sourceComponent: RowLayout {
+            readonly property alias powerButton: powerButton
+            readonly property alias sessionButton: sessionButton
+
+            spacing: Math.round(Tokens.spacing.medium * root.scaleFactor)
+
+            CornerButton {
+                id: powerButton
+
+                icon: "power_settings_new"
+                scaleFactor: root.scaleFactor
+                checked: powerMenu.expanded
+                visible: root.powerActions.length > 0
+                onClicked: powerMenu.open()
             }
-            Anim {
-                target: lockBg
-                property: "radius"
-                to: lockContent.radius
-            }
-            Anim {
-                target: content
-                property: "scale"
-                to: 0
-            }
-            Anim {
-                target: content
-                property: "opacity"
-                to: 0
-                type: Anim.StandardSmall
-            }
-            Anim {
-                target: lockIcon
-                property: "opacity"
-                to: 1
-                type: Anim.StandardLarge
-            }
-            Anim {
-                target: background
-                property: "opacity"
-                to: 0
-                type: Anim.StandardLarge
-            }
-            SequentialAnimation {
-                PauseAnimation {
-                    duration: Tokens.anim.durations.small
-                }
-                Anim {
-                    type: Anim.Standard
-                    target: lockContent
-                    property: "opacity"
-                    to: 0
-                }
+
+            CornerButton {
+                id: sessionButton
+
+                icon: "settings"
+                scaleFactor: root.scaleFactor
+                checked: sessionMenu.expanded
+                visible: root.sessionItems.length > 0
+                onClicked: sessionMenu.open()
             }
         }
     }
 
+    Menu {
+        id: userMenu
+
+        attachTo: form.item?.userField ?? form
+        minWidth: root.formWidth
+        items: root.userItems
+        activeIndex: root.userIndex
+        onSelected: index => {
+            root.userIndex = index;
+            form.item?.focusInput();
+        }
+    }
+
+    Menu {
+        id: powerMenu
+
+        attachTo: corner.item?.powerButton ?? corner
+        above: true
+        items: root.powerActions
+        onSelected: index => root.powerActions[index].run()
+    }
+
+    Menu {
+        id: sessionMenu
+
+        attachTo: corner.item?.sessionButton ?? corner
+        above: true
+        items: root.sessionItems
+        activeIndex: root.sessionIndex
+        onSelected: index => root.sessionIndex = index
+    }
+
+    // The password field keeps the keyboard, so whichever menu is open gets
+    // these first.
+    readonly property Menu openMenu: userMenu.expanded ? userMenu : powerMenu.expanded ? powerMenu : sessionMenu.expanded ? sessionMenu : null
+
+    Shortcut {
+        sequences: ["Up", "Backtab"]
+        enabled: root.openMenu !== null
+        onActivated: root.openMenu.move(-1)
+    }
+    Shortcut {
+        sequences: ["Down", "Tab"]
+        enabled: root.openMenu !== null
+        onActivated: root.openMenu.move(1)
+    }
+    Shortcut {
+        sequences: ["Return", "Enter", "Space"]
+        enabled: root.openMenu !== null
+        onActivated: root.openMenu.choose(root.openMenu.keyIndex)
+    }
+    Shortcut {
+        sequence: "Escape"
+        enabled: root.openMenu !== null
+        onActivated: root.openMenu.expanded = false
+    }
+
+    // The wallpaper fades up from the surface colour, then the column arrives
+    // from the top down, each part rising into place a beat after the last,
+    // on the shell's emphasized curve.
     ParallelAnimation {
         id: initAnim
 
         running: true
-        onFinished: {
-            if (center.item)
-                center.item.focusInput();
-        }
+        onFinished: form.item?.focusInput()
 
         Anim {
             target: background
@@ -181,175 +352,69 @@ Item {
             to: 1
             type: Anim.StandardLarge
         }
-        SequentialAnimation {
-            ParallelAnimation {
-                Anim {
-                    target: lockContent
-                    property: "scale"
-                    to: 1
-                    type: Anim.FastSpatial
-                }
-                Anim {
-                    target: lockContent
-                    property: "rotation"
-                    to: 360
-                    duration: Tokens.anim.durations.expressiveFastSpatial
-                    easing.bezierCurve: Tokens.anim.standardAccel
-                }
-            }
-            // On a secondary screen the tile stays a tile: the same motion,
-            // but to the sizes and opacity it already has.
-            ParallelAnimation {
-                Anim {
-                    target: lockIcon
-                    property: "rotation"
-                    to: 360
-                    easing.bezierCurve: Tokens.anim.standardDecel
-                }
-                Anim {
-                    type: Anim.DefaultEffects
-                    target: lockIcon
-                    property: "opacity"
-                    to: root.primary ? 0 : 1
-                }
-                Anim {
-                    type: Anim.DefaultEffects
-                    target: content
-                    property: "opacity"
-                    to: 1
-                }
-                Anim {
-                    target: content
-                    property: "scale"
-                    to: 1
-                }
-                Anim {
-                    target: lockBg
-                    property: "radius"
-                    to: root.primary ? Tokens.rounding.extraLarge * 1.5 : lockContent.radius
-                }
-                Anim {
-                    target: lockContent
-                    property: "implicitWidth"
-                    to: root.primary ? lockContent.fullWidth : lockContent.size
-                }
-                Anim {
-                    target: lockContent
-                    property: "implicitHeight"
-                    to: root.primary ? lockContent.fullHeight : lockContent.size
-                }
-            }
+        Reveal {
+            target: clock
+        }
+        Reveal {
+            target: date
+            delay: 60
+        }
+        Reveal {
+            target: form
+            delay: 120
+        }
+        Reveal {
+            target: corner
+            delay: 180
         }
     }
 
-    Item {
-        id: lockContent
+    // On a successful login the column falls away and the wallpaper fades
+    // back into the surface colour the session starts from.
+    ParallelAnimation {
+        id: unlockAnim
 
-        readonly property int size: lockIcon.implicitHeight + Tokens.padding.large * 4
-        readonly property int radius: size / 4
-        // Tokens.sizes.lock: 70% of the screen's height, at 16:9, but never
-        // wider than the screen leaves room for.
-        readonly property real fullHeight: root.height * Tokens.lock.heightMult
-        readonly property real fullWidth: Math.min(fullHeight * Tokens.lock.ratio, root.width - Tokens.padding.extraExtraLarge * 2)
-
-        anchors.centerIn: parent
-        implicitWidth: size
-        implicitHeight: size
-
-        rotation: 180
-        scale: 0
-
-        StyledRect {
-            id: lockBg
-
-            anchors.fill: parent
-            color: Colours.palette.m3surface
-            radius: parent.radius
-
-            layer.enabled: true
-            layer.effect: MultiEffect {
-                shadowEnabled: true
-                blurMax: 15
-                shadowColor: Qt.alpha(Colours.palette.m3shadow, 0.7)
-            }
+        Anim {
+            targets: [clock, date, form, corner]
+            property: "opacity"
+            to: 0
+            type: Anim.StandardSmall
         }
-
-        MaterialIcon {
-            id: lockIcon
-
-            anchors.centerIn: parent
-            text: "lock"
-            size: Tokens.font.iconExtraLarge * 4
-            font.weight: Font.Bold
-            rotation: 180
+        Anim {
+            target: column
+            property: "scale"
+            to: 0.9
+            type: Anim.Standard
         }
+        Anim {
+            target: background
+            property: "opacity"
+            to: 0
+            type: Anim.StandardLarge
+        }
+    }
 
-        RowLayout {
-            id: content
+    component Reveal: SequentialAnimation {
+        id: reveal
 
-            anchors.centerIn: parent
-            width: lockContent.fullWidth - Tokens.padding.extraLargeIncreased
-            height: lockContent.fullHeight - Tokens.padding.extraLargeIncreased
-            visible: root.primary
+        required property Item target
+        property int delay
 
-            opacity: 0
-            scale: 0
-            spacing: Tokens.spacing.largeIncreased * 2
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                spacing: Tokens.spacing.medium
-
-                FetchCard {
-                    Layout.fillWidth: true
-                    rootHeight: content.height
-                    osName: root.cfg.osName ?? ""
-                    sessionName: root.currentSession
-                }
-
-                SessionCard {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    currentIndex: root.sessionIndex
-                    onSelected: index => root.sessionIndex = index
-                }
+        PauseAnimation {
+            duration: reveal.delay
+        }
+        ParallelAnimation {
+            Anim {
+                target: reveal.target
+                property: "opacity"
+                to: 1
+                type: Anim.DefaultEffects
             }
-
-            Loader {
-                id: center
-
-                Layout.fillHeight: true
-                Layout.preferredWidth: item?.Layout.preferredWidth ?? 0
-                active: root.primary
-
-                sourceComponent: Center {
-                    auth: authState
-                    screenHeight: root.height
-                    realName: root.currentUser?.realName ?? ""
-                    modelIcon: root.currentUser?.icon ?? ""
-                    twelveHour: String(root.cfg.useTwelveHourClock ?? "") === "true"
-                }
-            }
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                spacing: Tokens.spacing.medium
-
-                PowerCard {
-                    Layout.fillWidth: true
-                }
-
-                UsersCard {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    currentIndex: root.userIndex
-                    onSelected: index => {
-                        root.userIndex = index;
-                        center.item?.focusInput();
-                    }
-                }
+            Anim {
+                target: reveal.target
+                property: "rise"
+                to: 0
+                type: Anim.Emphasized
             }
         }
     }

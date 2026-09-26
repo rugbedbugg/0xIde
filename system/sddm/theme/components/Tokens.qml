@@ -43,13 +43,6 @@ QtObject {
         readonly property int extraExtraLarge: 48
     }
 
-    // Tokens.sizes.lock
-    readonly property QtObject lock: QtObject {
-        readonly property real heightMult: 0.7
-        readonly property real ratio: 16 / 9
-        readonly property int centerWidth: 600
-    }
-
     // Google Sans Flex is not packaged; the installer copies the copy the
     // Caelestia dots placed in the user's font directory into fonts/. Rubik,
     // which Caelestia also uses, is packaged and stands in without it.
@@ -59,7 +52,6 @@ QtObject {
 
     readonly property QtObject font: QtObject {
         readonly property string sans: root.sansLoader.status === FontLoader.Ready ? root.sansLoader.name : "Rubik"
-        readonly property string mono: "CaskaydiaCove NF"
         readonly property string icon: "Material Symbols Rounded"
         readonly property string clock: sans
 
@@ -69,7 +61,6 @@ QtObject {
         readonly property int bodyMedium: 14
         readonly property int bodySmall: 12
         readonly property int labelLarge: 14
-        readonly property int monoSmall: 12
 
         // Tokens.font.icon: sizes are 48, 32, 24 and 20 px over 1.33
         readonly property int iconExtraLarge: 36
