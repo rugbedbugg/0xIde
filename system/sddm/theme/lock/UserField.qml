@@ -15,8 +15,8 @@ import "../components"
 // top by rounding.small, square where the line runs, filled with
 // tPalette.surfaceContainerHigh (Highest while it has the keyboard), with a
 // state layer over it. With the shell's transparency on, that fill is
-// translucent over the wallpaper blurred as the desktop clock blurs it, which
-// is what Hyprland's blur does for the shell's own panels.
+// translucent over the blurred wallpaper (Frost), as Hyprland blurs what is
+// behind the shell's own panels.
 Item {
     id: root
 
@@ -29,11 +29,6 @@ Item {
     property bool expanded
     property alias text: input.text
     readonly property bool lit: expanded || input.activeFocus
-    // What to frost: the wallpaper, filling the screen from its top left.
-    property Item frostSource
-    // Anything that moves the field on screen, so the frost follows it;
-    // mapToItem() is not a binding that updates by itself.
-    property real track
     // StyledTextField's clampedRadius, with its horizontal padding.
     readonly property real radius: Math.min(Tokens.padding.large, height / 2, Tokens.rounding.small)
 
@@ -49,6 +44,14 @@ Item {
 
     implicitHeight: row.implicitHeight + Tokens.padding.small * 2
 
+    Frost {
+        anchors.fill: parent
+        topLeftRadius: root.radius
+        topRightRadius: root.radius
+        bottomLeftRadius: 0
+        bottomRightRadius: 0
+    }
+
     Item {
         id: fill
 
@@ -60,28 +63,6 @@ Item {
             maskSource: fillMask
             maskThresholdMin: 0.5
             maskSpreadAtMin: 1
-        }
-
-        MultiEffect {
-            anchors.fill: parent
-            visible: Colours.transparency.enabled && root.frostSource !== null
-            autoPaddingEnabled: false
-            blurEnabled: true
-            blur: 1
-            blurMax: 64
-
-            source: ShaderEffectSource {
-                sourceItem: root.frostSource
-                sourceRect: {
-                    root.track;
-                    root.width;
-                    root.height;
-                    if (!root.frostSource)
-                        return Qt.rect(0, 0, 0, 0);
-                    const p = root.mapToItem(root.frostSource, 0, 0);
-                    return Qt.rect(p.x, p.y, root.width, root.height);
-                }
-            }
         }
 
         StyledRect {

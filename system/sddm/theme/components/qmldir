@@ -1,5 +1,7 @@
 singleton Tokens 1.0 Tokens.qml
 singleton Colours 1.0 Colours.qml
+singleton Backdrop 1.0 Backdrop.qml
+Frost 1.0 Frost.qml
 Anim 1.0 Anim.qml
 CAnim 1.0 CAnim.qml
 StyledRect 1.0 StyledRect.qml

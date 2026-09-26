@@ -36,6 +36,13 @@ StyledRect {
         event.accepted = true;
     }
 
+    // Hyprland's blur behind a translucent surface; see Frost.
+    Frost {
+        anchors.fill: parent
+        z: -1
+        radius: root.radius
+    }
+
     StateLayer {
         cursorShape: Qt.IBeamCursor
         color: "transparent"

@@ -95,6 +95,13 @@ Item {
             return Math.min(text + Tokens.padding.large * 2, Math.max(text + Tokens.padding.extraSmall * 2, room));
         }
 
+        // Hyprland's blur behind a translucent surface; see Frost.
+        Frost {
+            anchors.fill: parent
+            z: -1
+            radius: chip.radius
+        }
+
         StyledText {
             id: amPm
 

@@ -82,7 +82,10 @@ Item {
     width: 1920
     height: 1080
 
-    Component.onCompleted: Colours.load(cfg)
+    Component.onCompleted: {
+        Colours.load(cfg);
+        Backdrop.source = background;
+    }
     onUserNameChanged: refresh()
     onSessionIndexChanged: refresh()
 
@@ -125,6 +128,14 @@ Item {
             if (state === Auth.Succeeded)
                 unlockAnim.start();
         }
+    }
+
+    // Everything that moves a frosted surface on screen: the entrance and exit,
+    // and the screen's size.
+    Binding {
+        target: Backdrop
+        property: "track"
+        value: clock.rise + date.rise + form.rise + corner.rise + column.x + column.y + column.scale + root.width + root.height
     }
 
     // The wallpaper's mean luminance, which tPalette lightens translucent
@@ -274,8 +285,6 @@ Item {
                     knownUser: root.currentUser?.name ?? ""
                     modelIcon: root.currentUser?.icon ?? ""
                     expandable: root.userItems.length > 0
-                    frostSource: background
-                    track: form.rise + column.x + column.y
                     expanded: userMenu.expanded
                     onEdited: name => root.userName = name
                     onAccepted: input.forceActiveFocus()
