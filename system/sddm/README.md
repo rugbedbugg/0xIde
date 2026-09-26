@@ -12,8 +12,9 @@ over an underline, with that account's picture beside it: type any name, or
 open the chevron (or press Down) to pick from the accounts SDDM lists. It
 starts on the last user, and Tab moves between it and the password. Two
 buttons in the bottom-left corner open the power actions and the session to
-start, in the shell's menu style. With a menu open, the arrow keys, Tab, Enter
-and Escape work it. Only the primary screen has the form; the others show the
+start, in the shell's menu style; a power action SDDM cannot perform right now
+is shown greyed out (in `preview`, with no daemon to ask, that is all of
+them). With a menu open, the arrow keys, Tab, Enter and Escape work it. Only the primary screen has the form; the others show the
 wallpaper, clock and date.
 
 It needs SDDM's Qt 6 greeter. Shape morphing comes from `qt6-m3shapes-git`,

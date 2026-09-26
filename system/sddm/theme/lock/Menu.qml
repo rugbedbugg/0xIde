@@ -6,14 +6,17 @@ import QtQuick.Layouts
 import "../components"
 
 // components/controls/Menu.qml from the shell: a surfaceContainerLow card at
-// elevation 2 that unfolds from the edge it is attached to, rows whose corners
-// round off at the ends of the list, and the chosen row on tertiaryContainer
-// with the tighter medium rounding. It fills the screen while open, so a click
-// anywhere else closes it.
+// elevation 2 that unfolds from the edge it is attached to, at least 200 wide
+// and lined up with its right edge; rows of a small symbol and body-small text
+// whose corners round off at the ends of the list; and the chosen row on
+// tertiaryContainer with the tighter medium rounding. It fills the screen
+// while open, so a click anywhere else closes it.
 //
-// The shell's menus are only for the pointer; here the password field keeps
-// the keyboard, so Main hands the arrow keys, Enter and Escape to whichever
-// menu is open.
+// Added for the greeter: a row can show an account's picture in place of the
+// symbol, a second, quieter label, and M3's disabled state for what cannot be
+// done now. The shell's menus are only for the pointer; here the password
+// field keeps the keyboard, so Main hands the arrow keys, Enter and Escape to
+// whichever menu is open.
 MouseArea {
     id: root
 
@@ -21,8 +24,11 @@ MouseArea {
     // Unfold upwards from the top edge of attachTo, instead of down from its
     // bottom edge.
     property bool above
+    // Line up with attachTo's left edge instead of its right, for a menu
+    // attached near the left of the screen.
+    property bool alignLeft
     property real minWidth: 200
-    // [{ icon, text, detail }]
+    // [{ icon, text, detail, user, disabled }]
     property var items: []
     property int activeIndex: -1
     property int keyIndex: -1
@@ -32,19 +38,29 @@ MouseArea {
 
     function open(): void {
         const p = attachTo.mapToItem(root, 0, 0);
-        menu.x = Math.min(p.x, root.width - menu.width - Tokens.padding.large);
+        const x = alignLeft ? p.x : p.x + attachTo.width - menu.width;
+        menu.x = Math.max(Tokens.padding.large, Math.min(x, root.width - menu.width - Tokens.padding.large));
         menu.y = above ? p.y - menu.height - Tokens.spacing.small : p.y + attachTo.height + Tokens.spacing.small;
         keyIndex = activeIndex;
         expanded = true;
     }
 
+    // The next row that can be chosen, either way round, skipping disabled
+    // ones.
     function move(delta: int): void {
-        if (items.length > 0)
-            keyIndex = ((keyIndex < 0 ? (delta > 0 ? -1 : 0) : keyIndex) + delta + items.length) % items.length;
+        const n = items.length;
+        let i = keyIndex < 0 ? (delta > 0 ? -1 : 0) : keyIndex;
+        for (let step = 0; step < n; step++) {
+            i = (i + delta + n) % n;
+            if (!items[i].disabled) {
+                keyIndex = i;
+                return;
+            }
+        }
     }
 
     function choose(index: int): void {
-        if (index < 0 || index >= items.length)
+        if (index < 0 || index >= items.length || items[index].disabled)
             return;
         expanded = false;
         selected(index);
@@ -126,6 +142,9 @@ MouseArea {
                         readonly property bool active: index === root.activeIndex
                         readonly property bool first: index === 0
                         readonly property bool last: index === repeater.count - 1
+                        readonly property bool disabled: modelData.disabled ?? false
+                        readonly property color onColour: disabled ? Qt.alpha(Colours.palette.m3onSurface, 0.38) : active ? Colours.palette.m3onTertiaryContainer : Colours.palette.m3onSurface
+                        readonly property color onVariantColour: disabled ? onColour : active ? Colours.palette.m3onTertiaryContainer : Colours.palette.m3onSurfaceVariant
 
                         Layout.fillWidth: true
                         implicitWidth: row.implicitWidth + Tokens.padding.medium * 2
@@ -151,7 +170,7 @@ MouseArea {
                             topRightRadius: item.topRightRadius
                             bottomLeftRadius: item.bottomLeftRadius
                             bottomRightRadius: item.bottomRightRadius
-                            color: item.active ? Colours.palette.m3onTertiaryContainer : Colours.palette.m3onSurface
+                            color: item.onColour
                             opacity: item.index === root.keyIndex && !mouse.containsMouse ? 0.08 : 0
 
                             Behavior on opacity {
@@ -165,8 +184,8 @@ MouseArea {
                             id: mouse
 
                             radius: item.last || item.first ? Tokens.rounding.medium : item.radius
-                            color: item.active ? Colours.palette.m3onTertiaryContainer : Colours.palette.m3onSurface
-                            disabled: !root.expanded
+                            color: item.onColour
+                            disabled: !root.expanded || item.disabled
                             onClicked: root.choose(item.index)
                         }
 
@@ -178,11 +197,24 @@ MouseArea {
                             spacing: Tokens.spacing.small
 
                             MaterialIcon {
+                                id: icon
+
                                 Layout.alignment: Qt.AlignVCenter
                                 Layout.topMargin: 1
+                                visible: !item.modelData.user
                                 text: item.modelData.icon ?? ""
-                                color: item.active ? Colours.palette.m3onTertiaryContainer : Colours.palette.m3onSurfaceVariant
-                                size: Tokens.font.iconMedium
+                                color: item.onVariantColour
+                            }
+
+                            Avatar {
+                                Layout.alignment: Qt.AlignVCenter
+                                Layout.preferredWidth: Math.round(icon.implicitHeight * 1.2)
+                                Layout.preferredHeight: Math.round(icon.implicitHeight * 1.2)
+                                visible: !!item.modelData.user
+                                userName: item.modelData.user ?? ""
+                                modelIcon: item.modelData.userIcon ?? ""
+                                colour: item.active ? Colours.palette.m3tertiary : Colours.palette.m3surfaceContainerHighest
+                                onColour: item.active ? Colours.palette.m3onTertiary : Colours.palette.m3onSurfaceVariant
                             }
 
                             StyledText {
@@ -190,8 +222,7 @@ MouseArea {
                                 Layout.fillWidth: true
                                 text: item.modelData.text ?? ""
                                 elide: Text.ElideRight
-                                color: item.active ? Colours.palette.m3onTertiaryContainer : Colours.palette.m3onSurface
-                                font.pointSize: Tokens.font.bodyMedium
+                                color: item.onColour
                             }
 
                             StyledText {
@@ -199,8 +230,7 @@ MouseArea {
                                 Layout.leftMargin: Tokens.spacing.small
                                 visible: text !== ""
                                 text: item.modelData.detail ?? ""
-                                color: item.active ? Colours.palette.m3onTertiaryContainer : Colours.palette.m3onSurfaceVariant
-                                font.pointSize: Tokens.font.bodySmall
+                                color: item.onVariantColour
                             }
                         }
                     }

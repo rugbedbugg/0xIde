@@ -82,7 +82,7 @@ Item {
             const o = users.objectAt(i);
             if (!o)
                 continue;
-            u.push({ icon: "person", text: o.realName || o.name, detail: o.realName && o.realName !== o.name ? o.name : "" });
+            u.push({ user: o.name, userIcon: o.icon, text: o.realName || o.name, detail: o.realName && o.realName !== o.name ? o.name : "" });
             if (o.name === userName)
                 found = i;
         }
@@ -102,20 +102,16 @@ Item {
     onUserNameChanged: refresh()
     onSessionIndexChanged: refresh()
 
-    // Only the actions SDDM says it can perform, with the session menu's
-    // symbols (modules/session/Content.qml).
-    readonly property var powerActions: {
-        const a = [];
-        if (sddm.canSuspend)
-            a.push({ icon: "bedtime", text: qsTr("Suspend"), run: () => sddm.suspend() });
-        if (sddm.canHibernate)
-            a.push({ icon: "downloading", text: qsTr("Hibernate"), run: () => sddm.hibernate() });
-        if (sddm.canReboot)
-            a.push({ icon: "cached", text: qsTr("Reboot"), run: () => sddm.reboot() });
-        if (sddm.canPowerOff)
-            a.push({ icon: "power_settings_new", text: qsTr("Shut down"), run: () => sddm.powerOff() });
-        return a;
-    }
+    // All four, always, with the session menu's symbols
+    // (modules/session/Content.qml); what SDDM says it cannot do now is shown
+    // disabled rather than left out, so the menu does not change shape. In
+    // test mode, with no daemon to ask, that is all four.
+    readonly property var powerActions: [
+        { icon: "bedtime", text: qsTr("Suspend"), disabled: !sddm.canSuspend, run: () => sddm.suspend() },
+        { icon: "downloading", text: qsTr("Hibernate"), disabled: !sddm.canHibernate, run: () => sddm.hibernate() },
+        { icon: "cached", text: qsTr("Reboot"), disabled: !sddm.canReboot, run: () => sddm.reboot() },
+        { icon: "power_settings_new", text: qsTr("Shut down"), disabled: !sddm.canPowerOff, run: () => sddm.powerOff() }
+    ]
 
     Auth {
         id: authState
@@ -279,7 +275,6 @@ Item {
                 icon: "power_settings_new"
                 scaleFactor: root.scaleFactor
                 checked: powerMenu.expanded
-                visible: root.powerActions.length > 0
                 onClicked: powerMenu.open()
             }
 
@@ -313,6 +308,7 @@ Item {
 
         attachTo: corner.item?.powerButton ?? corner
         above: true
+        alignLeft: true
         items: root.powerActions
         onSelected: index => root.powerActions[index].run()
     }
@@ -322,6 +318,7 @@ Item {
 
         attachTo: corner.item?.sessionButton ?? corner
         above: true
+        alignLeft: true
         items: root.sessionItems
         activeIndex: root.sessionIndex
         onSelected: index => root.sessionIndex = index

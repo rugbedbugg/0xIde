@@ -874,10 +874,12 @@ Item {
             if (clock)
                 clock.now = new Date(2026, 0, 1, 15, 4);
             r.twelveHourClock = clock !== null && clock.hourStr === "03" && clock.minuteStr === "04" && clock.amPmStr === "PM";
+            r.chipClear = clock !== null && clock.chipTop >= clock.minutesBottom;
             const m = main.item;
             const powerMenu = harness.menu(m.powerActions);
-            r.powerOffered = JSON.stringify(m.powerActions.map(a => a.text));
+            r.powerOffered = JSON.stringify(m.powerActions.map(a => a.text + (a.disabled ? " (off)" : "")));
             powerMenu.open();
+            powerMenu.choose(m.powerActions.findIndex(a => a.text === "Hibernate"));
             powerMenu.choose(m.powerActions.findIndex(a => a.text === "Shut down"));
             r.powerRuns = JSON.stringify(harness.power) + " " + powerMenu.expanded;
             for (const c of "pw1") harness.key(0, c);
@@ -927,8 +929,9 @@ r = json.loads(sys.argv[1])
 want = {
     "lastUserChosen": (True, "the last user is preselected"),
     "twelveHourClock": (True, "a twelve-hour clock shows 01-12 and AM/PM, as the shell does"),
-    "powerOffered": ('["Suspend","Reboot","Shut down"]', "the power menu offers only what SDDM can do"),
-    "powerRuns": ('["powerOff"] false', "choosing Shut down powers off, once, and closes the menu"),
+    "chipClear": (True, "the AM/PM chip sits below the minutes, not over them"),
+    "powerOffered": ('["Suspend","Hibernate (off)","Reboot","Shut down"]', "the power menu shows every action, and disables what SDDM cannot do"),
+    "powerRuns": ('["powerOff"] false', "a disabled action cannot be chosen; Shut down powers off, once, and closes the menu"),
     "loginCall": ('["bob","pw2",1]', "Enter sends the user, the password as typed, and the session"),
     "busyWhileChecking": (True, "the field shows it is checking while SDDM does"),
     "inputIgnoredWhileChecking": (True, "typing is ignored while a login is in flight"),
@@ -951,7 +954,7 @@ sys.exit(bad)
 CHK
         n=$?
         # The checker printed its own lines; count them into the totals.
-        pass=$((pass + 14 - n)); fail=$((fail + n))
+        pass=$((pass + 15 - n)); fail=$((fail + n))
     fi
     rm -rf "$hx"
 fi

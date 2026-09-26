@@ -6,6 +6,10 @@ import "../components"
 // modules/lock/center/Clock.qml: hours in primary, minutes in secondary, both
 // in condensed Google Sans Flex, and an AM/PM chip under the minutes when the
 // shell uses a twelve-hour clock.
+//
+// The shell pads the chip by a fixed amount that does not scale with the
+// clock, which only fits at the lockscreen's size; here the padding gives way
+// to the room left under the minutes, so the chip never runs into them.
 Item {
     id: root
 
@@ -17,6 +21,9 @@ Item {
     readonly property string hourStr: twelveHour ? Qt.formatTime(now, "hh AP").split(" ")[0] : Qt.formatTime(now, "HH")
     readonly property string minuteStr: Qt.formatTime(now, "mm")
     readonly property string amPmStr: Qt.formatTime(now, "AP")
+    // Where the minutes' ink ends and the chip starts, for tests/run.
+    readonly property real minutesBottom: minuteMetrics.tightBoundingRect.height
+    readonly property real chipTop: chip.y
 
     function calcTopOff(metrics: TextMetrics): real {
         return metrics.tightBoundingRect.y - metrics.boundingRect.y;
@@ -71,16 +78,22 @@ Item {
     }
 
     StyledRect {
+        id: chip
+
         anchors.left: minutes.left
         anchors.leftMargin: minuteMetrics.tightBoundingRect.x
         y: hourMetrics.tightBoundingRect.height - height
 
         visible: root.twelveHour
         color: Colours.palette.m3surfaceContainerHigh
-        radius: Tokens.rounding.large
+        radius: Math.min(Tokens.rounding.large, height / 2)
 
         implicitWidth: minuteMetrics.tightBoundingRect.width
-        implicitHeight: amPmMetrics.tightBoundingRect.height + Tokens.padding.large * 2
+        implicitHeight: {
+            const room = hourMetrics.tightBoundingRect.height - minuteMetrics.tightBoundingRect.height - Tokens.spacing.small * root.centerScale * 2;
+            const text = amPmMetrics.tightBoundingRect.height;
+            return Math.min(text + Tokens.padding.large * 2, Math.max(text + Tokens.padding.extraSmall * 2, room));
+        }
 
         StyledText {
             id: amPm
