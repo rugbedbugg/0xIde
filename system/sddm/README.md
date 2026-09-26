@@ -8,10 +8,8 @@ Caelestia's own design tokens, colours and motion. One column sits centred over
 the wallpaper: the lockscreen's condensed two-colour clock and date, then the
 account field, then the lockscreen's password pill, whose characters arrive as
 Material 3 shapes and settle into circles. The account field is the shell's filled
-text field, translucent over the blurred wallpaper when the shell's
-transparency is on (the same colours the desktop's panels take, from
-`appearance.transparency` and the wallpaper's brightness), holding a user
-name over an underline with that account's picture beside it: type any name, or
+text field, holding a user name over an underline with that account's picture
+beside it: type any name, or
 open the chevron (or press Down) to pick from the accounts SDDM lists. It
 starts on the last user, and Tab moves between it and the password. Two
 buttons in the bottom-left corner open the power actions and the session to
@@ -19,6 +17,13 @@ start, in the shell's menu style; a power action SDDM cannot perform right now
 is shown greyed out (in `preview`, with no daemon to ask, that is all of
 them). With a menu open, the arrow keys, Tab, Enter and Escape work it. Only the primary screen has the form; the others show the
 wallpaper, clock and date.
+
+Surfaces are solid, as the shell draws them with transparency off:
+`solidSurfaces=true` in `theme/theme.conf` is the greeter's own choice. Set it
+to `false` to follow `appearance.transparency` instead, when the pill, field,
+chip and buttons take the desktop panels' translucent colours (from that
+setting and the wallpaper's brightness) over the wallpaper blurred as Hyprland
+blurs behind them.
 
 It needs SDDM's Qt 6 greeter. Shape morphing comes from `qt6-m3shapes-git`,
 which `caelestia-shell` already depends on; without it, rounded squares stand

@@ -118,7 +118,9 @@ QtObject {
         }
         light = String(config.mode ?? "") === "light";
 
-        transparency.enabled = String(config.transparencyEnabled ?? "") === "true";
+        // solidSurfaces (theme.conf) takes the shell's transparency-off path
+        // on the login screen alone.
+        transparency.enabled = String(config.transparencyEnabled ?? "") === "true" && String(config.solidSurfaces ?? "") !== "true";
         const unit = v => {
             const n = parseFloat(String(v ?? ""));
             return isFinite(n) && n >= 0 && n <= 1 ? n : NaN;
