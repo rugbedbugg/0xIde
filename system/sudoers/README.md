@@ -7,7 +7,7 @@ exactly those commands.
 | Rule | Needed by | Writes |
 | --- | --- | --- |
 | `papirus-folders -C *` | `adapters/papirus` (and Caelestia's own call) | `/usr/share/icons/Papirus*` |
-| `mkdir -p`, `tee` on one path | `adapters/edge` | `/etc/opt/edge/policies/managed/caelestia.json` |
+| `mkdir -p`, `tee` on one path | `adapters/edge` | `/etc/opt/edge/policies/managed/0xide.json` |
 
 `install` prints the exact rules, validates them with `visudo -c` **before**
 installing, and asks. It is never run by a plain `./install`.

@@ -7,7 +7,7 @@ set -uo pipefail
 missing=0
 report() {
     local kind="$1" name="$2" owner="$3"
-    if cm_have "$name"; then
+    if ox_have "$name"; then
         printf '  %-9s %-18s %s\n' "ok" "$name" "$owner"
     elif [ "$kind" = required ]; then
         printf '  %-9s %-18s %s\n' "MISSING" "$name" "$owner"; missing=$((missing+1))

@@ -6,10 +6,11 @@ import QtQml.Models
 import "components"
 import "lock"
 
-// A Caelestia login screen: the lockscreen's clock, date and password pill
-// (modules/lock/center at the pinned shell revision) as one centred column
-// over the wallpaper, with the account above the pill, and the power actions
-// and the session to start behind two buttons in the bottom-left corner.
+// The 0xIde login screen, in Caelestia's style: the lockscreen's clock, date
+// and password pill (modules/lock/center at the pinned shell revision) as one
+// centred column over the wallpaper, with the account above the pill, and the
+// power actions and the session to start behind two buttons in the bottom-left
+// corner.
 //
 // SDDM creates this once per screen. The form is only on the primary one, so
 // there is a single password field; the others show the wallpaper and clock.

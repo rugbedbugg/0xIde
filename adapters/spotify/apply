@@ -5,7 +5,7 @@
 set -euo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
 
-cm_have spicetify || exit 0
+ox_have spicetify || exit 0
 grep -qE '^current_theme[[:space:]]*=[[:space:]]*caelestia' \
     "$XDG_CONFIG_HOME/spicetify/config-xpui.ini" 2>/dev/null || exit 0
 
@@ -14,7 +14,7 @@ grep -qE '^current_theme[[:space:]]*=[[:space:]]*caelestia' \
 # behind your back on every wallpaper change, so it does nothing unless one is
 # running. Without pgrep there is no way to tell, and not applying is the
 # safer half of that guess.
-cm_have pgrep || exit 0
+ox_have pgrep || exit 0
 
 # Check for live (non-zombie) Spotify processes.
 # pgrep matches zombies; filter via ps state.
@@ -45,4 +45,4 @@ spotify_running || exit 0
 
 # A full apply takes ~25s, so it must not block the theme change. flock keeps
 # rapid scheme switches from running two applies over the same files.
-setsid flock -n "$CM_STATE/spicetify.lock" spicetify apply >/dev/null 2>&1 &
+setsid flock -n "$OX_STATE/spicetify.lock" spicetify apply >/dev/null 2>&1 &

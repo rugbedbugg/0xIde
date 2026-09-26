@@ -1,4 +1,4 @@
-# Installed by caelestia-mod. Scoped to two commands, each writing one path.
+# Installed by 0xide. Scoped to two commands, each writing one path.
 # @USER@ is substituted at install time; nothing here is committed with a
 # username in it.
 #
@@ -11,4 +11,4 @@
 #                  one directory over.
 @USER@ ALL=(root) NOPASSWD: /usr/bin/papirus-folders -C *, /usr/bin/papirus-folders -C * -u
 @USER@ ALL=(root) NOPASSWD: /usr/bin/mkdir -p /etc/opt/edge/policies/managed
-@USER@ ALL=(root) NOPASSWD: /usr/bin/tee /etc/opt/edge/policies/managed/caelestia.json
+@USER@ ALL=(root) NOPASSWD: /usr/bin/tee /etc/opt/edge/policies/managed/0xide.json

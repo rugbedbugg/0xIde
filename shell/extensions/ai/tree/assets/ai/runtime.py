@@ -19,7 +19,16 @@ import urllib.error
 import urllib.request
 
 MANIFEST = json.loads(Path(__file__).with_name('manifest.json').read_text())
-ROOT = Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / 'caelestia/ai'
+ROOT = Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / '0xide/ai'
+# Where it lived before the rename; moved, not downloaded again.
+LEGACY = ROOT.parent.parent / 'caelestia/ai'
+if LEGACY.is_dir() and not LEGACY.is_symlink() and not ROOT.exists():
+    ROOT.parent.mkdir(parents=True, exist_ok=True)
+    LEGACY.rename(ROOT)
+    try:
+        LEGACY.parent.rmdir()
+    except OSError:
+        pass
 REVISION = MANIFEST['runtimeRevision'][:12] + '-' + MANIFEST['modelRevision'][:12]
 ACTIVE = ROOT / REVISION
 CHILD = None

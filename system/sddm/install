@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Installs the caelestia SDDM theme and the narrow privileged path that keeps
+# Installs the 0xIde SDDM theme and the narrow privileged path that keeps
 # it in step with the desktop. Prints every change, asks once, then:
 #
-#   /usr/share/sddm/themes/caelestia     the theme, from system/sddm/theme
-#   /usr/local/libexec/caelestia-sddm-sync  the fixed helper
-#   /etc/sudoers.d/caelestia-sddm       NOPASSWD for that helper, this user only
-#   /etc/sddm.conf.d/zz-caelestia.conf  Current=caelestia; removing it restores
+#   /usr/share/sddm/themes/0xide     the theme, from system/sddm/theme
+#   /usr/local/libexec/0xide-sddm-sync  the fixed helper
+#   /etc/sudoers.d/0xide-sddm       NOPASSWD for that helper, this user only
+#   /etc/sddm.conf.d/zz-0xide.conf  Current=0xide; removing it restores
 #                                       whatever theme was chosen before
 #
 # Re-run it after changing the theme's QML; colours, wallpaper and profile
@@ -17,29 +17,54 @@ set -euo pipefail
 
 # The grantee is whoever runs this, never an ambient SUDO_USER.
 if [ "$(id -u)" -eq 0 ]; then
-    cm_die "do not run this installer as root; run as your normal user"
+    ox_die "do not run this installer as root; run as your normal user"
 fi
 TARGET_USER="$(id -un)"
 
-THEME_SRC="$CM_ROOT/system/sddm/theme"
-THEME_DIR="/usr/share/sddm/themes/caelestia"
-HELPER_SRC="$CM_ROOT/system/sddm/caelestia-sddm-sync"
-HELPER_DEST="/usr/local/libexec/caelestia-sddm-sync"
-SUDOERS_FILE="/etc/sudoers.d/caelestia-sddm"
+THEME_SRC="$OX_ROOT/system/sddm/theme"
+THEME_DIR="/usr/share/sddm/themes/0xide"
+HELPER_SRC="$OX_ROOT/system/sddm/0xide-sddm-sync"
+HELPER_DEST="/usr/local/libexec/0xide-sddm-sync"
+SUDOERS_FILE="/etc/sudoers.d/0xide-sddm"
 SUDOERS_RULE="$TARGET_USER ALL=(root) NOPASSWD: $HELPER_DEST"
-SDDM_DROPIN="/etc/sddm.conf.d/zz-caelestia.conf"
+SDDM_DROPIN="/etc/sddm.conf.d/zz-0xide.conf"
 # What the earlier corners-based integration added to that package's theme.
 LEGACY_DIR="/usr/share/sddm/themes/corners"
 LEGACY_FILES=("$LEGACY_DIR/theme.conf.user" "$LEGACY_DIR/backgrounds/caelestia_wallpaper.png" "$LEGACY_DIR/backgrounds/caelestia_wallpaper.jpg")
 # The greeter's compiled QML, which keeps entries for files later versions no
 # longer ship. It is rebuilt on the next start.
+# What this installed before the project was renamed from caelestia-mod, when
+# its pieces were named after Caelestia.
+OLD_THEME_DIR="/usr/share/sddm/themes/caelestia"
+OLD_HELPER="/usr/local/libexec/caelestia-sddm-sync"
+OLD_SUDOERS="/etc/sudoers.d/caelestia-sddm"
+OLD_DROPIN="/etc/sddm.conf.d/zz-caelestia.conf"
+OLD_STAGING="$HOME/.local/state/caelestia/sddm"
+# A theme directory is ours only if it is a real, root-owned directory with the
+# given name in its metadata that no package owns.
+our_theme_dir() {
+    [ -d "$1" ] && [ ! -L "$1" ] && [ "$(stat -c %u "$1")" = 0 ] &&
+        grep -qx "Name=$2" "$1/metadata.desktop" 2>/dev/null &&
+        ! pacman -Qqo "$1" >/dev/null 2>&1
+}
+# A file is ours if no package owns it. /etc/sudoers.d cannot be read without
+# root, so a sudoers rule counts as present whenever its helper is: they are
+# only ever installed together.
+renamed_present() {
+    our_theme_dir "$OLD_THEME_DIR" Caelestia && printf '%s\n' "$OLD_THEME_DIR"
+    if [ -e "$OLD_HELPER" ] && ! pacman -Qqo "$OLD_HELPER" >/dev/null 2>&1; then
+        printf '%s\n' "$OLD_HELPER" "$OLD_SUDOERS"
+    fi
+    [ -e "$OLD_DROPIN" ] && ! pacman -Qqo "$OLD_DROPIN" >/dev/null 2>&1 && printf '%s\n' "$OLD_DROPIN"
+    return 0
+}
 SDDM_HOME="$(getent passwd sddm | cut -d: -f6)"
 GREETER_CACHE="${SDDM_HOME:+$SDDM_HOME/.cache/sddm-greeter-qt6}"
 
-[ -f "$THEME_SRC/metadata.desktop" ] || cm_die "$THEME_SRC is incomplete"
-[ -x "$HELPER_SRC" ] || cm_die "helper source $HELPER_SRC not found or not executable"
-cm_have sddm-greeter-qt6 || cm_die "sddm-greeter-qt6 is required; the theme is Qt 6"
-cm_have rsync || cm_die "rsync is required"
+[ -f "$THEME_SRC/metadata.desktop" ] || ox_die "$THEME_SRC is incomplete"
+[ -x "$HELPER_SRC" ] || ox_die "helper source $HELPER_SRC not found or not executable"
+ox_have sddm-greeter-qt6 || ox_die "sddm-greeter-qt6 is required; the theme is Qt 6"
+ox_have rsync || ox_die "rsync is required"
 
 # Google Sans Flex is not packaged. The Caelestia dots put it in the user's
 # font directory, which the greeter cannot read; the theme carries a copy.
@@ -47,9 +72,10 @@ FONT_SRC="$(find "$XDG_DATA_HOME/fonts" -maxdepth 2 -name 'GoogleSansFlex*.ttf' 
 
 legacy_present=()
 for f in "${LEGACY_FILES[@]}"; do [ -e "$f" ] && legacy_present+=("$f"); done
+mapfile -t renamed < <(renamed_present)
 
 echo
-echo "This installs the Caelestia login screen:"
+echo "This installs the 0xIde login screen:"
 echo
 echo "  $THEME_DIR  (root:root, from system/sddm/theme)"
 [ -n "$FONT_SRC" ] && echo "    with Google Sans Flex from $FONT_SRC" ||
@@ -58,17 +84,21 @@ echo "  $HELPER_DEST  (root:root 0755)"
 echo "  $SUDOERS_FILE  (0440):"
 echo "      $SUDOERS_RULE"
 echo "  $SDDM_DROPIN:"
-echo "      [Theme] Current=caelestia"
+echo "      [Theme] Current=0xide"
+if [ ${#renamed[@]} -gt 0 ]; then
+    echo "  and removes what it installed under its old, Caelestia-derived names:"
+    printf '      %s\n' "${renamed[@]}"
+fi
 if [ ${#legacy_present[@]} -gt 0 ]; then
     echo "  and removes what the earlier corners integration added:"
     printf '      %s\n' "${legacy_present[@]}"
 fi
 echo
 
-if [ "${CM_ASSUME_YES:-0}" != 1 ]; then
+if [ "${OX_ASSUME_YES:-0}" != 1 ]; then
     printf 'Install it? [y/N] '
     read -r reply
-    case "$reply" in [yY]*) ;; *) cm_log "nothing was installed"; exit 0 ;; esac
+    case "$reply" in [yY]*) ;; *) ox_log "nothing was installed"; exit 0 ;; esac
 fi
 
 # The theme. --delete drops files this repository no longer ships; what the
@@ -95,49 +125,63 @@ prune_to() {
     for k in "$@"; do keep+=(! -name "$k"); done
     sudo find "$dir" -mindepth 1 -maxdepth 1 "${keep[@]}" -exec rm -rf --one-file-system -- {} +
 }
-prune_to "$THEME_DIR/backgrounds" caelestia_wallpaper.png caelestia_wallpaper.jpg
+prune_to "$THEME_DIR/backgrounds" wallpaper.png wallpaper.jpg
 prune_to "$THEME_DIR/fonts" "${fonts[@]}"
 # A picture per account that still exists, as the helper names them.
 faces=()
 while IFS=: read -r name _; do faces+=("$name"); done < <(getent passwd)
 prune_to "$THEME_DIR/faces" "${faces[@]}"
-cm_log "installed theme to $THEME_DIR"
+ox_log "installed theme to $THEME_DIR"
 
 # As the greeter's own user, so nothing in its home can turn this into a
 # delete somewhere else.
 if [ -n "$GREETER_CACHE" ]; then
     sudo -u sddm rm -rf -- "$GREETER_CACHE"
-    cm_log "cleared the greeter's QML cache"
+    ox_log "cleared the greeter's QML cache"
 fi
 
 # The helper, from tracked source.
 sudo install -D -m 0755 -o root -g root "$HELPER_SRC" "$HELPER_DEST"
-cm_log "installed privileged helper to $HELPER_DEST"
+ox_log "installed privileged helper to $HELPER_DEST"
 
 # The rule is checked before it is installed. A name containing a "." is
 # ignored by sudo's includedir, so the staged copy is inert until renamed.
 staged="$(mktemp)"
 trap 'rm -f "$staged"' EXIT
-printf '# Caelestia SDDM theme sync, one fixed helper\n%s\n' "$SUDOERS_RULE" > "$staged"
-visudo -cf "$staged" >/dev/null || cm_die "generated sudoers rule failed visudo validation"
+printf '# 0xIde SDDM theme sync, one fixed helper\n%s\n' "$SUDOERS_RULE" > "$staged"
+visudo -cf "$staged" >/dev/null || ox_die "generated sudoers rule failed visudo validation"
 sudo install -m 0440 -o root -g root "$staged" "$SUDOERS_FILE"
-cm_log "installed sudoers rule: $SUDOERS_RULE"
+ox_log "installed sudoers rule: $SUDOERS_RULE"
 
-printf '# Installed by caelestia-mod system/sddm/install; remove to restore the previous theme\n[Theme]\nCurrent=caelestia\n' |
+printf '# Installed by 0xIde system/sddm/install; remove to restore the previous theme\n[Theme]\nCurrent=0xide\n' |
     sudo install -D -m 0644 -o root -g root /dev/stdin "$SDDM_DROPIN"
-cm_log "SDDM theme set by $SDDM_DROPIN"
+ox_log "SDDM theme set by $SDDM_DROPIN"
 
 for f in "${legacy_present[@]}"; do
     # Only files the package does not own, as the earlier integration left them.
     if ! pacman -Qqo "$f" >/dev/null 2>&1 && [ -f "$f" ] && [ ! -L "$f" ]; then
         sudo rm -f -- "$f"
-        cm_log "removed $f"
+        ox_log "removed $f"
     fi
 done
 
-mkdir -p "$CM_CONFIG"
-grep -qx sddm "$CM_CONFIG/adapters.enabled" 2>/dev/null ||
-    printf 'sddm\n' >> "$CM_CONFIG/adapters.enabled"
-cm_log "sddm sync enabled"
+# The old names go only now, with their replacements in place.
+for f in "${renamed[@]}"; do
+    if [ "$f" = "$OLD_THEME_DIR" ]; then
+        sudo rm -rf --one-file-system -- "$f"
+    else
+        sudo rm -f -- "$f"
+    fi
+    ox_log "removed $f"
+done
 
-"$CM_ROOT/system/sddm/sync" && cm_log "synced the current scheme, wallpaper and profile picture"
+mkdir -p "$OX_CONFIG"
+grep -qx sddm "$OX_CONFIG/adapters.enabled" 2>/dev/null ||
+    printf 'sddm\n' >> "$OX_CONFIG/adapters.enabled"
+ox_log "sddm sync enabled"
+
+"$OX_ROOT/system/sddm/sync" && ox_log "synced the current scheme, wallpaper and profile picture"
+if [ -d "$OLD_STAGING" ] && [ ! -L "$OLD_STAGING" ]; then
+    rm -rf --one-file-system -- "$OLD_STAGING"
+    ox_log "removed $OLD_STAGING"
+fi

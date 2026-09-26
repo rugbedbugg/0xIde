@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Caelestia SDDM theme synchronization (unprivileged adapter).
+0xIde SDDM theme synchronization (unprivileged adapter).
 
 Writes the current Caelestia scheme, wallpaper and profile picture into user
-state for the caelestia SDDM theme, then, once the theme is installed, invokes
+state for the 0xIde SDDM theme, then, once the theme is installed, invokes
 the fixed privileged helper to install them. The state is written either way,
 so system/sddm/preview shows the current desktop before anything is installed.
 """
@@ -16,16 +16,16 @@ import sys
 from pathlib import Path
 
 # User state directory for generated files
-STATE_DIR = Path.home() / ".local/state/caelestia/sddm"
+STATE_DIR = Path.home() / ".local/state/0xide/sddm"
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 STATE_DIR.chmod(0o700)
 
 # Privileged helper
-HELPER = "/usr/local/libexec/caelestia-sddm-sync"
+HELPER = "/usr/local/libexec/0xide-sddm-sync"
 
 # The theme system/sddm/install places; there is nothing to hand over to
 # before it exists.
-THEME_DIR = Path("/usr/share/sddm/themes/caelestia")
+THEME_DIR = Path("/usr/share/sddm/themes/0xide")
 
 # Every palette role the theme reads (theme/components/Colours.qml). The helper
 # accepts exactly these keys, so the two lists change together.
@@ -195,7 +195,7 @@ def main():
     # itself from what it parses, so nothing else would reach the theme.
     lines = [
         "[General]",
-        f'BgSource="backgrounds/caelestia_wallpaper{wallpaper}"' if wallpaper else "BgSource=",
+        f'BgSource="backgrounds/wallpaper{wallpaper}"' if wallpaper else "BgSource=",
         f"mode={'light' if mode == 'light' else 'dark'}",
         f"useTwelveHourClock={'true' if twelve_hour_clock(config) else 'false'}",
         f"transparencyEnabled={'true' if tr_enabled else 'false'}",
@@ -221,7 +221,7 @@ def main():
     # --- Invoke privileged helper ---
     try:
         result = subprocess.run(
-            ["sudo", "-n", "/usr/local/libexec/caelestia-sddm-sync"],
+            ["sudo", "-n", "/usr/local/libexec/0xide-sddm-sync"],
             capture_output=True,
             text=True,
             timeout=30

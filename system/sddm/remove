@@ -5,61 +5,88 @@
 set -euo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
 
-THEME_DIR="/usr/share/sddm/themes/caelestia"
-HELPER_DEST="/usr/local/libexec/caelestia-sddm-sync"
-SUDOERS_FILE="/etc/sudoers.d/caelestia-sddm"
-SDDM_DROPIN="/etc/sddm.conf.d/zz-caelestia.conf"
+THEME_DIR="/usr/share/sddm/themes/0xide"
+HELPER_DEST="/usr/local/libexec/0xide-sddm-sync"
+SUDOERS_FILE="/etc/sudoers.d/0xide-sddm"
+SDDM_DROPIN="/etc/sddm.conf.d/zz-0xide.conf"
 LEGACY_DIR="/usr/share/sddm/themes/corners"
 LEGACY_FILES=("$LEGACY_DIR/theme.conf.user" "$LEGACY_DIR/backgrounds/caelestia_wallpaper.png" "$LEGACY_DIR/backgrounds/caelestia_wallpaper.jpg")
+# What this installed before the project was renamed from caelestia-mod, when
+# its pieces were named after Caelestia.
+OLD_THEME_DIR="/usr/share/sddm/themes/caelestia"
+OLD_HELPER="/usr/local/libexec/caelestia-sddm-sync"
+OLD_SUDOERS="/etc/sudoers.d/caelestia-sddm"
+OLD_DROPIN="/etc/sddm.conf.d/zz-caelestia.conf"
+OLD_STAGING="$HOME/.local/state/caelestia/sddm"
+# A theme directory is ours only if it is a real, root-owned directory with the
+# given name in its metadata that no package owns.
+our_theme_dir() {
+    [ -d "$1" ] && [ ! -L "$1" ] && [ "$(stat -c %u "$1")" = 0 ] &&
+        grep -qx "Name=$2" "$1/metadata.desktop" 2>/dev/null &&
+        ! pacman -Qqo "$1" >/dev/null 2>&1
+}
+# A file is ours if no package owns it. /etc/sudoers.d cannot be read without
+# root, so a sudoers rule counts as present whenever its helper is: they are
+# only ever installed together.
+renamed_present() {
+    our_theme_dir "$OLD_THEME_DIR" Caelestia && printf '%s\n' "$OLD_THEME_DIR"
+    if [ -e "$OLD_HELPER" ] && ! pacman -Qqo "$OLD_HELPER" >/dev/null 2>&1; then
+        printf '%s\n' "$OLD_HELPER" "$OLD_SUDOERS"
+    fi
+    [ -e "$OLD_DROPIN" ] && ! pacman -Qqo "$OLD_DROPIN" >/dev/null 2>&1 && printf '%s\n' "$OLD_DROPIN"
+    return 0
+}
 SDDM_HOME="$(getent passwd sddm | cut -d: -f6)"
 GREETER_CACHE="${SDDM_HOME:+$SDDM_HOME/.cache/sddm-greeter-qt6}"
 # system/sddm/sync's staging, the user's own.
-STATE_DIR="$HOME/.local/state/caelestia/sddm"
+STATE_DIR="$HOME/.local/state/0xide/sddm"
 
 targets=()
 # The theme directory only when it is the one install made: a real directory
 # owned by root, carrying this theme's metadata, and owned by no package.
-if [ -d "$THEME_DIR" ] && [ ! -L "$THEME_DIR" ] && [ "$(stat -c %u "$THEME_DIR")" = 0 ] &&
-   grep -qx 'Name=Caelestia' "$THEME_DIR/metadata.desktop" 2>/dev/null &&
-   ! pacman -Qqo "$THEME_DIR" >/dev/null 2>&1; then
-    targets+=("$THEME_DIR")
+our_theme_dir "$THEME_DIR" 0xIde && targets+=("$THEME_DIR")
+if [ -e "$HELPER_DEST" ] && ! pacman -Qqo "$HELPER_DEST" >/dev/null 2>&1; then
+    targets+=("$HELPER_DEST" "$SUDOERS_FILE")
 fi
-for f in "$HELPER_DEST" "$SUDOERS_FILE" "$SDDM_DROPIN" "${LEGACY_FILES[@]}"; do
+for f in "$SDDM_DROPIN" "${LEGACY_FILES[@]}"; do
     [ -e "$f" ] && ! pacman -Qqo "$f" >/dev/null 2>&1 && targets+=("$f")
 done
+mapfile -t -O "${#targets[@]}" targets < <(renamed_present)
 
 if [ ${#targets[@]} -eq 0 ]; then
-    cm_log "nothing to remove"
+    ox_log "nothing to remove"
 else
     echo "This removes:"
     printf '  %s\n' "${targets[@]}"
-    if [ "${CM_ASSUME_YES:-0}" != 1 ]; then
+    if [ "${OX_ASSUME_YES:-0}" != 1 ]; then
         printf 'Remove them? [y/N] '
         read -r reply
-        case "$reply" in [yY]*) ;; *) cm_log "nothing was removed"; exit 0 ;; esac
+        case "$reply" in [yY]*) ;; *) ox_log "nothing was removed"; exit 0 ;; esac
     fi
     for t in "${targets[@]}"; do
-        if [ "$t" = "$THEME_DIR" ]; then
+        if [ "$t" = "$THEME_DIR" ] || [ "$t" = "$OLD_THEME_DIR" ]; then
             sudo rm -rf --one-file-system -- "$t"
         else
             sudo rm -f -- "$t"
         fi
-        cm_log "removed $t"
+        ox_log "removed $t"
     done
 fi
 
 # The greeter's compiled QML, as its own user; see install.
 if [ -n "$GREETER_CACHE" ]; then
     sudo -u sddm rm -rf -- "$GREETER_CACHE"
-    cm_log "cleared the greeter's QML cache"
+    ox_log "cleared the greeter's QML cache"
 fi
 
-if [ -d "$STATE_DIR" ] && [ ! -L "$STATE_DIR" ]; then
-    rm -rf --one-file-system -- "$STATE_DIR"
-    cm_log "removed $STATE_DIR"
-fi
+for d in "$STATE_DIR" "$OLD_STAGING"; do
+    if [ -d "$d" ] && [ ! -L "$d" ]; then
+        rm -rf --one-file-system -- "$d"
+        ox_log "removed $d"
+    fi
+done
 
-if grep -qx sddm "$CM_CONFIG/adapters.enabled" 2>/dev/null; then
-    sed -i '/^sddm$/d' "$CM_CONFIG/adapters.enabled"
-    cm_log "disabled sddm sync"
+if grep -qx sddm "$OX_CONFIG/adapters.enabled" 2>/dev/null; then
+    sed -i '/^sddm$/d' "$OX_CONFIG/adapters.enabled"
+    ox_log "disabled sddm sync"
 fi

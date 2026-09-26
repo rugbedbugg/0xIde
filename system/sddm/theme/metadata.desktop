@@ -1,7 +1,7 @@
 [SddmGreeterTheme]
-Name=Caelestia
+Name=0xIde
 Description=The Caelestia lockscreen as a login screen
-Author=caelestia-mod
+Author=0xIde
 License=GPL-3.0-or-later
 Type=sddm-theme
 Version=1.0

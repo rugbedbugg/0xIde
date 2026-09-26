@@ -1,8 +1,8 @@
 #!/usr/bin/python3
 """
-Privileged helper for the caelestia SDDM theme.
+Privileged helper for the 0xIde SDDM theme.
 
-Installed at: /usr/local/libexec/caelestia-sddm-sync
+Installed at: /usr/local/libexec/0xide-sddm-sync
 Owner: root:root
 Mode: 0755
 
@@ -11,7 +11,7 @@ from sudo's metadata, reads fixed file names from the caller's fixed state
 directory, and writes to fixed places inside the theme:
 
     theme.conf.user                      re-written from what it parses
-    backgrounds/caelestia_wallpaper.png  or .jpg, named by its bytes
+    backgrounds/wallpaper.png  or .jpg, named by its bytes
     faces/<caller>                       the caller's profile picture
 
 The theme.conf.user it installs is never the caller's file: the caller's is
@@ -28,7 +28,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-THEME_DIR = Path("/usr/share/sddm/themes/caelestia")
+THEME_DIR = Path("/usr/share/sddm/themes/0xide")
 BACKGROUNDS_DIR = THEME_DIR / "backgrounds"
 FACES_DIR = THEME_DIR / "faces"
 THEME_CONF_USER_DEST = THEME_DIR / "theme.conf.user"
@@ -62,7 +62,7 @@ USER_NAME = re.compile(r"[a-z_][a-z0-9_-]{0,31}")
 
 # Every other key, with the exact values it may take.
 FIXED_KEYS = {
-    "BgSource": lambda v: v in ("", "backgrounds/caelestia_wallpaper.png", "backgrounds/caelestia_wallpaper.jpg"),
+    "BgSource": lambda v: v in ("", "backgrounds/wallpaper.png", "backgrounds/wallpaper.jpg"),
     "mode": lambda v: v in ("dark", "light"),
     "useTwelveHourClock": lambda v: v in ("true", "false"),
     "transparencyEnabled": lambda v: v in ("true", "false"),
@@ -70,11 +70,11 @@ FIXED_KEYS = {
     "transparencyLayers": lambda v: UNIT.fullmatch(v) is not None and float(v) <= 1,
 }
 
-USAGE = """Caelestia SDDM privileged sync helper
-Usage: sudo /usr/local/libexec/caelestia-sddm-sync
+USAGE = """0xIde SDDM privileged sync helper
+Usage: sudo /usr/local/libexec/0xide-sddm-sync
 Derives the caller from SUDO_USER/SUDO_UID
-Reads fixed files from ~/.local/state/caelestia/sddm/
-Writes: theme.conf.user, backgrounds/caelestia_wallpaper.{png,jpg}, faces/<caller>"""
+Reads fixed files from ~/.local/state/0xide/sddm/
+Writes: theme.conf.user, backgrounds/wallpaper.{png,jpg}, faces/<caller>"""
 
 
 def parse_args():
@@ -83,7 +83,7 @@ def parse_args():
             print(USAGE)
             sys.exit(0)
         print(f"ERROR: Unexpected argument: {sys.argv[1]}", file=sys.stderr)
-        print("Usage: sudo /usr/local/libexec/caelestia-sddm-sync [--help]", file=sys.stderr)
+        print("Usage: sudo /usr/local/libexec/0xide-sddm-sync [--help]", file=sys.stderr)
         sys.exit(1)
 
 
@@ -106,7 +106,7 @@ def get_sudo_user():
 
 
 def get_state_dir(pw):
-    return Path(pw.pw_dir) / ".local/state/caelestia/sddm"
+    return Path(pw.pw_dir) / ".local/state/0xide/sddm"
 
 
 def open_state_dir(state_dir, expected_uid):
@@ -316,14 +316,14 @@ def main():
     try:
         success = True
 
-        # The wallpaper, as caelestia_wallpaper.<type>; the other type goes.
+        # The wallpaper, as wallpaper.<type>; the other type goes.
         wallpaper, ok = install_image(
             state_dir_fd, WALLPAPER_BASENAMES, MAX_WALLPAPER_SIZE, uid,
-            lambda ext: BACKGROUNDS_DIR / f"caelestia_wallpaper{ext}", "wallpaper")
+            lambda ext: BACKGROUNDS_DIR / f"wallpaper{ext}", "wallpaper")
         success &= ok
         if wallpaper:
             for ext in (".png", ".jpg"):
-                other = BACKGROUNDS_DIR / f"caelestia_wallpaper{ext}"
+                other = BACKGROUNDS_DIR / f"wallpaper{ext}"
                 if other != wallpaper:
                     remove_if_ours(other)
 

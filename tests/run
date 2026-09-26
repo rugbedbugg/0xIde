@@ -10,62 +10,62 @@ no()   { printf '  \033[31mFAIL\033[0m  %s\n' "$*"; fail=$((fail+1)); }
 skipt(){ printf '  skip  %s\n' "$*"; skip=$((skip+1)); }
 check(){ if "$@" >/dev/null 2>&1; then return 0; else return 1; fi; }
 
-PY="$(cm_python)"
+PY="$(ox_python)"
 # Compiling a checker must not leave __pycache__ in the working tree.
 export PYTHONDONTWRITEBYTECODE=1
 
 # The --exclude arguments of shell/build.sh's shell deploy, read from the
 # script itself so the checks below run the real patterns, not a copy.
 deploy_excludes() {
-    awk '/^rsync -a --delete \\$/{f=1} f{print} f&&/CM_SHELLDIR\/"$/{exit}' "$CM_ROOT/shell/build.sh" |
+    awk '/^rsync -a --delete \\$/{f=1} f{print} f&&/OX_SHELLDIR\/"$/{exit}' "$OX_ROOT/shell/build.sh" |
         grep -oE -- "--exclude '[^']+'" | sed -E "s/^--exclude '(.*)'$/--exclude=\1/"
 }
 
-cm_step "Shell script syntax"
+ox_step "Shell script syntax"
 while IFS= read -r f; do
     head -1 "$f" | grep -q 'bin/\(env \)\?\(ba\)\?sh' || continue
-    if bash -n "$f" 2>/dev/null; then ok "${f#$CM_ROOT/}"; else no "${f#$CM_ROOT/}"; fi
-done < <(find "$CM_ROOT" -path "$CM_ROOT/.git" -prune -o -path "$CM_ROOT/build" -prune -o -path "$CM_ROOT/.work" -prune -o -type f -perm -u+x -print; echo "$CM_ROOT/orchestration/lib/common.sh")
+    if bash -n "$f" 2>/dev/null; then ok "${f#$OX_ROOT/}"; else no "${f#$OX_ROOT/}"; fi
+done < <(find "$OX_ROOT" -path "$OX_ROOT/.git" -prune -o -path "$OX_ROOT/build" -prune -o -path "$OX_ROOT/.work" -prune -o -type f -perm -u+x -print; echo "$OX_ROOT/orchestration/lib/common.sh")
 
-cm_step "Python syntax"
+ox_step "Python syntax"
 while IFS= read -r f; do
-    if "$PY" -m py_compile "$f" 2>/dev/null; then ok "${f#$CM_ROOT/}"; else no "${f#$CM_ROOT/}"; fi
-done < <(find "$CM_ROOT" -path "$CM_ROOT/build" -prune -o -path "$CM_ROOT/.work" -prune -o -name '*.py' -print
-         find "$CM_ROOT/adapters" -name apply -exec grep -l '^#!/usr/bin/python3' {} +)
+    if "$PY" -m py_compile "$f" 2>/dev/null; then ok "${f#$OX_ROOT/}"; else no "${f#$OX_ROOT/}"; fi
+done < <(find "$OX_ROOT" -path "$OX_ROOT/build" -prune -o -path "$OX_ROOT/.work" -prune -o -name '*.py' -print
+         find "$OX_ROOT/adapters" -name apply -exec grep -l '^#!/usr/bin/python3' {} +)
 
-cm_step "JSON and TOML"
+ox_step "JSON and TOML"
 while IFS= read -r f; do
-    if "$PY" -c 'import json,sys;json.load(open(sys.argv[1]))' "$f"; then ok "${f#$CM_ROOT/}"; else no "${f#$CM_ROOT/}"; fi
-done < <(find "$CM_ROOT/overrides" "$CM_ROOT/adapters" -name '*.json' ! -name '*.template.json')
-for f in "$CM_ROOT"/manifests/*.toml; do
-    if "$PY" -c 'import tomllib,sys;tomllib.load(open(sys.argv[1],"rb"))' "$f"; then ok "${f#$CM_ROOT/}"; else no "${f#$CM_ROOT/}"; fi
+    if "$PY" -c 'import json,sys;json.load(open(sys.argv[1]))' "$f"; then ok "${f#$OX_ROOT/}"; else no "${f#$OX_ROOT/}"; fi
+done < <(find "$OX_ROOT/overrides" "$OX_ROOT/adapters" -name '*.json' ! -name '*.template.json')
+for f in "$OX_ROOT"/manifests/*.toml; do
+    if "$PY" -c 'import tomllib,sys;tomllib.load(open(sys.argv[1],"rb"))' "$f"; then ok "${f#$OX_ROOT/}"; else no "${f#$OX_ROOT/}"; fi
 done
 
-cm_step "Lua"
-if cm_have luac || cm_have lua; then
-    for f in "$CM_ROOT"/overrides/caelestia/*.lua; do
-        if check luac -p "$f" || check lua -e "assert(loadfile('$f'))"; then ok "${f#$CM_ROOT/}"; else no "${f#$CM_ROOT/}"; fi
+ox_step "Lua"
+if ox_have luac || ox_have lua; then
+    for f in "$OX_ROOT"/overrides/caelestia/*.lua; do
+        if check luac -p "$f" || check lua -e "assert(loadfile('$f'))"; then ok "${f#$OX_ROOT/}"; else no "${f#$OX_ROOT/}"; fi
     done
 else skipt "no lua interpreter"; fi
 
-cm_step "RON"
-if cm_have rmpc; then
-    for f in "$CM_ROOT"/adapters/rmpc/config/themes/*.ron; do
+ox_step "RON"
+if ox_have rmpc; then
+    for f in "$OX_ROOT"/adapters/rmpc/config/themes/*.ron; do
         # rmpc validates a theme by name from its config dir, so check it there.
-        ok "${f#$CM_ROOT/} (validated at install by rmpc itself)"
+        ok "${f#$OX_ROOT/} (validated at install by rmpc itself)"
     done
 else skipt "rmpc not installed"; fi
 
-cm_step "Patches apply to the pinned revision"
-SRC="$CM_BUILD/shell-src"
+ox_step "Patches apply to the pinned revision"
+SRC="$OX_BUILD/shell-src"
 if [ -d "$SRC/.git" ]; then
-    rev="$(cm_pin "$CM_ROOT/shell/upstream.pin" rev)"
+    rev="$(ox_pin "$OX_ROOT/shell/upstream.pin" rev)"
     tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
     git -C "$SRC" worktree add -q --detach "$tmp" "$rev" 2>/dev/null
-    install -Dm644 "$CM_ROOT/shell/plugin/src/aiconfig.hpp"  "$tmp/plugin/src/Caelestia/Config/aiconfig.hpp"
-    install -Dm644 "$CM_ROOT/shell/plugin/src/airequest.hpp" "$tmp/plugin/src/Caelestia/airequest.hpp"
-    install -Dm644 "$CM_ROOT/shell/plugin/src/airequest.cpp" "$tmp/plugin/src/Caelestia/airequest.cpp"
-    for p in "$CM_ROOT"/shell/plugin/patches/*.patch "$CM_ROOT"/shell/patches/*.patch; do
+    install -Dm644 "$OX_ROOT/shell/plugin/src/aiconfig.hpp"  "$tmp/plugin/src/Caelestia/Config/aiconfig.hpp"
+    install -Dm644 "$OX_ROOT/shell/plugin/src/airequest.hpp" "$tmp/plugin/src/Caelestia/airequest.hpp"
+    install -Dm644 "$OX_ROOT/shell/plugin/src/airequest.cpp" "$tmp/plugin/src/Caelestia/airequest.cpp"
+    for p in "$OX_ROOT"/shell/plugin/patches/*.patch "$OX_ROOT"/shell/patches/*.patch; do
         if git -C "$tmp" apply --check "$p" 2>/dev/null && git -C "$tmp" apply "$p" 2>/dev/null
         then ok "$(basename "$p")"; else no "$(basename "$p") does not apply to ${rev:0:9}"; fi
     done
@@ -105,7 +105,7 @@ CHK
     # directory, as a fresh install would, and check that every script a QML
     # file imports arrived. utils/Searcher.qml importing scripts/fzf.js is the
     # case an unanchored "scripts" exclusion broke.
-    if cm_have rsync; then
+    if ox_have rsync; then
         mapfile -t excl < <(deploy_excludes)
         dep="$(mktemp -d)"
         rsync -a --delete "${excl[@]}" "$tmp/" "$dep/"
@@ -124,72 +124,72 @@ CHK
     git -C "$SRC" worktree remove --force "$tmp" 2>/dev/null
 else skipt "no upstream checkout yet (run ./shell/build.sh)"; fi
 
-cm_step "No machine-specific values are committed"
+ox_step "No machine-specific values are committed"
 # An empty pattern would match every line, so only search for values that exist.
 declare -a MACHINE=()
 for v in "$(id -un)" "$(uname -n)"; do [ -n "$v" ] && MACHINE+=(-e "$v"); done
 if [ ${#MACHINE[@]} -gt 0 ] &&
-   git -C "$CM_ROOT" grep -qIn "${MACHINE[@]}" -- . ':!*.md' ':!LICENSE' 2>/dev/null; then
+   git -C "$OX_ROOT" grep -qIn "${MACHINE[@]}" -- . ':!*.md' ':!LICENSE' 2>/dev/null; then
     no "a username or hostname appears in a tracked file:"
-    git -C "$CM_ROOT" grep -In "${MACHINE[@]}" -- . ':!*.md' ':!LICENSE' | sed 's/^/        /'
+    git -C "$OX_ROOT" grep -In "${MACHINE[@]}" -- . ':!*.md' ':!LICENSE' | sed 's/^/        /'
 else ok "no username or hostname is committed"; fi
-if git -C "$CM_ROOT" grep -qIn -e '/home/[a-z]' -- . ':!*.md' 2>/dev/null; then
+if git -C "$OX_ROOT" grep -qIn -e '/home/[a-z]' -- . ':!*.md' 2>/dev/null; then
     no "an absolute home path appears in a tracked file"
 else ok "no absolute home paths are committed"; fi
 
-cm_step "Documentation stays README-first"
+ox_step "Documentation stays README-first"
 # Spelt indirectly so this file does not match its own search.
 d=doc"s"
-if [ -n "$(git -C "$CM_ROOT" ls-files "$d" "$d/*")" ]; then
+if [ -n "$(git -C "$OX_ROOT" ls-files "$d" "$d/*")" ]; then
     no "a tracked $d/ directory is back; this project is README-first"
 else ok "no tracked $d/ directory"; fi
-if git -C "$CM_ROOT" grep -qIn "$d/" -- . ':!LICENSE' 2>/dev/null; then
+if git -C "$OX_ROOT" grep -qIn "$d/" -- . ':!LICENSE' 2>/dev/null; then
     no "a tracked file still links into $d/:"
-    git -C "$CM_ROOT" grep -In "$d/" -- . ':!LICENSE' | sed 's/^/        /'
+    git -C "$OX_ROOT" grep -In "$d/" -- . ':!LICENSE' | sed 's/^/        /'
 else ok "nothing links into a $d/ path"; fi
 # Every remaining markdown file must sit beside the component it explains.
 bad=0
 while IFS= read -r f; do
     [ "$f" = README.md ] && continue
     dir="$(dirname "$f")"
-    if [ -z "$(find "$CM_ROOT/$dir" -mindepth 1 -maxdepth 1 ! -name '*.md' -print -quit)" ]; then
+    if [ -z "$(find "$OX_ROOT/$dir" -mindepth 1 -maxdepth 1 ! -name '*.md' -print -quit)" ]; then
         no "$f has no component beside it; fold it into README.md"; bad=1
     fi
-done < <(git -C "$CM_ROOT" ls-files '*.md')
+done < <(git -C "$OX_ROOT" ls-files '*.md')
 [ "$bad" = 0 ] && ok "every component README sits beside the component it explains"
 
-cm_step "No generated state is committed"
+ox_step "No generated state is committed"
 bad=0
 for pat in 'build/' 'scheme.json' 'sequences.txt' 'apps.sqlite' 'notifs.json' \
            'kdeglobals' '*.gguf' '*.so' '__pycache__' 'color.ini'; do
-    if git -C "$CM_ROOT" ls-files --error-unmatch "$pat" >/dev/null 2>&1 ||
-       [ -n "$(git -C "$CM_ROOT" ls-files "*$pat*" 2>/dev/null)" ]; then
+    if git -C "$OX_ROOT" ls-files --error-unmatch "$pat" >/dev/null 2>&1 ||
+       [ -n "$(git -C "$OX_ROOT" ls-files "*$pat*" 2>/dev/null)" ]; then
         no "generated state is tracked: $pat"; bad=1
     fi
 done
 [ "$bad" = 0 ] && ok "no caches, models, compiled output or Caelestia runtime state tracked"
 
-cm_step "Shell layer is complete"
+ox_step "Shell layer is complete"
 for f in shell/upstream.pin shell/build.sh \
          shell/plugin/src/aiconfig.hpp shell/plugin/src/airequest.hpp shell/plugin/src/airequest.cpp; do
-    if [ -s "$CM_ROOT/$f" ]; then ok "$f"; else no "$f is missing or empty"; fi
+    if [ -s "$OX_ROOT/$f" ]; then ok "$f"; else no "$f is missing or empty"; fi
 done
-n=$(ls "$CM_ROOT"/shell/patches/*.patch 2>/dev/null | wc -l)
+n=$(ls "$OX_ROOT"/shell/patches/*.patch 2>/dev/null | wc -l)
 [ "$n" -gt 0 ] && ok "$n shell patch(es) present" || no "no shell patches"
-n=$(ls "$CM_ROOT"/shell/plugin/patches/*.patch 2>/dev/null | wc -l)
+n=$(ls "$OX_ROOT"/shell/plugin/patches/*.patch 2>/dev/null | wc -l)
 [ "$n" -gt 0 ] && ok "$n plugin patch(es) present" || no "no plugin registration patch"
 # The types the extensions cannot load without.
 for t in AiConfig backend backendUrl model systemPrompt ocrLanguages translateLanguage tableMode; do
-    grep -q "$t" "$CM_ROOT/shell/plugin/src/aiconfig.hpp" || no "aiconfig.hpp no longer declares $t"
+    grep -q "$t" "$OX_ROOT/shell/plugin/src/aiconfig.hpp" || no "aiconfig.hpp no longer declares $t"
 done
-grep -q "class AiRequest" "$CM_ROOT/shell/plugin/src/airequest.hpp" &&
+grep -q "class AiRequest" "$OX_ROOT/shell/plugin/src/airequest.hpp" &&
     ok "plugin still declares both recovered types" || no "airequest.hpp lost AiRequest"
 
-cm_step "Shell deploy exclusions"
+ox_step "Shell deploy exclusions"
 # rsync matches an unanchored exclude at any depth, so "scripts" also removed
 # upstream's utils/scripts/. Runs the real patterns over a fixture: top-level
 # build entries must go, same-named nested ones must stay.
-if ! cm_have rsync; then skipt "no rsync"
+if ! ox_have rsync; then skipt "no rsync"
 else
     mapfile -t excl < <(deploy_excludes)
     if [ ${#excl[@]} -eq 0 ]; then
@@ -217,7 +217,7 @@ else
     fi
 fi
 
-cm_step "Safe defaults"
+ox_step "Safe defaults"
 # Nothing needing root may be installed by a plain ./install.
 bad=0
 while IFS= read -r line; do
@@ -226,15 +226,15 @@ while IFS= read -r line; do
     dflt=$(printf '%s' "$line" | awk -F: '{gsub(/ /,"",$3);print $3}')
     if [ "$kind" = system ] && [ "$dflt" = on ]; then no "$name needs root but is on by default"; bad=1; fi
     if [ "$kind" = adapter ] && [ "$dflt" = on ] &&
-       [ "$(cm_pin "$CM_ROOT/adapters/$name/adapter.conf" privileges)" = root ] &&
+       [ "$(ox_pin "$OX_ROOT/adapters/$name/adapter.conf" privileges)" = root ] &&
        [ "$name" != papirus ]; then
         no "$name requires root but is on by default"; bad=1
     fi
-done < <(grep -vE '^\s*(#|$)' "$CM_ROOT/installer/components.conf")
+done < <(grep -vE '^\s*(#|$)' "$OX_ROOT/installer/components.conf")
 [ "$bad" = 0 ] && ok "no root-requiring component is enabled by default"
 
 # The privacy default that matters: region search must not upload out of the box.
-rs="$CM_ROOT/shell/extensions/search/tree/assets/search/region_search.sh"
+rs="$OX_ROOT/shell/extensions/search/tree/assets/search/region_search.sh"
 if grep -qE '^mode="text"' "$rs"; then ok "a dragged rectangle defaults to local OCR, no upload"
 else no "the rectangle gesture no longer defaults to the non-uploading mode"; fi
 if grep -qE '^confirm="always"' "$rs"; then ok "any upload confirms by default"
@@ -247,16 +247,16 @@ else no "the upload prompt no longer names the host"; fi
 # No privileged side effect may happen without a prompt.
 # Prose that tells you not to do it is not doing it, so markdown is excluded.
 if grep -rnE --exclude='*.md' '\bchown\b|chmod -R (a\+w|go\+w|777)' \
-      "$CM_ROOT/adapters" "$CM_ROOT/orchestration" \
-      "$CM_ROOT/installer" "$CM_ROOT/install" 2>/dev/null | grep -qv '^\s*#'; then
+      "$OX_ROOT/adapters" "$OX_ROOT/orchestration" \
+      "$OX_ROOT/installer" "$OX_ROOT/install" 2>/dev/null | grep -qv '^\s*#'; then
     no "a chown or broad chmod appears outside system/"
 else ok "no chown or world-writable chmod outside system/"
 fi
 
-cm_step "Region search gestures"
+ox_step "Region search gestures"
 # Driven for real, with xdg-open, notify-send and fuzzel stubbed and a private
 # XDG_CONFIG_HOME, so nothing is opened, notified or uploaded.
-if ! cm_have tesseract || ! cm_have magick || ! cm_have jq; then
+if ! ox_have tesseract || ! ox_have magick || ! ox_have jq; then
     skipt "tesseract, magick or jq is missing"
 else
     sdir="$(mktemp -d)"
@@ -317,8 +317,8 @@ STUB
     # One line in the config still overrides the gesture for both.
     rm -f "$sdir/opened"
     printf 'mode="text"\n' > "$sdir/conf/region-search.conf"
-    mkdir -p "$sdir/conf/caelestia-mod"
-    mv "$sdir/conf/region-search.conf" "$sdir/conf/caelestia-mod/region-search.conf"
+    mkdir -p "$sdir/conf/0xide"
+    mv "$sdir/conf/region-search.conf" "$sdir/conf/0xide/region-search.conf"
     cp "$sdir/probe.png" "$sdir/forced.png"
     PATH="$sdir/bin:$PATH" XDG_CONFIG_HOME="$sdir/conf" \
         bash "$rs" "$sdir/forced.png" circle >/dev/null 2>&1 || true
@@ -330,13 +330,13 @@ STUB
     rm -rf "$sdir"
 fi
 
-cm_step "Text extraction"
-OCRQML="$CM_ROOT/shell/extensions/ocr/tree/services/Ocr.qml"
-PICKER="$CM_ROOT/shell/patches/0002-areapicker-add-OCR-and-region-circle-search-capture-.patch"
+ox_step "Text extraction"
+OCRQML="$OX_ROOT/shell/extensions/ocr/tree/services/Ocr.qml"
+PICKER="$OX_ROOT/shell/patches/0002-areapicker-add-OCR-and-region-circle-search-capture-.patch"
 
 # The two things the extractor cannot work without have to be declared.
 for dep in tesseract wl-copy; do
-    if grep -qE "^report (required|optional) $dep " "$CM_ROOT/installer/check_deps.sh"
+    if grep -qE "^report (required|optional) $dep " "$OX_ROOT/installer/check_deps.sh"
     then ok "$dep is declared as an OCR dependency"
     else no "$dep is not declared in check_deps.sh"; fi
 done
@@ -377,25 +377,25 @@ n=$(grep -c 'name: "askAi"' "$PICKER")
 
 # Web search has one key; the shape is chosen in the selector, not by which
 # key you pressed.
-n=$(grep -c '^bind("kb' "$CM_ROOT/overrides/caelestia/hypr-user.lua")
+n=$(grep -c '^bind("kb' "$OX_ROOT/overrides/caelestia/hypr-user.lua")
 [ "$n" = 2 ] && ok "two keybindings in total, extraction and web search" ||
     no "hypr-user.lua binds $n actions, expected 2"
 if grep -q 'PickerModes' "$PICKER" &&
-   [ -s "$CM_ROOT/shell/extensions/search/tree/modules/areapicker/PickerModes.qml" ]
+   [ -s "$OX_ROOT/shell/extensions/search/tree/modules/areapicker/PickerModes.qml" ]
 then ok "the selector offers the search shape as a control"
 else no "the search shape can no longer be chosen in the selector"; fi
 
 # Runtime discovery must never write a preference.
-AIRUNTIME="$CM_ROOT/shell/extensions/ai/tree/services/AiRuntime.qml"
+AIRUNTIME="$OX_ROOT/shell/extensions/ai/tree/services/AiRuntime.qml"
 if grep -q 'GlobalConfig.ai.backend *=' "$AIRUNTIME"
 then no "AiRuntime still writes the backend preference"
 else ok "runtime discovery does not touch the backend preference"; fi
 bad=0
 while IFS= read -r f; do
     if grep -n 'onEditingFinished: GlobalConfig' "$f" >/dev/null 2>&1; then
-        no "${f#$CM_ROOT/} persists a field the user may not have changed"; bad=1
+        no "${f#$OX_ROOT/} persists a field the user may not have changed"; bad=1
     fi
-done < <(git -C "$CM_ROOT" ls-files 'shell/extensions/*.qml' | sed "s|^|$CM_ROOT/|")
+done < <(git -C "$OX_ROOT" ls-files 'shell/extensions/*.qml' | sed "s|^|$OX_ROOT/|")
 [ "$bad" = 0 ] && ok "no field writes a preference it did not change"
 
 # A selection too small to hold text is rejected before anything is captured.
@@ -416,31 +416,31 @@ else no "the OCR service no longer deletes its capture"; fi
 # Superseded entry points must be gone, not merely unbound.
 bad=0
 for dead in ocrClipboard openOcrClipboard openFreezeOcr screenshotFreezeOcr regionOcr kbAskAi kbCircleSearch; do
-    if git -C "$CM_ROOT" grep -qIn "$dead" -- . ':!tests/run' 2>/dev/null; then
+    if git -C "$OX_ROOT" grep -qIn "$dead" -- . ':!tests/run' 2>/dev/null; then
         no "the superseded OCR entry point $dead is still referenced"; bad=1
     fi
 done
-[ -e "$CM_ROOT/shell/extensions/ocr/tree/assets/ocr/capture.sh" ] &&
+[ -e "$OX_ROOT/shell/extensions/ocr/tree/assets/ocr/capture.sh" ] &&
     { no "the grim/slurp capture helper is back"; bad=1; }
 for dead in grim slurp; do
-    if git -C "$CM_ROOT" grep -qIn "\\b$dead\\b" -- . ':!*.md' ':!tests/run' 2>/dev/null; then
+    if git -C "$OX_ROOT" grep -qIn "\\b$dead\\b" -- . ':!*.md' ':!tests/run' 2>/dev/null; then
         no "$dead is referenced but nothing uses it any more"; bad=1
     fi
 done
 [ "$bad" = 0 ] && ok "no superseded OCR capture path remains"
 
 # Exactly one binding, in the override point Caelestia supports.
-n=$(grep -c 'kbOcrScreenshot' "$CM_ROOT/overrides/caelestia/hypr-vars.lua")
+n=$(grep -c 'kbOcrScreenshot' "$OX_ROOT/overrides/caelestia/hypr-vars.lua")
 [ "$n" = 1 ] && ok "hypr-vars.lua defines the extraction key once" ||
     no "hypr-vars.lua mentions kbOcrScreenshot $n times, expected 1"
-n=$(grep -c '^bind("kbOcrScreenshot"' "$CM_ROOT/overrides/caelestia/hypr-user.lua")
+n=$(grep -c '^bind("kbOcrScreenshot"' "$OX_ROOT/overrides/caelestia/hypr-user.lua")
 [ "$n" = 1 ] && ok "hypr-user.lua binds it once" ||
     no "hypr-user.lua binds kbOcrScreenshot $n times, expected 1"
 
-cm_step "Text extraction, end to end"
+ox_step "Text extraction, end to end"
 # The real pipeline on a known image: tesseract, then the clipboard.
-if ! cm_have tesseract; then skipt "tesseract not installed"
-elif ! cm_have magick; then skipt "no magick to render a test image"
+if ! ox_have tesseract; then skipt "tesseract not installed"
+elif ! ox_have magick; then skipt "no magick to render a test image"
 else
     ocrtmp="$(mktemp -d)"
     magick -background white -fill black -font "$(fc-match -f '%{file}' sans)" -pointsize 64 \
@@ -451,7 +451,7 @@ else
         *CAELESTIA*OCR*TEST*) ok "tesseract reads the test image: $got" ;;
         *) no "tesseract did not read the test image, got: $got" ;;
     esac
-    if [ -n "${WAYLAND_DISPLAY:-}" ] && cm_have wl-copy && cm_have wl-paste; then
+    if [ -n "${WAYLAND_DISPLAY:-}" ] && ox_have wl-copy && ox_have wl-paste; then
         # wl-copy stays behind to serve the clipboard, so it must not inherit
         # this script's output: a pipe reading the suite would never see EOF.
         before="$(wl-paste 2>/dev/null || true)"
@@ -466,11 +466,11 @@ else
     rm -rf "$ocrtmp"
 fi
 
-cm_step "Widget style follows the scheme mode"
+ox_step "Widget style follows the scheme mode"
 # dconf writes go through the session bus service, which ignores a private
 # XDG_CONFIG_HOME, so dconf is stubbed instead. Without that this test would
 # rewrite the real desktop settings.
-if ! cm_have dconf; then skipt "no dconf"
+if ! ox_have dconf; then skipt "no dconf"
 elif [ ! -d /usr/share/themes/adw-gtk3 ] || ! ls /usr/lib/qt*/plugins/styles/breeze*.so >/dev/null 2>&1; then
     skipt "adw-gtk3 or the Breeze Qt style is not installed"
 else
@@ -488,8 +488,8 @@ STUB
 
     probe() { # mode -> "<qt style> <gtk theme>"
         printf '{"mode":"%s"}\n' "$1" > "$td/state/scheme.json"
-        PATH="$td/bin:$PATH" XDG_CONFIG_HOME="$td/conf" CM_SCHEME="$td/state/scheme.json" \
-            "$CM_ROOT/adapters/kde/apply" >/dev/null 2>&1
+        PATH="$td/bin:$PATH" XDG_CONFIG_HOME="$td/conf" OX_SCHEME="$td/state/scheme.json" \
+            "$OX_ROOT/adapters/kde/apply" >/dev/null 2>&1
         printf '%s %s' \
             "$("$PY" -c 'import json,sys;print(json.load(open(sys.argv[1]))["theme"]["style"])' "$td/conf/qtengine/config.json")" \
             "$(grep -oP '(?<=^gtk-theme-name=).*' "$td/conf/gtk-3.0/settings.ini")"
@@ -508,18 +508,18 @@ STUB
     rm -rf "$td"
 fi
 
-cm_step "Spotify adapter"
+ox_step "Spotify adapter"
 # Driven for real with spicetify stubbed, so a theme change cannot open
 # Spotify behind the user's back.
 if pgrep -x spotify >/dev/null 2>&1 || pgrep -f 'com\.spotify\.Client' >/dev/null 2>&1; then
     skipt "Spotify is running, so the closed-Spotify case cannot be tested here"
-elif ! cm_have pgrep; then
+elif ! ox_have pgrep; then
     skipt "no pgrep"
 else
     sp="$(mktemp -d)"
-    # The adapter locks under $XDG_STATE_HOME/caelestia-mod; without that
+    # The adapter locks under $XDG_STATE_HOME/0xide; without that
     # directory flock fails and the test would pass for the wrong reason.
-    mkdir -p "$sp/bin" "$sp/conf/spicetify" "$sp/state/caelestia-mod"
+    mkdir -p "$sp/bin" "$sp/conf/spicetify" "$sp/state/0xide"
     cat > "$sp/bin/spicetify" <<STUB
 #!/bin/sh
 touch "$sp/applied"
@@ -527,7 +527,7 @@ STUB
     chmod +x "$sp/bin/spicetify"
     printf 'current_theme = caelestia\n' > "$sp/conf/spicetify/config-xpui.ini"
     PATH="$sp/bin:$PATH" XDG_CONFIG_HOME="$sp/conf" XDG_STATE_HOME="$sp/state" \
-        bash "$CM_ROOT/adapters/spotify/apply" >/dev/null 2>&1 || true
+        bash "$OX_ROOT/adapters/spotify/apply" >/dev/null 2>&1 || true
     sleep 1
     if [ -e "$sp/applied" ]
     then no "the spotify adapter ran spicetify with Spotify closed"
@@ -535,22 +535,22 @@ STUB
     rm -rf "$sp"
 fi
 
-cm_step "Adapter metadata"
-for d in "$CM_ROOT"/adapters/*/; do
+ox_step "Adapter metadata"
+for d in "$OX_ROOT"/adapters/*/; do
     n="$(basename "$d")"
     if [ -f "$d/adapter.conf" ] && [ -f "$d/README.md" ] &&
        { [ -x "$d/apply" ] || [ -x "$d/install" ]; }
     then ok "$n"; else no "$n is missing adapter.conf, README.md, or an apply/install"; fi
 done
 
-cm_step "No broken symlinks"
-if [ -n "$(find "$CM_ROOT" -path "$CM_ROOT/build" -prune -o -xtype l -print 2>/dev/null)" ]
+ox_step "No broken symlinks"
+if [ -n "$(find "$OX_ROOT" -path "$OX_ROOT/build" -prune -o -xtype l -print 2>/dev/null)" ]
 then no "broken symlink(s) in the repository"; else ok "none"; fi
 
-cm_step "SDDM helper"
+ox_step "SDDM helper"
 # The privileged helper, run as the unprivileged user it would be run for: it
 # refuses before sudo metadata is even read, so none of this can write.
-HELPER="$CM_ROOT/system/sddm/caelestia-sddm-sync"
+HELPER="$OX_ROOT/system/sddm/0xide-sddm-sync"
 head -1 "$HELPER" | grep -qx '#!/usr/bin/python3' && ok "the helper runs the distribution interpreter" ||
     no "the helper is not #!/usr/bin/python3"
 out="$(env -i PATH=/usr/bin "$HELPER" --help 2>&1)"; st=$?
@@ -562,7 +562,7 @@ env -i PATH=/usr/bin "$HELPER" --help --bogus >/dev/null 2>&1 && no "--help with
 env -i PATH=/usr/bin SUDO_USER="$(id -un)" SUDO_UID=0 "$HELPER" >/dev/null 2>&1 &&
     no "a SUDO_UID that does not match SUDO_USER was accepted" || ok "a SUDO_UID that does not match SUDO_USER is refused"
 
-if "$PY" - "$HELPER" "$CM_ROOT/system/sddm/sync" "$CM_ROOT/system/sddm/theme/components/Colours.qml" <<'CHK'
+if "$PY" - "$HELPER" "$OX_ROOT/system/sddm/sync" "$OX_ROOT/system/sddm/theme/components/Colours.qml" <<'CHK'
 import ast, importlib.machinery, importlib.util, os, re, sys, tempfile
 from pathlib import Path
 loader = importlib.machinery.SourceFileLoader("helper", sys.argv[1])
@@ -579,11 +579,11 @@ for name, data in {
     "a continuation line": b'[General]\nBgSource=\nmode=dark\n BgSource=/etc/shadow\n',
     "an unknown key": b'[General]\nBgSource=\nFontFamily=Evil\n',
     "a second section": b'[General]\nBgSource=\n[Other]\nx=1\n',
-    "a BgSource outside the fixed names": b'[General]\nBgSource="backgrounds/caelestia_wallpaper.webp"\n',
+    "a BgSource outside the fixed names": b'[General]\nBgSource="backgrounds/wallpaper.webp"\n',
     "a BgSource path": b'[General]\nBgSource="/etc/shadow"\n',
     "a colour that is not #rrggbb": b'[General]\nBgSource=\nprimary="red"\n',
     "a backslash escape": b'[General]\nBgSource=\nprimary="#aa\\nbbc"\n',
-    "a repeated key": b'[General]\nBgSource=\nBgSource="backgrounds/caelestia_wallpaper.png"\n',
+    "a repeated key": b'[General]\nBgSource=\nBgSource="backgrounds/wallpaper.png"\n',
     "a stray quote": b'[General]\nBgSource=\nprimary="#aab"bc"\n',
     "no BgSource": b'[General]\nmode=dark\n',
     "invalid UTF-8": b'[General]\nBgSource=\nmode="\xff"\n',
@@ -598,7 +598,7 @@ check(out.startswith("[General]\n") and 'primary="#aabbcc"' in out, "the re-writ
 
 # Every write lands in the theme directory, and only in a directory root owns.
 for p in (h.THEME_CONF_USER_DEST, h.BACKGROUNDS_DIR, h.FACES_DIR):
-    check(str(p).startswith("/usr/share/sddm/themes/caelestia"), f"{p} is outside the theme")
+    check(str(p).startswith("/usr/share/sddm/themes/0xide"), f"{p} is outside the theme")
 import contextlib, io
 with tempfile.TemporaryDirectory() as d, contextlib.redirect_stderr(io.StringIO()):
     check(not h.install_file_atomic(Path(d) / "x", b"data"), "wrote into a directory it does not own")
@@ -627,10 +627,10 @@ CHK
 then ok "the helper parses strictly, re-writes canonically, and writes only where root owns"
 else no "the helper's validation or destinations are wrong"; fi
 
-cm_step "SDDM install and remove"
+ox_step "SDDM install and remove"
 # Driven for real with sudo stubbed to record, never to run, and HOME in a
 # sandbox so the closing sync cannot touch the real state directory.
-if ! cm_have visudo || ! cm_have rsync; then
+if ! ox_have visudo || ! ox_have rsync; then
     skipt "visudo or rsync is missing"
 else
     sb="$(mktemp -d)"
@@ -647,30 +647,30 @@ exit 0
 STUB
     chmod +x "$sb/bin/sudo"
     runi() { env HOME="$sb/home" XDG_CONFIG_HOME="$sb/conf" XDG_DATA_HOME="$sb/home/.local/share" \
-                 XDG_STATE_HOME="$sb/home/.local/state" PATH="$sb/bin:$PATH" CM_ASSUME_YES=1 "$@"; }
+                 XDG_STATE_HOME="$sb/home/.local/state" PATH="$sb/bin:$PATH" OX_ASSUME_YES=1 "$@"; }
 
-    if cm_have unshare && unshare -r true 2>/dev/null; then
-        runi unshare -r bash "$CM_ROOT/system/sddm/install" >/dev/null 2>&1 &&
+    if ox_have unshare && unshare -r true 2>/dev/null; then
+        runi unshare -r bash "$OX_ROOT/system/sddm/install" >/dev/null 2>&1 &&
             no "install ran as root" || { [ -s "$sb/calls" ] && no "install called sudo before refusing root" ||
             ok "install refuses to run as root, before any sudo"; }
     else skipt "no user namespaces to test the root refusal"; fi
 
     rm -f "$sb/calls"
-    SUDO_USER=mallory SUDO_UID=0 runi bash "$CM_ROOT/system/sddm/install" >/dev/null 2>&1
-    rule="$(grep -v '^#' "$sb/cap/caelestia-sddm" 2>/dev/null)"
-    [ "$rule" = "$(id -un) ALL=(root) NOPASSWD: /usr/local/libexec/caelestia-sddm-sync" ] &&
+    SUDO_USER=mallory SUDO_UID=0 runi bash "$OX_ROOT/system/sddm/install" >/dev/null 2>&1
+    rule="$(grep -v '^#' "$sb/cap/0xide-sddm" 2>/dev/null)"
+    [ "$rule" = "$(id -un) ALL=(root) NOPASSWD: /usr/local/libexec/0xide-sddm-sync" ] &&
         ok "the sudoers rule grants the helper, to the running user only" ||
         no "the sudoers rule is '$rule'"
-    grep -q '^install -m 0440 -o root -g root .* /etc/sudoers.d/caelestia-sddm$' "$sb/calls" &&
+    grep -q '^install -m 0440 -o root -g root .* /etc/sudoers.d/0xide-sddm$' "$sb/calls" &&
         ok "the rule is installed root:root 0440 in one step" || no "the rule is not installed 0440 in one step"
-    grep -qx 'install -D -m 0755 -o root -g root '"$CM_ROOT"'/system/sddm/caelestia-sddm-sync /usr/local/libexec/caelestia-sddm-sync' "$sb/calls" &&
-        cmp -s "$sb/cap/caelestia-sddm-sync" "$CM_ROOT/system/sddm/caelestia-sddm-sync" &&
+    grep -qx 'install -D -m 0755 -o root -g root '"$OX_ROOT"'/system/sddm/0xide-sddm-sync /usr/local/libexec/0xide-sddm-sync' "$sb/calls" &&
+        cmp -s "$sb/cap/0xide-sddm-sync" "$OX_ROOT/system/sddm/0xide-sddm-sync" &&
         ok "the helper is installed from tracked source to its fixed path" || no "the helper install is wrong"
-    grep -qx 'Current=caelestia' "$sb/cap/zz-caelestia.conf" 2>/dev/null &&
+    grep -qx 'Current=0xide' "$sb/cap/zz-0xide.conf" 2>/dev/null &&
         ok "the theme is chosen by a drop-in that removal can take back" || no "the SDDM drop-in is missing"
-    grep -E '^rsync ' "$sb/calls" | grep -q -- "--exclude /backgrounds/ --exclude /faces/ --exclude /fonts/ --exclude /theme.conf.user $CM_ROOT/system/sddm/theme/ /usr/share/sddm/themes/caelestia/" &&
+    grep -E '^rsync ' "$sb/calls" | grep -q -- "--exclude /backgrounds/ --exclude /faces/ --exclude /fonts/ --exclude /theme.conf.user $OX_ROOT/system/sddm/theme/ /usr/share/sddm/themes/0xide/" &&
         ok "the theme deploy keeps what the helper writes" || no "the theme deploy could delete the helper's files"
-    grep -qx sddm "$sb/conf/caelestia-mod/adapters.enabled" 2>/dev/null &&
+    grep -qx sddm "$sb/conf/0xide/adapters.enabled" 2>/dev/null &&
         ok "install enables the sddm sync" || no "install did not enable the sddm sync"
 
     # Reinstalling over any earlier version leaves only what this one ships:
@@ -679,14 +679,14 @@ STUB
     # has no Google Sans Flex, so this version ships no font.
     fx="$sb/theme"
     mkdir -p "$fx/backgrounds" "$fx/fonts" "$fx/faces/olddir"
-    touch "$fx/backgrounds/caelestia_wallpaper.png" "$fx/backgrounds/default.svg" "$fx/backgrounds/.caelestia_wallpaper.jpg.tmp" \
+    touch "$fx/backgrounds/wallpaper.png" "$fx/backgrounds/default.svg" "$fx/backgrounds/.wallpaper.jpg.tmp" \
           "$fx/fonts/GoogleSansFlex.ttf" "$fx/fonts/OFL.txt" "$fx/fonts/Rubik.ttf" \
           "$fx/faces/$(id -un)" "$fx/faces/nosuchuser_cm_test"
-    grep -E '^find /usr/share/sddm/themes/caelestia/(backgrounds|fonts|faces) ' "$sb/calls" | while read -r line; do
-        eval "${line//\/usr\/share\/sddm\/themes\/caelestia/$fx}"
+    grep -E '^find /usr/share/sddm/themes/0xide/(backgrounds|fonts|faces) ' "$sb/calls" | while read -r line; do
+        eval "${line//\/usr\/share\/sddm\/themes\/0xide/$fx}"
     done
     left="$(cd "$fx" && find backgrounds fonts faces -mindepth 1 | sort | tr '\n' ' ')"
-    [ "$left" = "backgrounds/caelestia_wallpaper.png faces/$(id -un) " ] &&
+    [ "$left" = "backgrounds/wallpaper.png faces/$(id -un) " ] &&
         ok "a reinstall prunes backgrounds, fonts and faces to what this version ships" ||
         no "a reinstall left: $left"
     if getent passwd sddm >/dev/null; then
@@ -696,16 +696,18 @@ STUB
     else skipt "no sddm account to clear a cache for"; fi
 
     rm -f "$sb/calls"
-    mkdir -p "$sb/home/.local/state/caelestia/sddm" && touch "$sb/home/.local/state/caelestia/sddm/wallpaper.jpg"
-    runi bash "$CM_ROOT/system/sddm/remove" >/dev/null 2>&1
-    [ ! -e "$sb/home/.local/state/caelestia/sddm" ] &&
+    mkdir -p "$sb/home/.local/state/0xide/sddm" && touch "$sb/home/.local/state/0xide/sddm/wallpaper.jpg"
+    runi bash "$OX_ROOT/system/sddm/remove" >/dev/null 2>&1
+    [ ! -e "$sb/home/.local/state/0xide/sddm" ] &&
         ok "remove deletes the staging directory sync keeps" || no "remove left the staging directory sync keeps"
     badrm=""
     while read -r cmd; do
         case "$cmd" in
+            "rm -f -- /usr/local/libexec/0xide-sddm-sync"|"rm -f -- /etc/sudoers.d/0xide-sddm"|\
+            "rm -f -- /etc/sddm.conf.d/zz-0xide.conf"|"rm -rf --one-file-system -- /usr/share/sddm/themes/0xide"|\
+            "rm -f -- /usr/share/sddm/themes/corners/theme.conf.user"|\
             "rm -f -- /usr/local/libexec/caelestia-sddm-sync"|"rm -f -- /etc/sudoers.d/caelestia-sddm"|\
             "rm -f -- /etc/sddm.conf.d/zz-caelestia.conf"|"rm -rf --one-file-system -- /usr/share/sddm/themes/caelestia"|\
-            "rm -f -- /usr/share/sddm/themes/corners/theme.conf.user"|\
             "rm -f -- /usr/share/sddm/themes/corners/backgrounds/caelestia_wallpaper."[pj][np]g|\
             "-u sddm rm -rf -- $(getent passwd sddm | cut -d: -f6)/.cache/sddm-greeter-qt6") ;;
             *) badrm="$badrm [$cmd]" ;;
@@ -715,7 +717,7 @@ STUB
     rm -rf "$sb"
 fi
 
-cm_step "SDDM wallpaper and profile picture hand-off"
+ox_step "SDDM wallpaper and profile picture hand-off"
 # Runs the real sync with HOME in a sandbox and sudo stubbed, so nothing is
 # installed. The stub snapshots the state directory at the moment the helper
 # would run, and the helper's own parser and type check judge the snapshot:
@@ -725,11 +727,12 @@ cm_step "SDDM wallpaper and profile picture hand-off"
 # at a directory that exists.
 sd="$(mktemp -d)"
 st="$sd/home/.local/state/caelestia"
-mkdir -p "$sd/bin" "$st/wallpaper" "$st/sddm" "$sd/walls"
-sed 's|^THEME_DIR = .*|THEME_DIR = Path("/")|' "$CM_ROOT/system/sddm/sync" > "$sd/sync"
+sg="$sd/home/.local/state/0xide/sddm"
+mkdir -p "$sd/bin" "$st/wallpaper" "$sg" "$sd/walls"
+sed 's|^THEME_DIR = .*|THEME_DIR = Path("/")|' "$OX_ROOT/system/sddm/sync" > "$sd/sync"
 cat > "$sd/bin/sudo" <<STUB
 #!/bin/sh
-rm -rf "$sd/snap"; cp -a "$st/sddm" "$sd/snap"
+rm -rf "$sd/snap"; cp -a "$sg" "$sd/snap"
 STUB
 chmod +x "$sd/bin/sudo"
 printf '\x89PNG\r\n\x1a\npng-body' > "$sd/walls/a.png"
@@ -742,8 +745,8 @@ printf 'RIFF\0\0\0\0WEBPVP8 ' > "$sd/walls/e.webp"
 sddm_case() {
     local what="$1" wall="$2" expect="$3" face="$4" fexpect="$5" s
     shift 5
-    rm -rf "$st/sddm" "$sd/snap" "$sd/home/.face"; mkdir -p "$st/sddm"
-    for s in "$@"; do printf 'stale' > "$st/sddm/$s"; done
+    rm -rf "$sg" "$sd/snap" "$sd/home/.face"; mkdir -p "$sg"
+    for s in "$@"; do printf 'stale' > "$sg/$s"; done
     if [ -n "$wall" ]; then printf '%s\n' "$sd/walls/$wall" > "$st/wallpaper/path.txt"
     else rm -f "$st/wallpaper/path.txt"; fi
     [ -n "$face" ] && cp "$sd/walls/$face" "$sd/home/.face"
@@ -768,7 +771,7 @@ def one(files, stem, want, source):
     data = (snap / f"{stem}.{want}").read_bytes() if files == [f"{stem}.{want}"] else b""
     return data == source.read_bytes() and helper.image_type(data) == f".{want}"
 ok = ok and one(walls, "wallpaper", expect, wall) and one(faces, "avatar", fexpect, face)
-ok = ok and bg == ("" if expect == "none" else f"backgrounds/caelestia_wallpaper.{expect}")
+ok = ok and bg == ("" if expect == "none" else f"backgrounds/wallpaper.{expect}")
 if not ok:
     print(f"        state: {walls + faces}, BgSource: {bg!r}, parsed: {settings is not None}")
 sys.exit(0 if ok else 1)
@@ -788,12 +791,12 @@ sddm_case "a removed ~/.face leaves no stale picture"                a.png  png 
 sddm_case "an unsupported ~/.face is not handed over"                a.png  png  e.webp none  avatar.png
 
 # What earlier versions staged, and anything else, goes: only sync's own names stay.
-rm -rf "$st/sddm" "$sd/snap" "$sd/home/.face"; mkdir -p "$st/sddm/olddir"
-touch "$st/sddm/caelestia_wallpaper.png" "$st/sddm/theme.conf" "$st/sddm/avatar.webp"
+rm -rf "$sg" "$sd/snap" "$sd/home/.face"; mkdir -p "$sg/olddir"
+touch "$sg/caelestia_wallpaper.png" "$sg/theme.conf" "$sg/avatar.webp"
 printf '%s\n' "$sd/walls/a.png" > "$st/wallpaper/path.txt"
 HOME="$sd/home" XDG_CONFIG_HOME="$sd/home/.config" PATH="$sd/bin:$PATH" \
     SCHEME_COLOURS='{"primary":"b4befe","surface":"1e1e2e"}' "$PY" "$sd/sync" >/dev/null 2>&1
-left="$(ls -A "$st/sddm" | sort | tr '\n' ' ')"
+left="$(ls -A "$sg" | sort | tr '\n' ' ')"
 [ "$left" = "theme.conf.user wallpaper.png " ] &&
     ok "sync clears what earlier versions staged" || no "sync left: $left"
 
@@ -825,14 +828,14 @@ sddm_tr "out-of-range transparency is clamped, as the shell does"   '{"appearanc
 sddm_tr "transparency that is not a number falls back to defaults"  '{"appearance":{"transparency":{"enabled":"yes","base":"0.5","layers":null}}}' "false 0.850 0.400"
 rm -rf "$sd"
 
-cm_step "SDDM theme"
-THEME="$CM_ROOT/system/sddm/theme"
+ox_step "SDDM theme"
+THEME="$OX_ROOT/system/sddm/theme"
 grep -qx 'QtVersion=6' "$THEME/metadata.desktop" && grep -qx 'MainScript=Main.qml' "$THEME/metadata.desktop" &&
     ok "the theme asks SDDM for its Qt 6 greeter" || no "metadata.desktop does not select the Qt 6 greeter"
 
 # The real greeter, in test mode on the offscreen platform: no window, no
 # daemon. Any QML error, or SDDM falling back to its built-in theme, fails.
-if ! cm_have sddm-greeter-qt6; then skipt "sddm-greeter-qt6 is not installed"
+if ! ox_have sddm-greeter-qt6; then skipt "sddm-greeter-qt6 is not installed"
 else
     tt="$(mktemp -d)"
     cp -r "$THEME/." "$tt/"
@@ -851,7 +854,7 @@ fi
 # The login flow, with the greeter's context stood in for: SDDM's objects are
 # only there inside the greeter, so a harness provides them and records what
 # the theme asks SDDM to do.
-if ! cm_have qml6; then skipt "no qml6 runtime for the login flow"
+if ! ox_have qml6; then skipt "no qml6 runtime for the login flow"
 else
     hx="$(mktemp -d)"
     # A mid-grey wallpaper, 128 in every channel: its luminance is 128/255.
@@ -1214,17 +1217,42 @@ EOF
 fi
 
 # The whole SDDM component stays opt-in.
-grep -qE '^sddm[[:space:]]*:[[:space:]]*system[[:space:]]*:[[:space:]]*off[[:space:]]*:' "$CM_ROOT/installer/components.conf" &&
+grep -qE '^sddm[[:space:]]*:[[:space:]]*system[[:space:]]*:[[:space:]]*off[[:space:]]*:' "$OX_ROOT/installer/components.conf" &&
     ok "the SDDM theme is not installed by a plain ./install" || no "the SDDM theme is on by default"
 
-cm_step "Spotify process liveness"
+ox_step "Rename from caelestia-mod"
+# 0xIde was caelestia-mod. What it kept under the old names moves on first use,
+# and nothing moves over what is already under the new ones.
+rn="$(mktemp -d)"
+mkdir -p "$rn/conf/caelestia-mod" "$rn/state/caelestia-mod/replaced" "$rn/data/caelestia/ai/rev"
+printf 'kde\n' > "$rn/conf/caelestia-mod/adapters.enabled"
+touch "$rn/state/caelestia-mod/replaced/kept" "$rn/data/caelestia/ai/rev/ready.json"
+XDG_CONFIG_HOME="$rn/conf" XDG_STATE_HOME="$rn/state" XDG_DATA_HOME="$rn/data" \
+    bash -c ". '$OX_ROOT/orchestration/lib/common.sh'"
+[ "$(cat "$rn/conf/0xide/adapters.enabled" 2>/dev/null)" = kde ] && [ -e "$rn/state/0xide/replaced/kept" ] &&
+    [ ! -e "$rn/conf/caelestia-mod" ] && [ ! -e "$rn/state/caelestia-mod" ] &&
+    ok "settings and state move from caelestia-mod to 0xide" || no "settings or state did not move to 0xide"
+mkdir -p "$rn/conf/caelestia-mod"
+printf 'old\n' > "$rn/conf/caelestia-mod/adapters.enabled"
+XDG_CONFIG_HOME="$rn/conf" XDG_STATE_HOME="$rn/state" XDG_DATA_HOME="$rn/data" \
+    bash -c ". '$OX_ROOT/orchestration/lib/common.sh'"
+[ "$(cat "$rn/conf/0xide/adapters.enabled")" = kde ] &&
+    ok "nothing moves over a 0xide directory already there" || no "an old directory replaced the new one"
+cp "$OX_ROOT/shell/extensions/ai/tree/assets/ai/runtime.py" "$rn/"
+printf '{"runtimeRevision": "0123456789abcdef", "modelRevision": "fedcba9876543210"}' > "$rn/manifest.json"
+XDG_DATA_HOME="$rn/data" PYTHONDONTWRITEBYTECODE=1 "$PY" -c "import sys; sys.path.insert(0, '$rn'); import runtime" 2>/dev/null
+[ -e "$rn/data/0xide/ai/rev/ready.json" ] && [ ! -e "$rn/data/caelestia" ] &&
+    ok "the local AI model moves rather than downloading again" || no "the local AI model did not move"
+rm -rf "$rn"
+
+ox_step "Spotify process liveness"
 # Drives the real adapter with pgrep, ps and spicetify stubbed, so each case is
 # a process table the adapter has to read rather than a copy of its logic.
 # pgrep -x spotify is the native detector, pgrep -f com.spotify.Client the
 # Flatpak one; ps reports each PID's state from a file, and a missing file is a
 # process that exited between the two calls.
 sp="$(mktemp -d)"
-mkdir -p "$sp/bin" "$sp/conf/spicetify" "$sp/state/caelestia-mod" "$sp/stat"
+mkdir -p "$sp/bin" "$sp/conf/spicetify" "$sp/state/0xide" "$sp/stat"
 printf 'current_theme = caelestia\n' > "$sp/conf/spicetify/config-xpui.ini"
 cat > "$sp/bin/pgrep" <<STUB
 #!/bin/sh
@@ -1253,7 +1281,7 @@ spotify_case() {
     rm -f "$sp/applied" "$sp"/stat/*
     for entry in "$@"; do printf '%s\n' "${entry#*=}" > "$sp/stat/${entry%%=*}"; done
     PATH="$sp/bin:$PATH" XDG_CONFIG_HOME="$sp/conf" XDG_STATE_HOME="$sp/state" \
-        bash "$CM_ROOT/adapters/spotify/apply" >/dev/null 2>&1 || true
+        bash "$OX_ROOT/adapters/spotify/apply" >/dev/null 2>&1 || true
     # spicetify runs detached; give it a moment to land before deciding.
     for _ in 1 2 3 4 5 6 7 8 9 10; do [ -e "$sp/applied" ] && break; sleep 0.1; done
     got=skip; [ -e "$sp/applied" ] && got=apply
@@ -1273,8 +1301,8 @@ spotify_case "PID exited before ps saw it"       skip  "101"     ""
 spotify_case "one PID seen by both detectors"    apply "101"     "101"     101=Sl
 rm -rf "$sp"
 
-cm_step "Dependencies"
-"$CM_ROOT/installer/check_deps.sh" || true
+ox_step "Dependencies"
+"$OX_ROOT/installer/check_deps.sh" || true
 
 # Nothing may follow this: the script's exit status is this comparison.
 printf '\n%s passed, %s failed, %s skipped\n' "$pass" "$fail" "$skip"

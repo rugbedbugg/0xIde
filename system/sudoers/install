@@ -5,11 +5,11 @@ set -euo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
 
 here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-dest=/etc/sudoers.d/caelestia-mod
-staged="$CM_STATE/caelestia-mod.sudoers"
+dest=/etc/sudoers.d/0xide
+staged="$OX_STATE/0xide.sudoers"
 
-mkdir -p "$CM_STATE"
-sed "s|@USER@|$(id -un)|g" "$here/caelestia-mod.template" > "$staged"
+mkdir -p "$OX_STATE"
+sed "s|@USER@|$(id -un)|g" "$here/0xide.template" > "$staged"
 chmod 0440 "$staged"
 
 echo
@@ -21,16 +21,27 @@ echo "It will be installed as $dest"
 echo
 
 if ! visudo -c -f "$staged" >/dev/null; then
-    cm_die "the generated rule is not valid sudoers syntax; nothing was installed"
+    ox_die "the generated rule is not valid sudoers syntax; nothing was installed"
 fi
-cm_log "syntax checked with visudo -c"
+ox_log "syntax checked with visudo -c"
 
-if [ "${CM_ASSUME_YES:-0}" != 1 ]; then
+if [ "${OX_ASSUME_YES:-0}" != 1 ]; then
     printf 'Install it? [y/N] '
     read -r reply
-    case "$reply" in [yY]*) ;; *) cm_log "nothing was installed"; exit 0 ;; esac
+    case "$reply" in [yY]*) ;; *) ox_log "nothing was installed"; exit 0 ;; esac
 fi
 
 sudo install -m 0440 -o root -g root "$staged" "$dest"
-cm_own "$dest"
-cm_log "installed $dest"
+ox_own "$dest"
+ox_log "installed $dest"
+
+# Before the rename from caelestia-mod the rule and the Edge policy it writes
+# were named after Caelestia. The old rule goes; the old policy is renamed so
+# Edge keeps its colour until the next theme change rewrites it.
+sudo rm -f -- /etc/sudoers.d/caelestia-mod
+old_policy=/etc/opt/edge/policies/managed/caelestia.json
+new_policy=/etc/opt/edge/policies/managed/0xide.json
+if [ -f "$old_policy" ] && [ ! -L "$old_policy" ] && ! pacman -Qqo "$old_policy" >/dev/null 2>&1; then
+    if [ -e "$new_policy" ]; then sudo rm -f -- "$old_policy"; else sudo mv -- "$old_policy" "$new_policy"; fi
+    ox_log "moved the Edge policy to $new_policy"
+fi

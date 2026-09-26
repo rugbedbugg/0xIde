@@ -6,13 +6,13 @@
 set -euo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
 
-cm_have papirus-folders || exit 0
-[ -r "$CM_SCHEME" ] || exit 0
+ox_have papirus-folders || exit 0
+[ -r "$OX_SCHEME" ] || exit 0
 
-primary="$(jq -r '.colours.primary // empty' "$CM_SCHEME")"
+primary="$(jq -r '.colours.primary // empty' "$OX_SCHEME")"
 [ -n "$primary" ] || exit 0
 
-"$(cm_python)" - "$primary" <<'PY'
+"$(ox_python)" - "$primary" <<'PY'
 import sys
 from caelestia.utils.theme import sync_papirus_colors
 

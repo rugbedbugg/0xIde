@@ -26,7 +26,7 @@ jobs:
               head -1 "$f" | grep -qE '^#!.*(bash|sh)' && printf '%s\0' "$f"
           done | xargs -0 shellcheck -S warning
       - name: Python byte-compiles
-        run: git ls-files '*.py' 'system/sddm/sync' 'system/sddm/caelestia-sddm-sync' | xargs python3 -m py_compile
+        run: git ls-files '*.py' 'system/sddm/sync' 'system/sddm/0xide-sddm-sync' | xargs python3 -m py_compile
 
   test:
     # tests/run exercises Arch's own packages (sddm, qt6, visudo), so it runs on

@@ -12,8 +12,7 @@
 
 A modular extension and synchronisation layer around [Caelestia][caelestia]. It adds
 capabilities to the Caelestia Shell, and it carries Caelestia's colour scheme into
-applications Caelestia does not theme itself. Its tools, state and settings still go by
-`caelestia-mod`.
+applications Caelestia does not theme itself.
 
 > [!NOTE]
 > This is not a fork, a replacement theme engine or a `$HOME` dump. Caelestia stays the
@@ -92,7 +91,7 @@ To work with individual components:
 
 Re-running `./install` is a no-op. An adapter whose application is missing is skipped
 rather than failing. The first version of every file this project replaces is kept under
-`$XDG_STATE_HOME/caelestia-mod/replaced/`, and nothing here deletes it.
+`$XDG_STATE_HOME/0xide/replaced/`, and nothing here deletes it.
 
 ## Usage
 
@@ -155,8 +154,8 @@ it by hand in `build/shell-src` with `git apply --3way`, then write it back as a
 | `overrides/caelestia/cli.json`                                   | caelestia-cli settings                                                |
 | `overrides/fish/user-config.fish`                                | fish additions                                                        |
 | `overrides/foot/overlay.conf`, `overrides/starship/overlay.toml` | keys merged into two files that have no include mechanism             |
-| `$XDG_CONFIG_HOME/caelestia-mod/region-search.conf`              | region search mode and confirmation                                   |
-| `$XDG_CONFIG_HOME/caelestia-mod/adapters.enabled`                | which adapters the theme hook runs                                    |
+| `$XDG_CONFIG_HOME/0xide/region-search.conf`                      | region search mode and confirmation                                   |
+| `$XDG_CONFIG_HOME/0xide/adapters.enabled`                        | which adapters the theme hook runs                                    |
 
 `ai.ocrLanguages` in `shell.json` picks the Tesseract languages; empty, the default, uses
 every installed one. `config.local` at the repository root, never committed, overrides
@@ -238,7 +237,7 @@ One local portal that did is documented but deliberately not distributed; see
 
 ### I want to turn an adapter off without uninstalling it!
 
-Remove its line from `$XDG_CONFIG_HOME/caelestia-mod/adapters.enabled`.
+Remove its line from `$XDG_CONFIG_HOME/0xide/adapters.enabled`.
 
 ## Credits
 

@@ -10,14 +10,14 @@
 set -euo pipefail
 
 here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-state="$HOME/.local/state/caelestia/sddm"
+state="$HOME/.local/state/0xide/sddm"
 XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 
 command -v sddm-greeter-qt6 >/dev/null || { echo "sddm-greeter-qt6 is not installed" >&2; exit 1; }
 
 "$here/sync" || echo "sync reported a problem; previewing what state there is" >&2
 
-tmp="$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/caelestia-sddm-preview.XXXXXX")"
+tmp="$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/0xide-sddm-preview.XXXXXX")"
 trap 'rm -rf -- "$tmp"' EXIT
 
 cp -r -- "$here/theme/." "$tmp/"
@@ -26,7 +26,7 @@ export XDG_CACHE_HOME="$tmp/.cache"
 mkdir -p -- "$tmp/backgrounds" "$tmp/faces" "$tmp/fonts"
 [ -f "$state/theme.conf.user" ] && cp -- "$state/theme.conf.user" "$tmp/theme.conf.user"
 for ext in png jpg; do
-    [ -f "$state/wallpaper.$ext" ] && cp -- "$state/wallpaper.$ext" "$tmp/backgrounds/caelestia_wallpaper.$ext"
+    [ -f "$state/wallpaper.$ext" ] && cp -- "$state/wallpaper.$ext" "$tmp/backgrounds/wallpaper.$ext"
     [ -f "$state/avatar.$ext" ] && cp -- "$state/avatar.$ext" "$tmp/faces/$(id -un)"
 done
 font="$(find "$XDG_DATA_HOME/fonts" -maxdepth 2 -name 'GoogleSansFlex*.ttf' -print -quit 2>/dev/null || true)"

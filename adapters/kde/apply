@@ -152,7 +152,7 @@ def sync_fonts(dst, sans, mono):
 
 def scheme_mode():
     """light or dark, as caelestia recorded it. Unknown means leave styles alone."""
-    path = Path(os.getenv("CM_SCHEME") or Path.home() / ".local/state/caelestia/scheme.json")
+    path = Path(os.getenv("OX_SCHEME") or Path.home() / ".local/state/caelestia/scheme.json")
     try:
         mode = json.loads(path.read_text()).get("mode")
     except (OSError, json.JSONDecodeError):

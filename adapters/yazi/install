@@ -8,6 +8,6 @@ src="$(dirname -- "${BASH_SOURCE[0]}")/config"
         ./y.fish) dest="$XDG_CONFIG_HOME/fish/functions/y.fish" ;;
         *)        dest="$XDG_CONFIG_HOME/yazi/${rel#./}" ;;
     esac
-    if cm_install_file "$dest" 644 < "$src/$rel"; then cm_log "installed ${dest#$HOME/}"; fi
-    cm_own "$dest"
+    if ox_install_file "$dest" 644 < "$src/$rel"; then ox_log "installed ${dest#$HOME/}"; fi
+    ox_own "$dest"
 done

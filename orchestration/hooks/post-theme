@@ -8,11 +8,11 @@
 set -uo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../lib/common.sh"
 
-ENABLED="$CM_CONFIG/adapters.enabled"
+ENABLED="$OX_CONFIG/adapters.enabled"
 [ -r "$ENABLED" ] || exit 0
 
-log="$CM_STATE/post-theme.log"
-mkdir -p "$CM_STATE"
+log="$OX_STATE/post-theme.log"
+mkdir -p "$OX_STATE"
 # One run's worth, not a growing file: this runs on every wallpaper change.
 : > "$log"
 
@@ -21,8 +21,8 @@ while IFS= read -r name; do
     case "$name" in ''|'#'*) continue ;; esac
     # An adapter's runtime action, or a system module's sync where the module
     # is privileged enough that its whole directory lives under system/.
-    apply="$CM_ROOT/adapters/$name/apply"
-    [ -x "$apply" ] || apply="$CM_ROOT/system/$name/sync"
+    apply="$OX_ROOT/adapters/$name/apply"
+    [ -x "$apply" ] || apply="$OX_ROOT/system/$name/sync"
     [ -x "$apply" ] || continue
 
     start=$SECONDS

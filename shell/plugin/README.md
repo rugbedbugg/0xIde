@@ -58,7 +58,7 @@ This is the part to check first if behaviour differs from before.
 
 Needs `cmake`, `ninja`, `git`, Qt 6 development packages and `libqalculate`:
 the same set upstream needs, because this builds the upstream plugin with two
-files added. Output goes to `$XDG_DATA_HOME/caelestia-mod/qml`, which
+files added. Output goes to `$XDG_DATA_HOME/0xide/qml`, which
 `shell.qml` points at through `QML_IMPORT_PATH`.
 
 ```sh

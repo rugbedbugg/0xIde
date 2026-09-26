@@ -1,5 +1,5 @@
 {
     "theme": {
-        "postHook": "@CM_ROOT@/orchestration/hooks/post-theme"
+        "postHook": "@OX_ROOT@/orchestration/hooks/post-theme"
     }
 }

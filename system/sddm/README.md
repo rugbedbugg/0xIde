@@ -1,7 +1,8 @@
 # system/sddm
 
-A Caelestia login screen for SDDM, kept in step with the desktop: the same
-scheme, wallpaper and profile picture, updated on every theme change.
+The 0xIde login screen for SDDM, in Caelestia's style and kept in step with
+the desktop: the same scheme, wallpaper and profile picture, updated on every
+theme change.
 
 `theme/` builds it from the shell's `modules/lock` at the pinned revision and
 Caelestia's own design tokens, colours and motion. One column sits centred over
@@ -43,10 +44,10 @@ The installer prints every change and asks once. It installs:
 
 | Path | What |
 | --- | --- |
-| `/usr/share/sddm/themes/caelestia/` | the theme, root-owned, from `theme/` |
-| `/usr/local/libexec/caelestia-sddm-sync` | the fixed helper, from `caelestia-sddm-sync` |
-| `/etc/sudoers.d/caelestia-sddm` | `NOPASSWD` for that helper alone, for the user who ran the installer |
-| `/etc/sddm.conf.d/zz-caelestia.conf` | `Current=caelestia`; SDDM reads it after other drop-ins |
+| `/usr/share/sddm/themes/0xide/` | the theme, root-owned, from `theme/` |
+| `/usr/local/libexec/0xide-sddm-sync` | the fixed helper, from `0xide-sddm-sync` |
+| `/etc/sudoers.d/0xide-sddm` | `NOPASSWD` for that helper alone, for the user who ran the installer |
+| `/etc/sddm.conf.d/zz-0xide.conf` | `Current=0xide`; SDDM reads it after other drop-ins |
 
 Removing the drop-in restores whichever theme was chosen before. Re-run the
 installer after changing the theme's QML.
@@ -56,7 +57,7 @@ theme is re-synced with `--delete`; `backgrounds/`, `fonts/` and `faces/` are
 pruned to what this version puts there (the wallpaper, the font, a picture per
 existing account); and the greeter's compiled-QML cache under the `sddm`
 account is cleared, as that account. `sync` likewise keeps only its own files in
-`~/.local/state/caelestia/sddm/`. `remove` takes all of it away, that directory
+`~/.local/state/0xide/sddm/`. `remove` takes all of it away, that directory
 and the cache included, and `preview` keeps its caches in its temporary copy.
 
 ## How it stays in step
@@ -65,13 +66,13 @@ and the cache included, and `preview` keeps its caches in its temporary copy.
 caelestia scheme/wallpaper change
   -> orchestration/hooks/post-theme
        -> system/sddm/sync                 as you, no privileges
-            ~/.local/state/caelestia/sddm/
+            ~/.local/state/0xide/sddm/
               theme.conf.user              palette, mode, clock format, transparency
               wallpaper.{png,jpg}          named by its bytes
               avatar.{png,jpg}             from ~/.face
-       -> sudo -n caelestia-sddm-sync      no arguments, no environment
+       -> sudo -n 0xide-sddm-sync      no arguments, no environment
             theme.conf.user                re-written from what parses
-            backgrounds/caelestia_wallpaper.{png,jpg}
+            backgrounds/wallpaper.{png,jpg}
             faces/<you>
 ```
 
@@ -91,7 +92,7 @@ directory, only into root-owned directories, atomically.
 
 ```sh
 system/sddm/preview    # this checkout's theme, with the current wallpaper and picture
-sddm-greeter-qt6 --test-mode --theme /usr/share/sddm/themes/caelestia    # what is installed
+sddm-greeter-qt6 --test-mode --theme /usr/share/sddm/themes/0xide    # what is installed
 ```
 
 `preview` needs nothing installed: `sync` writes its state whether or not the

@@ -4,7 +4,7 @@
 set -uo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
 
-cm_have rmpc || { echo "rmpc: not installed"; exit 1; }
+ox_have rmpc || { echo "rmpc: not installed"; exit 1; }
 hex=$(grep -rnoE '#[0-9a-fA-F]{6}' "$XDG_CONFIG_HOME/rmpc" 2>/dev/null | wc -l)
 if [ "$hex" -gt 0 ]; then
     echo "rmpc: $hex hardcoded colour(s) found; the theme has stopped following Caelestia"

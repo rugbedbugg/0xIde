@@ -14,7 +14,7 @@ set -euo pipefail
 image="${1:-}"
 gesture="${2:-}"
 if [[ -z "$image" || ! -s "$image" ]]; then
-    notify-send -a caelestia-search -u critical "Search failed" "The selected image was not captured"
+    notify-send -a 0xide-search -u critical "Search failed" "The selected image was not captured"
     exit 1
 fi
 trap 'rm -f -- "$image"' EXIT
@@ -45,17 +45,17 @@ upload_endpoints=(
 )
 ocr_languages="eng"
 
-conf="${XDG_CONFIG_HOME:-$HOME/.config}/caelestia-mod/region-search.conf"
+conf="${XDG_CONFIG_HOME:-$HOME/.config}/0xide/region-search.conf"
 # shellcheck disable=SC1090
 [[ -r "$conf" ]] && source "$conf"
 
 if [[ "$mode" == "off" ]]; then
-    notify-send -a caelestia-search "Region search is disabled" "Enable it in ${conf}"
+    notify-send -a 0xide-search "Region search is disabled" "Enable it in ${conf}"
     exit 0
 fi
 
 # --- helpers -----------------------------------------------------------------
-die() { notify-send -a caelestia-search -u critical "Search failed" "$1"; exit 1; }
+die() { notify-send -a 0xide-search -u critical "Search failed" "$1"; exit 1; }
 
 open_search() {
     xdg-open "$1" >/dev/null 2>&1 &
@@ -92,7 +92,7 @@ host="${upload_endpoints[0]%%|*}"
 host="${host#*://}"
 host="${host%%/*}"
 ask "Upload this region to ${host} and open Google Lens?" ||
-    { notify-send -a caelestia-search "Search cancelled" "Nothing was uploaded."; exit 0; }
+    { notify-send -a 0xide-search "Search cancelled" "Nothing was uploaded."; exit 0; }
 
 image_url=""
 reason=""
@@ -132,5 +132,5 @@ done
 [[ -n "$image_url" ]] ||
     die "${reason:-No upload host is configured}. Set upload_endpoints in ${conf} to use a different host."
 
-notify-send -a caelestia-search "Google Lens" "Region uploaded to ${host}; search opened in your browser."
+notify-send -a 0xide-search "Google Lens" "Region uploaded to ${host}; search opened in your browser."
 open_search "https://lens.google.com/uploadbyurl?url=$(printf '%s' "$image_url" | jq -sRr @uri)"

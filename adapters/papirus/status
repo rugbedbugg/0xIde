@@ -3,9 +3,9 @@
 set -uo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
 
-cm_have papirus-folders || { echo "papirus: papirus-folders is not installed"; exit 1; }
+ox_have papirus-folders || { echo "papirus: papirus-folders is not installed"; exit 1; }
 
-if cm_has_sudo_rule papirus-folders; then
+if ox_has_sudo_rule papirus-folders; then
     echo "papirus: ok, folder colours track the scheme"
     exit 0
 fi
