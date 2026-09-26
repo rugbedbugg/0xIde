@@ -75,7 +75,7 @@ PageBase {
             label: qsTr("Languages to use")
             subtext: qsTr("Codes joined with +. Empty uses all")
             errorText: qsTr("Use language codes joined with +")
-            placeholderText: qsTr("All")
+            placeholderText: qsTr("Languages")
             value: GlobalConfig.ai.ocrLanguages
             validate: /^\s*([A-Za-z_]+(\+[A-Za-z_]+)*)?\s*$/
             onEditingFinished: value => {
@@ -120,8 +120,8 @@ PageBase {
         TextFieldRow {
             visible: root.external
             label: qsTr("Server URL")
-            subtext: qsTr("An OpenAI-compatible chat completions endpoint")
-            placeholderText: "http://localhost:8080/v1/chat/completions"
+            subtext: qsTr("OpenAI-compatible chat completions")
+            placeholderText: qsTr("URL")
             value: GlobalConfig.ai.backendUrl
             onEditingFinished: value => {
                 if (value.trim() !== GlobalConfig.ai.backendUrl)
@@ -132,8 +132,8 @@ PageBase {
         TextFieldRow {
             visible: root.external
             label: qsTr("Model")
-            subtext: qsTr("Sent with each request, if your server needs one")
-            placeholderText: qsTr("Optional")
+            subtext: qsTr("Optional. Sent with each request")
+            placeholderText: qsTr("Model")
             value: GlobalConfig.ai.model
             onEditingFinished: value => {
                 if (value.trim() !== GlobalConfig.ai.model)
@@ -146,8 +146,7 @@ PageBase {
             last: true
             icon: root.probe.running ? "close" : "network_check"
             text: root.probe.running ? qsTr("Cancel test") : qsTr("Test connection")
-            subtext: root.probe.error || (root.probe.status === "complete" ? qsTr("Connection succeeded") : root.probe.status || qsTr("Sends a one-word request to the server"))
-            subLabel.color: root.probe.error ? Colours.palette.m3error : Colours.palette.m3outline
+            subtext: (root.probe.error ? qsTr("Failed: %1").arg(root.probe.error) : "") || (root.probe.status === "complete" ? qsTr("Connection succeeded") : root.probe.status || qsTr("Sends a one-word request to the server"))
             disabled: !GlobalConfig.ai.backendUrl
             onClicked: {
                 if (root.probe.running) {
@@ -179,8 +178,8 @@ PageBase {
             first: true
             last: true
             label: qsTr("System prompt")
-            subtext: qsTr("Sent before the text you ask about")
-            placeholderText: qsTr("Optional")
+            subtext: qsTr("Optional. Sent before the text you ask about")
+            placeholderText: qsTr("Prompt")
             value: GlobalConfig.ai.systemPrompt
             onEditingFinished: value => {
                 if (value !== GlobalConfig.ai.systemPrompt)
