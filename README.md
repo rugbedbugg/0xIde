@@ -1,18 +1,19 @@
-<h1 align=center>caelestia-mod</h1>
+<h1 align=center>0xIde</h1>
 
 <div align=center>
 
-[![CI](https://img.shields.io/github/actions/workflow/status/rugbedbugg/Arch-Dotfiles/ci.yml?branch=main&style=for-the-badge&label=ci&labelColor=101418&color=96f1f1)][ci]
-![GitHub last commit](https://img.shields.io/github/last-commit/rugbedbugg/Arch-Dotfiles?style=for-the-badge&labelColor=101418&color=9ccbfb)
-![GitHub Repo stars](https://img.shields.io/github/stars/rugbedbugg/Arch-Dotfiles?style=for-the-badge&labelColor=101418&color=b9c8da)
-![GitHub repo size](https://img.shields.io/github/repo-size/rugbedbugg/Arch-Dotfiles?style=for-the-badge&labelColor=101418&color=d3bfe6)
-![License](https://img.shields.io/github/license/rugbedbugg/Arch-Dotfiles?style=for-the-badge&labelColor=101418&color=f16061)
+![GitHub last commit](https://img.shields.io/github/last-commit/rugbedbugg/0xIde?style=for-the-badge&labelColor=000000)
+![GitHub repo size](https://img.shields.io/github/repo-size/rugbedbugg/0xIde?style=for-the-badge&labelColor=000000)
+![Stars](https://img.shields.io/github/stars/rugbedbugg/0xIde?style=for-the-badge&labelColor=000000)
+![License](https://img.shields.io/github/license/rugbedbugg/0xIde?style=for-the-badge&labelColor=000000)
+[![CI](https://img.shields.io/github/actions/workflow/status/rugbedbugg/0xIde/ci.yml?branch=main&style=for-the-badge&labelColor=000000)](https://github.com/rugbedbugg/0xIde/actions/workflows/ci.yml)
 
 </div>
 
 A modular extension and synchronisation layer around [Caelestia][caelestia]. It adds
 capabilities to the Caelestia Shell, and it carries Caelestia's colour scheme into
-applications Caelestia does not theme itself.
+applications Caelestia does not theme itself. Its tools, state and settings still go by
+`caelestia-mod`.
 
 > [!NOTE]
 > This is not a fork, a replacement theme engine or a `$HOME` dump. Caelestia stays the
@@ -69,8 +70,8 @@ is missing:
 ### Install
 
 ```sh
-git clone https://github.com/rugbedbugg/Arch-Dotfiles.git caelestia-mod
-cd caelestia-mod
+git clone https://github.com/rugbedbugg/0xIde.git
+cd 0xIde
 ./install --dry-run     # exactly what would change, grouped by kind; changes nothing
 ./install               # the default set; nothing in it needs root
 ```
@@ -126,7 +127,7 @@ shell's settings, or under `ai` in `shell.json`.
 ## Updating
 
 ```sh
-cd caelestia-mod
+cd 0xIde
 git pull
 ./install
 ```
@@ -253,11 +254,11 @@ it, so a permissive licence is not available for the whole. See [`LICENSE`](LICE
 
 ## Stonks 📈
 
-<a href="https://www.star-history.com/#rugbedbugg/Arch-Dotfiles&Date">
+<a href="https://www.star-history.com/#rugbedbugg/0xIde&Date">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=rugbedbugg/Arch-Dotfiles&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=rugbedbugg/Arch-Dotfiles&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=rugbedbugg/Arch-Dotfiles&type=Date" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=rugbedbugg/0xIde&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=rugbedbugg/0xIde&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=rugbedbugg/0xIde&type=Date" />
  </picture>
 </a>
 
@@ -265,4 +266,4 @@ it, so a permissive licence is not available for the whole. See [`LICENSE`](LICE
 [shell]: https://github.com/caelestia-dots/shell
 [dots]: https://github.com/caelestia-dots/caelestia
 [tesseract]: https://github.com/tesseract-ocr/tesseract
-[ci]: https://github.com/rugbedbugg/Arch-Dotfiles/actions/workflows/ci.yml
+[ci]: https://github.com/rugbedbugg/0xIde/actions/workflows/ci.yml
