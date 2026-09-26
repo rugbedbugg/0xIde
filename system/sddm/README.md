@@ -7,9 +7,11 @@ scheme, wallpaper and profile picture, updated on every theme change.
 Caelestia's own design tokens, colours and motion. One column sits centred over
 the wallpaper: the lockscreen's condensed two-colour clock and date, then the
 account field, then the lockscreen's password pill, whose characters arrive as
-Material 3 shapes and settle into circles. The account field is an M3 filled field,
-frosted (the wallpaper behind it blurred and tinted), holding a user name over
-an underline with that account's picture beside it: type any name, or
+Material 3 shapes and settle into circles. The account field is the shell's filled
+text field, translucent over the blurred wallpaper when the shell's
+transparency is on (the same colours the desktop's panels take, from
+`appearance.transparency` and the wallpaper's brightness), holding a user
+name over an underline with that account's picture beside it: type any name, or
 open the chevron (or press Down) to pick from the accounts SDDM lists. It
 starts on the last user, and Tab moves between it and the password. Two
 buttons in the bottom-left corner open the power actions and the session to
@@ -50,7 +52,7 @@ caelestia scheme/wallpaper change
   -> orchestration/hooks/post-theme
        -> system/sddm/sync                 as you, no privileges
             ~/.local/state/caelestia/sddm/
-              theme.conf.user              palette, mode, clock format
+              theme.conf.user              palette, mode, clock format, transparency
               wallpaper.{png,jpg}          named by its bytes
               avatar.{png,jpg}             from ~/.face
        -> sudo -n caelestia-sddm-sync      no arguments, no environment

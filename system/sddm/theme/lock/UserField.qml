@@ -11,10 +11,12 @@ import "../components"
 // opens the accounts SDDM knows, to pick one instead. The line thickens into
 // primary while the field has the keyboard or the menu is open.
 //
-// It is an M3 filled text field: rounded at the top, square where the line
-// runs. The fill is frosted, the wallpaper behind the field blurred and
-// tinted with the password pill's surface, so the name reads on any wallpaper
-// while the wallpaper still shows through.
+// It is components/controls/StyledTextField.qml's Filled type: rounded at the
+// top by rounding.small, square where the line runs, filled with
+// tPalette.surfaceContainerHigh (Highest while it has the keyboard), with a
+// state layer over it. With the shell's transparency on, that fill is
+// translucent over the wallpaper blurred as the desktop clock blurs it, which
+// is what Hyprland's blur does for the shell's own panels.
 Item {
     id: root
 
@@ -45,71 +47,63 @@ Item {
 
     implicitHeight: row.implicitHeight + Tokens.padding.small * 2
 
-    Item {
-        id: frost
+    // StyledTextField's clampedRadius, with its horizontal padding.
+    readonly property real radius: Math.min(Tokens.padding.large, height / 2, Tokens.rounding.small)
 
-        // Blurring only the field's own patch would pull transparency in at
-        // its edges, so the patch reaches past them and is cut back after.
-        readonly property int reach: 48
+    Item {
+        id: fill
 
         anchors.fill: parent
-        visible: root.frostSource !== null
 
         layer.enabled: true
         layer.effect: MultiEffect {
             maskEnabled: true
-            maskSource: frostMask
+            maskSource: fillMask
             maskThresholdMin: 0.5
             maskSpreadAtMin: 1
         }
 
-        ShaderEffectSource {
-            id: patch
-
-            x: -frost.reach
-            y: -frost.reach
-            width: root.width + frost.reach * 2
-            height: root.height + frost.reach * 2
-            visible: false
-
-            sourceItem: root.frostSource
-            sourceRect: {
-                root.track;
-                root.width;
-                root.height;
-                if (!root.frostSource)
-                    return Qt.rect(0, 0, 0, 0);
-                const p = root.mapToItem(root.frostSource, 0, 0);
-                return Qt.rect(p.x - frost.reach, p.y - frost.reach, width, height);
-            }
-        }
-
         MultiEffect {
-            anchors.fill: patch
-            source: patch
+            anchors.fill: parent
+            visible: Colours.transparency.enabled && root.frostSource !== null
             autoPaddingEnabled: false
             blurEnabled: true
             blur: 1
-            blurMax: 48
-            blurMultiplier: 1
+            blurMax: 64
+
+            source: ShaderEffectSource {
+                sourceItem: root.frostSource
+                sourceRect: {
+                    root.track;
+                    root.width;
+                    root.height;
+                    if (!root.frostSource)
+                        return Qt.rect(0, 0, 0, 0);
+                    const p = root.mapToItem(root.frostSource, 0, 0);
+                    return Qt.rect(p.x, p.y, root.width, root.height);
+                }
+            }
         }
 
-        Rectangle {
+        StyledRect {
             anchors.fill: parent
-            color: Qt.alpha(Colours.palette.m3surfaceContainer, 0.55)
+            color: input.activeFocus ? Colours.tPalette.m3surfaceContainerHighest : Colours.tPalette.m3surfaceContainerHigh
+        }
 
-            Behavior on color {
-                CAnim {}
-            }
+        StateLayer {
+            radius: 0
+            cursorShape: Qt.IBeamCursor
+            disabled: input.activeFocus
+            onClicked: input.forceActiveFocus()
         }
     }
 
     Rectangle {
-        id: frostMask
+        id: fillMask
 
         anchors.fill: parent
-        topLeftRadius: Tokens.rounding.medium
-        topRightRadius: Tokens.rounding.medium
+        topLeftRadius: root.radius
+        topRightRadius: root.radius
         visible: false
         layer.enabled: true
     }
@@ -250,13 +244,10 @@ Item {
         anchors.bottom: parent.bottom
 
         implicitHeight: root.lit ? 2 : 1
-        radius: height / 2
-        color: root.lit ? Colours.palette.m3primary : Colours.palette.m3onSurfaceVariant
+        color: root.lit ? Colours.palette.m3primary : Colours.palette.m3outline
 
         Behavior on implicitHeight {
-            Anim {
-                type: Anim.FastSpatial
-            }
+            Anim {}
         }
     }
 }

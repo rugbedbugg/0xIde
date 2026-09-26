@@ -135,19 +135,42 @@ def get_avatar():
     face = Path.home() / ".face"
     return face if face.is_file() else None
 
-def twelve_hour_clock():
-    """The shell's own setting, so the login clock matches the lockscreen's."""
+def shell_config():
+    """The user's shell.json, or {} when it is missing or unreadable."""
     config = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "caelestia/shell.json"
     try:
-        return bool(json.loads(config.read_text()).get("services", {}).get("useTwelveHourClock", False))
-    except (OSError, ValueError, AttributeError):
-        return False
+        data = json.loads(config.read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+def twelve_hour_clock(config):
+    """The shell's own setting, so the login clock matches the lockscreen's."""
+    services = config.get("services")
+    return isinstance(services, dict) and services.get("useTwelveHourClock") is True
+
+def transparency(config):
+    """appearance.transparency, with the plugin's defaults (appearanceconfig.hpp):
+    off, base 0.85, layers 0.4. Numbers are clamped to 0-1, as the shell does."""
+    appearance = config.get("appearance")
+    t = appearance.get("transparency") if isinstance(appearance, dict) else None
+    t = t if isinstance(t, dict) else {}
+
+    def unit(key, default):
+        v = t.get(key, default)
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or v != v:
+            v = default
+        return f"{max(0.0, min(1.0, float(v))):.3f}"
+
+    return t.get("enabled") is True, unit("base", 0.85), unit("layers", 0.4)
 
 def main():
     colours, mode = get_scheme_data()
     if not colours:
         return
 
+    config = shell_config()
+    tr_enabled, tr_base, tr_layers = transparency(config)
     wallpaper = prepare_wallpaper(get_wallpaper())
     prepare_image(get_avatar(), "avatar", MAX_AVATAR_SIZE, "profile picture")
 
@@ -157,7 +180,10 @@ def main():
         "[General]",
         f'BgSource="backgrounds/caelestia_wallpaper{wallpaper}"' if wallpaper else "BgSource=",
         f"mode={'light' if mode == 'light' else 'dark'}",
-        f"useTwelveHourClock={'true' if twelve_hour_clock() else 'false'}",
+        f"useTwelveHourClock={'true' if twelve_hour_clock(config) else 'false'}",
+        f"transparencyEnabled={'true' if tr_enabled else 'false'}",
+        f"transparencyBase={tr_base}",
+        f"transparencyLayers={tr_layers}",
     ]
     for role in PALETTE_ROLES:
         value = str(colours.get(role, "")).lstrip("#")

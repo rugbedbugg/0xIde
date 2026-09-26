@@ -125,6 +125,51 @@ Item {
         }
     }
 
+    // The wallpaper's mean luminance, which tPalette lightens translucent
+    // surfaces by: the shell's ImageAnalyser (plugin/src/Caelestia/Images)
+    // scales the image to fit 128 pixels and averages
+    // sqrt(0.299r² + 0.587g² + 0.114b²) over its opaque pixels. A canvas
+    // does the same here; it scales smoothly where the plugin samples, which
+    // moves the mean by far less than the offset it feeds is sensitive to.
+    // It sits under the surface below, drawn but never seen.
+    Canvas {
+        id: analyser
+
+        readonly property url source: background.source
+        readonly property real fit: Math.min(1, 128 / Math.max(1, background.implicitWidth, background.implicitHeight))
+
+        width: Math.max(1, Math.round(background.implicitWidth * fit))
+        height: Math.max(1, Math.round(background.implicitHeight * fit))
+
+        onSourceChanged: {
+            if (source.toString())
+                loadImage(source);
+        }
+        onImageLoaded: requestPaint()
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
+        onPaint: {
+            if (!source.toString() || !isImageLoaded(source))
+                return;
+            const ctx = getContext("2d");
+            ctx.clearRect(0, 0, width, height);
+            ctx.drawImage(source, 0, 0, width, height);
+            const px = ctx.getImageData(0, 0, width, height).data;
+            let total = 0;
+            let count = 0;
+            for (let i = 0; i < px.length; i += 4) {
+                if (px[i + 3] === 0)
+                    continue;
+                const r = px[i] / 255;
+                const g = px[i + 1] / 255;
+                const b = px[i + 2] / 255;
+                total += Math.sqrt(0.299 * r * r + 0.587 * g * g + 0.114 * b * b);
+                count++;
+            }
+            Colours.wallLuminance = count ? total / count : 0;
+        }
+    }
+
     Rectangle {
         anchors.fill: parent
         color: Colours.palette.m3surface

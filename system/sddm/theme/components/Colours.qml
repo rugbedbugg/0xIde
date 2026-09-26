@@ -7,12 +7,52 @@ import QtQuick
 // surfaceContainer, term0, ...) and read here as Colours.palette.m3<Name>, as
 // the shell does. The defaults are Caelestia's default dark scheme, so the
 // greeter still looks like Caelestia before the first sync.
+//
+// tPalette, transparency and wallLuminance are services/Colours.qml's: the
+// user's appearance.transparency from shell.json, which sync writes beside the
+// palette, and the wallpaper's mean luminance, which Main measures as the
+// shell's ImageAnalyser does.
 QtObject {
     id: root
 
     readonly property var roles: ["primary", "onPrimary", "primaryContainer", "onPrimaryContainer", "secondary", "onSecondary", "secondaryContainer", "onSecondaryContainer", "tertiary", "onTertiary", "tertiaryContainer", "onTertiaryContainer", "error", "onError", "errorContainer", "onErrorContainer", "surface", "onSurface", "surfaceVariant", "onSurfaceVariant", "surfaceContainerLowest", "surfaceContainerLow", "surfaceContainer", "surfaceContainerHigh", "surfaceContainerHighest", "outline", "outlineVariant", "shadow", "scrim", "inverseSurface", "inverseOnSurface", "inversePrimary", "term0", "term1", "term2", "term3", "term4", "term5", "term6", "term7"]
 
     property bool light: false
+    property real wallLuminance
+
+    // The plugin's defaults (appearanceconfig.hpp) until sync says otherwise.
+    readonly property QtObject transparency: QtObject {
+        property bool enabled: false
+        property real configBase: 0.85
+        property real configLayers: 0.4
+        readonly property real base: Math.max(0, Math.min(1, configBase - (root.light ? 0.1 : 0)))
+        readonly property real layers: Math.max(0, Math.min(1, configLayers))
+    }
+
+    function getLuminance(c: color): real {
+        if (c.r == 0 && c.g == 0 && c.b == 0)
+            return 0;
+        return Math.sqrt(0.299 * (c.r ** 2) + 0.587 * (c.g ** 2) + 0.114 * (c.b ** 2));
+    }
+
+    function alterColour(c: color, a: real, layer: int): color {
+        const luminance = getLuminance(c);
+
+        const offset = (!light || layer == 1 ? 1 : -layer / 2) * (light ? 0.2 : 0.3) * (1 - transparency.base) * (1 + wallLuminance * (light ? (layer == 1 ? 3 : 1) : 2.5));
+        const scale = (luminance + offset) / luminance;
+        const r = Math.max(0, Math.min(1, c.r * scale));
+        const g = Math.max(0, Math.min(1, c.g * scale));
+        const b = Math.max(0, Math.min(1, c.b * scale));
+
+        return Qt.rgba(r, g, b, a);
+    }
+
+    function layer(c: color, layer: var): color {
+        if (!transparency.enabled)
+            return c;
+
+        return layer === 0 ? Qt.alpha(c, transparency.base) : alterColour(c, transparency.layers, layer ?? 1);
+    }
 
     // Reads every role the theme configuration sets. Values that are missing
     // or not a colour keep the default rather than turning black.
@@ -25,6 +65,25 @@ QtObject {
                 palette["m3" + role] = value.startsWith("#") ? value : "#" + value;
         }
         light = String(config.mode ?? "") === "light";
+
+        transparency.enabled = String(config.transparencyEnabled ?? "") === "true";
+        const unit = v => {
+            const n = parseFloat(String(v ?? ""));
+            return isFinite(n) && n >= 0 && n <= 1 ? n : NaN;
+        };
+        if (!isNaN(unit(config.transparencyBase)))
+            transparency.configBase = unit(config.transparencyBase);
+        if (!isNaN(unit(config.transparencyLayers)))
+            transparency.configLayers = unit(config.transparencyLayers);
+    }
+
+    // The surfaces the theme draws translucent, as the shell's M3TPalette has
+    // them.
+    readonly property QtObject tPalette: QtObject {
+        readonly property color m3surface: root.layer(root.palette.m3surface, 0)
+        readonly property color m3surfaceContainer: root.layer(root.palette.m3surfaceContainer)
+        readonly property color m3surfaceContainerHigh: root.layer(root.palette.m3surfaceContainerHigh)
+        readonly property color m3surfaceContainerHighest: root.layer(root.palette.m3surfaceContainerHighest)
     }
 
     readonly property QtObject palette: QtObject {
