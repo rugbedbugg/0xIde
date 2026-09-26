@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Layouts
 import "../components"
 
@@ -9,6 +10,11 @@ import "../components"
 // cursor and a primary-tinted selection). Any name can be typed; the chevron
 // opens the accounts SDDM knows, to pick one instead. The line thickens into
 // primary while the field has the keyboard or the menu is open.
+//
+// It is an M3 filled text field: rounded at the top, square where the line
+// runs. The fill is frosted, the wallpaper behind the field blurred and
+// tinted with the password pill's surface, so the name reads on any wallpaper
+// while the wallpaper still shows through.
 Item {
     id: root
 
@@ -21,6 +27,11 @@ Item {
     property bool expanded
     property alias text: input.text
     readonly property bool lit: expanded || input.activeFocus
+    // What to frost: the wallpaper, filling the screen from its top left.
+    property Item frostSource
+    // Anything that moves the field on screen, so the frost follows it;
+    // mapToItem() is not a binding that updates by itself.
+    property real track
 
     // Typing, as opposed to text set from outside.
     signal edited(string name)
@@ -34,11 +45,82 @@ Item {
 
     implicitHeight: row.implicitHeight + Tokens.padding.small * 2
 
+    Item {
+        id: frost
+
+        // Blurring only the field's own patch would pull transparency in at
+        // its edges, so the patch reaches past them and is cut back after.
+        readonly property int reach: 48
+
+        anchors.fill: parent
+        visible: root.frostSource !== null
+
+        layer.enabled: true
+        layer.effect: MultiEffect {
+            maskEnabled: true
+            maskSource: frostMask
+            maskThresholdMin: 0.5
+            maskSpreadAtMin: 1
+        }
+
+        ShaderEffectSource {
+            id: patch
+
+            x: -frost.reach
+            y: -frost.reach
+            width: root.width + frost.reach * 2
+            height: root.height + frost.reach * 2
+            visible: false
+
+            sourceItem: root.frostSource
+            sourceRect: {
+                root.track;
+                root.width;
+                root.height;
+                if (!root.frostSource)
+                    return Qt.rect(0, 0, 0, 0);
+                const p = root.mapToItem(root.frostSource, 0, 0);
+                return Qt.rect(p.x - frost.reach, p.y - frost.reach, width, height);
+            }
+        }
+
+        MultiEffect {
+            anchors.fill: patch
+            source: patch
+            autoPaddingEnabled: false
+            blurEnabled: true
+            blur: 1
+            blurMax: 48
+            blurMultiplier: 1
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            color: Qt.alpha(Colours.palette.m3surfaceContainer, 0.55)
+
+            Behavior on color {
+                CAnim {}
+            }
+        }
+    }
+
+    Rectangle {
+        id: frostMask
+
+        anchors.fill: parent
+        topLeftRadius: Tokens.rounding.medium
+        topRightRadius: Tokens.rounding.medium
+        visible: false
+        layer.enabled: true
+    }
+
     RowLayout {
         id: row
 
         anchors.left: parent.left
         anchors.right: parent.right
+        anchors.leftMargin: Tokens.padding.small
+        anchors.rightMargin: Tokens.padding.small
         anchors.verticalCenter: parent.verticalCenter
         spacing: Tokens.spacing.large
 
@@ -169,7 +251,7 @@ Item {
 
         implicitHeight: root.lit ? 2 : 1
         radius: height / 2
-        color: root.lit ? Colours.palette.m3primary : Colours.palette.m3outline
+        color: root.lit ? Colours.palette.m3primary : Colours.palette.m3onSurfaceVariant
 
         Behavior on implicitHeight {
             Anim {

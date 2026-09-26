@@ -227,6 +227,8 @@ Item {
                     knownUser: root.currentUser?.name ?? ""
                     modelIcon: root.currentUser?.icon ?? ""
                     expandable: root.userItems.length > 0
+                    frostSource: background
+                    track: form.rise + column.x + column.y
                     expanded: userMenu.expanded
                     onEdited: name => root.userName = name
                     onAccepted: input.forceActiveFocus()
