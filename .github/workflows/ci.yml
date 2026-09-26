@@ -30,13 +30,12 @@ jobs:
 
   test:
     # tests/run exercises Arch's own packages (sddm, qt6, visudo), so it runs on
-    # Arch. It runs unprivileged: the installers refuse root, and a hostname and
-    # user that appear nowhere in the tree keep the machine-value check honest.
+    # Arch. It runs unprivileged, as the installers refuse root, under a user
+    # named at random so the machine-value check cannot match its own workflow.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     container:
       image: archlinux:base
-      options: --hostname cm-ci-host
     steps:
       - uses: actions/cache@v4
         with:
@@ -44,8 +43,8 @@ jobs:
           key: pacman-${{ hashFiles('.github/workflows/ci.yml') }}
       - name: Install dependencies
         run: |
-          pacman -Syu --noconfirm --needed git rsync python jq lua sudo sddm qt6-declarative \
-              tesseract tesseract-data-eng imagemagick
+          pacman -Syu --noconfirm --needed git rsync python jq lua sudo diffutils sddm qt6-declarative \
+              tesseract tesseract-data-eng imagemagick ttf-dejavu
       - uses: actions/checkout@v4
       - name: Fetch the pinned upstream shell
         run: |
@@ -55,8 +54,9 @@ jobs:
           git -C build/shell-src cat-file -e "$rev^{commit}"
       - name: tests/run
         run: |
-          useradd --create-home cmtester
-          home="$(getent passwd cmtester | cut -d: -f6)"
-          chown -R cmtester: "$GITHUB_WORKSPACE"
-          runuser -u cmtester -- env HOME="$home" git config --global --add safe.directory '*'
-          runuser -u cmtester -- env HOME="$home" ./tests/run
+          user="u$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
+          useradd --create-home "$user"
+          home="$(getent passwd "$user" | cut -d: -f6)"
+          chown -R "$user": "$GITHUB_WORKSPACE"
+          runuser -u "$user" -- env HOME="$home" git config --global --add safe.directory '*'
+          runuser -u "$user" -- env HOME="$home" ./tests/run

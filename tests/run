@@ -836,10 +836,10 @@ else
     cp -r "$THEME/." "$tt/"
     XDG_CACHE_HOME="$tt/.cache" QT_FORCE_STDERR_LOGGING=1 QT_QPA_PLATFORM=offscreen timeout 6 \
         sddm-greeter-qt6 --test-mode --theme "$tt" > "$tt.log" 2>&1
-    # A missing picture or Google Sans Flex is a documented fallback, not an
-    # error: the next lookup, or Rubik, takes over.
+    # A missing picture, Google Sans Flex or M3Shapes is a documented fallback,
+    # not an error: the next lookup, Rubik, or the plain shapes take over.
     errs="$(grep -E "file://$tt/[^ ]+\.qml:[0-9]+|Fallback to embedded theme|TypeError|ReferenceError" "$tt.log" |
-        grep -vE 'faces/|Cannot load font: "file://[^"]+/fonts/GoogleSansFlex\.ttf"' | head -5)"
+        grep -vE 'faces/|Cannot load font: "file://[^"]+/fonts/GoogleSansFlex\.ttf"|/components/(ShapeM3|LoadingIndicatorM3)\.qml:[0-9]+:[0-9]+: module "M3Shapes" is not installed' | head -5)"
     [ -z "$errs" ] && grep -q "Loading file://$tt/Main.qml" "$tt.log" &&
         ok "the real greeter loads the theme with no QML errors" ||
         { no "the greeter reported errors loading the theme:"; sed 's/^/        /' <<<"$errs"; }
