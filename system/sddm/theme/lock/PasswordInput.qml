@@ -17,7 +17,7 @@ StyledRect {
 
     implicitHeight: input.implicitHeight + Tokens.padding.small
 
-    color: Colours.palette.m3surfaceContainer
+    color: Colours.tPalette.m3surfaceContainer
     radius: height / 2
 
     focus: true
@@ -120,7 +120,7 @@ StyledRect {
 
                 anchors.fill: parent
 
-                color: root.auth.buffer ? Colours.palette.m3primary : Colours.palette.m3surfaceContainerHigh
+                color: root.auth.buffer ? Colours.palette.m3primary : Colours.layer(Colours.palette.m3surfaceContainerHigh, 2)
                 shape: root.auth.buffer ? "Arrow" : "Circle"
                 scale: !root.auth.buffer ? 1 : mouse.pressed ? 0.6 : mouse.containsMouse ? 0.8 : 0.7
                 rotation: 90

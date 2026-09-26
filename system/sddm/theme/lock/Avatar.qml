@@ -18,6 +18,9 @@ Item {
     property color colour: Colours.palette.m3surfaceContainerHigh
     property color onColour: Colours.palette.m3onSurfaceVariant
 
+    // A different user starts the lookup over.
+    onUserNameChanged: pfp.attempt = 0
+
     Rectangle {
         id: circle
 
@@ -78,7 +81,4 @@ Item {
         maskThresholdMin: 0.5
         maskSpreadAtMin: 1
     }
-
-    // A different user starts the lookup over.
-    onUserNameChanged: pfp.attempt = 0
 }

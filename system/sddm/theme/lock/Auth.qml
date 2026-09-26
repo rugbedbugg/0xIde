@@ -21,6 +21,25 @@ QtObject {
 
     readonly property bool active: state === Auth.Authenticating
 
+    readonly property Connections greeter: Connections {
+        function onLoginFailed(): void {
+            root.buffer = "";
+            if (root.state === Auth.Failed)
+                root.flashMsg();
+            root.state = Auth.Failed;
+        }
+
+        function onLoginSucceeded(): void {
+            root.state = Auth.Succeeded;
+        }
+
+        function onInformationMessage(message: string): void {
+            root.infoMessage = message;
+        }
+
+        target: sddm
+    }
+
     // Flashes the message again when it has not changed, as Pam.flashMsg does.
     signal flashMsg
 
@@ -56,24 +75,5 @@ QtObject {
         buffer = "";
         if (state === Auth.Failed)
             state = Auth.Idle;
-    }
-
-    readonly property Connections greeter: Connections {
-        target: sddm
-
-        function onLoginFailed(): void {
-            root.buffer = "";
-            if (root.state === Auth.Failed)
-                root.flashMsg();
-            root.state = Auth.Failed;
-        }
-
-        function onLoginSucceeded(): void {
-            root.state = Auth.Succeeded;
-        }
-
-        function onInformationMessage(message: string): void {
-            root.infoMessage = message;
-        }
     }
 }

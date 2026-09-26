@@ -34,6 +34,8 @@ Item {
     // Anything that moves the field on screen, so the frost follows it;
     // mapToItem() is not a binding that updates by itself.
     property real track
+    // StyledTextField's clampedRadius, with its horizontal padding.
+    readonly property real radius: Math.min(Tokens.padding.large, height / 2, Tokens.rounding.small)
 
     // Typing, as opposed to text set from outside.
     signal edited(string name)
@@ -46,9 +48,6 @@ Item {
     }
 
     implicitHeight: row.implicitHeight + Tokens.padding.small * 2
-
-    // StyledTextField's clampedRadius, with its horizontal padding.
-    readonly property real radius: Math.min(Tokens.padding.large, height / 2, Tokens.rounding.small)
 
     Item {
         id: fill

@@ -34,10 +34,57 @@ Item {
     property int userIndex: -1
     property int sessionIndex: Math.max(0, sessionModel.lastIndex)
 
+    property QtObject currentUser: null
+    property string currentSession
+    property var userItems: []
+    property var sessionItems: []
+
+    // All four, always, with the session menu's symbols
+    // (modules/session/Content.qml); what SDDM says it cannot do now is shown
+    // disabled rather than left out, so the menu does not change shape. In
+    // test mode, with no daemon to ask, that is all four.
+    readonly property var powerActions: [
+        { icon: "bedtime", text: qsTr("Suspend"), disabled: !sddm.canSuspend, run: () => sddm.suspend() },
+        { icon: "downloading", text: qsTr("Hibernate"), disabled: !sddm.canHibernate, run: () => sddm.hibernate() },
+        { icon: "cached", text: qsTr("Reboot"), disabled: !sddm.canReboot, run: () => sddm.reboot() },
+        { icon: "power_settings_new", text: qsTr("Shut down"), disabled: !sddm.canPowerOff, run: () => sddm.powerOff() }
+    ]
+
+    // Whichever menu is open, for the shortcuts below.
+    readonly property Menu openMenu: userMenu.expanded ? userMenu : powerMenu.expanded ? powerMenu : sessionMenu.expanded ? sessionMenu : null
+
+    function refresh(): void {
+        currentSession = sessions.objectAt(sessionIndex)?.name ?? "";
+
+        const u = [];
+        let found = -1;
+        for (let i = 0; i < users.count; i++) {
+            const o = users.objectAt(i);
+            if (!o)
+                continue;
+            u.push({ user: o.name, userIcon: o.icon, text: o.realName || o.name, detail: o.realName && o.realName !== o.name ? o.name : "" });
+            if (o.name === userName)
+                found = i;
+        }
+        userItems = u;
+        userIndex = found;
+        currentUser = found < 0 ? null : users.objectAt(found);
+
+        const s = [];
+        for (let i = 0; i < sessions.count; i++) {
+            const o = sessions.objectAt(i);
+            if (o)
+                s.push({ icon: "desktop_windows", text: o.name });
+        }
+        sessionItems = s;
+    }
+
     width: 1920
     height: 1080
 
     Component.onCompleted: Colours.load(cfg)
+    onUserNameChanged: refresh()
+    onSessionIndexChanged: refresh()
 
     // Model rows as objects, so the chosen user and session can be read by
     // index; SDDM's models expose roles only to delegates. objectAt() is not
@@ -67,51 +114,6 @@ Item {
             required property string name
         }
     }
-
-    property QtObject currentUser: null
-    property string currentSession
-    property var userItems: []
-    property var sessionItems: []
-
-    function refresh(): void {
-        currentSession = sessions.objectAt(sessionIndex)?.name ?? "";
-
-        const u = [];
-        let found = -1;
-        for (let i = 0; i < users.count; i++) {
-            const o = users.objectAt(i);
-            if (!o)
-                continue;
-            u.push({ user: o.name, userIcon: o.icon, text: o.realName || o.name, detail: o.realName && o.realName !== o.name ? o.name : "" });
-            if (o.name === userName)
-                found = i;
-        }
-        userItems = u;
-        userIndex = found;
-        currentUser = found < 0 ? null : users.objectAt(found);
-
-        const s = [];
-        for (let i = 0; i < sessions.count; i++) {
-            const o = sessions.objectAt(i);
-            if (o)
-                s.push({ icon: "desktop_windows", text: o.name });
-        }
-        sessionItems = s;
-    }
-
-    onUserNameChanged: refresh()
-    onSessionIndexChanged: refresh()
-
-    // All four, always, with the session menu's symbols
-    // (modules/session/Content.qml); what SDDM says it cannot do now is shown
-    // disabled rather than left out, so the menu does not change shape. In
-    // test mode, with no daemon to ask, that is all four.
-    readonly property var powerActions: [
-        { icon: "bedtime", text: qsTr("Suspend"), disabled: !sddm.canSuspend, run: () => sddm.suspend() },
-        { icon: "downloading", text: qsTr("Hibernate"), disabled: !sddm.canHibernate, run: () => sddm.hibernate() },
-        { icon: "cached", text: qsTr("Reboot"), disabled: !sddm.canReboot, run: () => sddm.reboot() },
-        { icon: "power_settings_new", text: qsTr("Shut down"), disabled: !sddm.canPowerOff, run: () => sddm.powerOff() }
-    ]
 
     Auth {
         id: authState
@@ -373,8 +375,6 @@ Item {
 
     // The password field keeps the keyboard, so whichever menu is open gets
     // these first.
-    readonly property Menu openMenu: userMenu.expanded ? userMenu : powerMenu.expanded ? powerMenu : sessionMenu.expanded ? sessionMenu : null
-
     Shortcut {
         sequences: ["Up", "Backtab"]
         enabled: root.openMenu !== null

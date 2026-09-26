@@ -85,7 +85,7 @@ Item {
         y: hourMetrics.tightBoundingRect.height - height
 
         visible: root.twelveHour
-        color: Colours.palette.m3surfaceContainerHigh
+        color: Colours.tPalette.m3surfaceContainerHigh
         radius: Math.min(Tokens.rounding.large, height / 2)
 
         implicitWidth: minuteMetrics.tightBoundingRect.width

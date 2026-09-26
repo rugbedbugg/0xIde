@@ -29,54 +29,6 @@ QtObject {
         readonly property real layers: Math.max(0, Math.min(1, configLayers))
     }
 
-    function getLuminance(c: color): real {
-        if (c.r == 0 && c.g == 0 && c.b == 0)
-            return 0;
-        return Math.sqrt(0.299 * (c.r ** 2) + 0.587 * (c.g ** 2) + 0.114 * (c.b ** 2));
-    }
-
-    function alterColour(c: color, a: real, layer: int): color {
-        const luminance = getLuminance(c);
-
-        const offset = (!light || layer == 1 ? 1 : -layer / 2) * (light ? 0.2 : 0.3) * (1 - transparency.base) * (1 + wallLuminance * (light ? (layer == 1 ? 3 : 1) : 2.5));
-        const scale = (luminance + offset) / luminance;
-        const r = Math.max(0, Math.min(1, c.r * scale));
-        const g = Math.max(0, Math.min(1, c.g * scale));
-        const b = Math.max(0, Math.min(1, c.b * scale));
-
-        return Qt.rgba(r, g, b, a);
-    }
-
-    function layer(c: color, layer: var): color {
-        if (!transparency.enabled)
-            return c;
-
-        return layer === 0 ? Qt.alpha(c, transparency.base) : alterColour(c, transparency.layers, layer ?? 1);
-    }
-
-    // Reads every role the theme configuration sets. Values that are missing
-    // or not a colour keep the default rather than turning black.
-    function load(config: var): void {
-        if (!config)
-            return;
-        for (const role of roles) {
-            const value = String(config[role] ?? "").trim();
-            if (/^#?[0-9a-fA-F]{6}$/.test(value))
-                palette["m3" + role] = value.startsWith("#") ? value : "#" + value;
-        }
-        light = String(config.mode ?? "") === "light";
-
-        transparency.enabled = String(config.transparencyEnabled ?? "") === "true";
-        const unit = v => {
-            const n = parseFloat(String(v ?? ""));
-            return isFinite(n) && n >= 0 && n <= 1 ? n : NaN;
-        };
-        if (!isNaN(unit(config.transparencyBase)))
-            transparency.configBase = unit(config.transparencyBase);
-        if (!isNaN(unit(config.transparencyLayers)))
-            transparency.configLayers = unit(config.transparencyLayers);
-    }
-
     // The surfaces the theme draws translucent, as the shell's M3TPalette has
     // them.
     readonly property QtObject tPalette: QtObject {
@@ -127,5 +79,53 @@ QtObject {
         property color m3term5: "#7aaee9"
         property color m3term6: "#83d8c9"
         property color m3term7: "#cddcd3"
+    }
+
+    function getLuminance(c: color): real {
+        if (c.r == 0 && c.g == 0 && c.b == 0)
+            return 0;
+        return Math.sqrt(0.299 * (c.r ** 2) + 0.587 * (c.g ** 2) + 0.114 * (c.b ** 2));
+    }
+
+    function alterColour(c: color, a: real, layer: int): color {
+        const luminance = getLuminance(c);
+
+        const offset = (!light || layer == 1 ? 1 : -layer / 2) * (light ? 0.2 : 0.3) * (1 - transparency.base) * (1 + wallLuminance * (light ? (layer == 1 ? 3 : 1) : 2.5));
+        const scale = (luminance + offset) / luminance;
+        const r = Math.max(0, Math.min(1, c.r * scale));
+        const g = Math.max(0, Math.min(1, c.g * scale));
+        const b = Math.max(0, Math.min(1, c.b * scale));
+
+        return Qt.rgba(r, g, b, a);
+    }
+
+    function layer(c: color, layer: var): color {
+        if (!transparency.enabled)
+            return c;
+
+        return layer === 0 ? Qt.alpha(c, transparency.base) : alterColour(c, transparency.layers, layer ?? 1);
+    }
+
+    // Reads every role the theme configuration sets. Values that are missing
+    // or not a colour keep the default rather than turning black.
+    function load(config: var): void {
+        if (!config)
+            return;
+        for (const role of roles) {
+            const value = String(config[role] ?? "").trim();
+            if (/^#?[0-9a-fA-F]{6}$/.test(value))
+                palette["m3" + role] = value.startsWith("#") ? value : "#" + value;
+        }
+        light = String(config.mode ?? "") === "light";
+
+        transparency.enabled = String(config.transparencyEnabled ?? "") === "true";
+        const unit = v => {
+            const n = parseFloat(String(v ?? ""));
+            return isFinite(n) && n >= 0 && n <= 1 ? n : NaN;
+        };
+        if (!isNaN(unit(config.transparencyBase)))
+            transparency.configBase = unit(config.transparencyBase);
+        if (!isNaN(unit(config.transparencyLayers)))
+            transparency.configLayers = unit(config.transparencyLayers);
     }
 }
