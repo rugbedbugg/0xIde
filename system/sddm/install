@@ -9,7 +9,9 @@
 #                                       whatever theme was chosen before
 #
 # Re-run it after changing the theme's QML; colours, wallpaper and profile
-# picture follow on their own through system/sddm/sync.
+# picture follow on their own through system/sddm/sync. Every run leaves the
+# theme exactly as this version ships it, whatever an earlier version left:
+# nothing piles up across reinstalls.
 set -euo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
 
@@ -29,6 +31,10 @@ SDDM_DROPIN="/etc/sddm.conf.d/zz-caelestia.conf"
 # What the earlier corners-based integration added to that package's theme.
 LEGACY_DIR="/usr/share/sddm/themes/corners"
 LEGACY_FILES=("$LEGACY_DIR/theme.conf.user" "$LEGACY_DIR/backgrounds/caelestia_wallpaper.png" "$LEGACY_DIR/backgrounds/caelestia_wallpaper.jpg")
+# The greeter's compiled QML, which keeps entries for files later versions no
+# longer ship. It is rebuilt on the next start.
+SDDM_HOME="$(getent passwd sddm | cut -d: -f6)"
+GREETER_CACHE="${SDDM_HOME:+$SDDM_HOME/.cache/sddm-greeter-qt6}"
 
 [ -f "$THEME_SRC/metadata.desktop" ] || cm_die "$THEME_SRC is incomplete"
 [ -x "$HELPER_SRC" ] || cm_die "helper source $HELPER_SRC not found or not executable"
@@ -71,12 +77,38 @@ sudo install -d -m 0755 -o root -g root "$THEME_DIR" "$THEME_DIR/backgrounds" "$
 sudo rsync -rlt --delete --chown=root:root --chmod=D755,F644 \
     --exclude '/backgrounds/' --exclude '/faces/' --exclude '/fonts/' --exclude '/theme.conf.user' \
     "$THEME_SRC/" "$THEME_DIR/"
+fonts=()
 if [ -n "$FONT_SRC" ]; then
     sudo install -m 0644 -o root -g root "$FONT_SRC" "$THEME_DIR/fonts/GoogleSansFlex.ttf"
-    [ -f "$(dirname "$FONT_SRC")/LICENSE" ] &&
+    fonts+=(GoogleSansFlex.ttf)
+    if [ -f "$(dirname "$FONT_SRC")/LICENSE" ]; then
         sudo install -m 0644 -o root -g root "$(dirname "$FONT_SRC")/LICENSE" "$THEME_DIR/fonts/OFL.txt"
+        fonts+=(OFL.txt)
+    fi
 fi
+
+# The kept directories hold only what this version puts there. They are
+# root's alone, so nothing else can have placed a link in them.
+prune_to() {
+    local dir="$1" keep=() k
+    shift
+    for k in "$@"; do keep+=(! -name "$k"); done
+    sudo find "$dir" -mindepth 1 -maxdepth 1 "${keep[@]}" -exec rm -rf --one-file-system -- {} +
+}
+prune_to "$THEME_DIR/backgrounds" caelestia_wallpaper.png caelestia_wallpaper.jpg
+prune_to "$THEME_DIR/fonts" "${fonts[@]}"
+# A picture per account that still exists, as the helper names them.
+faces=()
+while IFS=: read -r name _; do faces+=("$name"); done < <(getent passwd)
+prune_to "$THEME_DIR/faces" "${faces[@]}"
 cm_log "installed theme to $THEME_DIR"
+
+# As the greeter's own user, so nothing in its home can turn this into a
+# delete somewhere else.
+if [ -n "$GREETER_CACHE" ]; then
+    sudo -u sddm rm -rf -- "$GREETER_CACHE"
+    cm_log "cleared the greeter's QML cache"
+fi
 
 # The helper, from tracked source.
 sudo install -D -m 0755 -o root -g root "$HELPER_SRC" "$HELPER_DEST"

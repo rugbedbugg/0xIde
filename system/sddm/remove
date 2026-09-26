@@ -11,6 +11,10 @@ SUDOERS_FILE="/etc/sudoers.d/caelestia-sddm"
 SDDM_DROPIN="/etc/sddm.conf.d/zz-caelestia.conf"
 LEGACY_DIR="/usr/share/sddm/themes/corners"
 LEGACY_FILES=("$LEGACY_DIR/theme.conf.user" "$LEGACY_DIR/backgrounds/caelestia_wallpaper.png" "$LEGACY_DIR/backgrounds/caelestia_wallpaper.jpg")
+SDDM_HOME="$(getent passwd sddm | cut -d: -f6)"
+GREETER_CACHE="${SDDM_HOME:+$SDDM_HOME/.cache/sddm-greeter-qt6}"
+# system/sddm/sync's staging, the user's own.
+STATE_DIR="$HOME/.local/state/caelestia/sddm"
 
 targets=()
 # The theme directory only when it is the one install made: a real directory
@@ -42,6 +46,17 @@ else
         fi
         cm_log "removed $t"
     done
+fi
+
+# The greeter's compiled QML, as its own user; see install.
+if [ -n "$GREETER_CACHE" ]; then
+    sudo -u sddm rm -rf -- "$GREETER_CACHE"
+    cm_log "cleared the greeter's QML cache"
+fi
+
+if [ -d "$STATE_DIR" ] && [ ! -L "$STATE_DIR" ]; then
+    rm -rf --one-file-system -- "$STATE_DIR"
+    cm_log "removed $STATE_DIR"
 fi
 
 if grep -qx sddm "$CM_CONFIG/adapters.enabled" 2>/dev/null; then

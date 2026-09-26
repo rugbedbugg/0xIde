@@ -21,6 +21,8 @@ tmp="$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/caelestia-sddm-preview.XXXXXX")"
 trap 'rm -rf -- "$tmp"' EXIT
 
 cp -r -- "$here/theme/." "$tmp/"
+# The greeter's QML and pipeline caches go with the copy, not into ~/.cache.
+export XDG_CACHE_HOME="$tmp/.cache"
 mkdir -p -- "$tmp/backgrounds" "$tmp/faces" "$tmp/fonts"
 [ -f "$state/theme.conf.user" ] && cp -- "$state/theme.conf.user" "$tmp/theme.conf.user"
 for ext in png jpg; do

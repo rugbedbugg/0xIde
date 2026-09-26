@@ -164,7 +164,24 @@ def transparency(config):
 
     return t.get("enabled") is True, unit("base", 0.85), unit("layers", 0.4)
 
+# Everything sync keeps in STATE_DIR. Anything else is left from an earlier
+# version and goes, so the directory never piles up.
+STATE_FILES = {"theme.conf.user", "wallpaper.png", "wallpaper.jpg", "avatar.png", "avatar.jpg"}
+
+def prune_state():
+    for entry in STATE_DIR.iterdir():
+        if entry.name in STATE_FILES and entry.is_file() and not entry.is_symlink():
+            continue
+        try:
+            if entry.is_dir() and not entry.is_symlink():
+                shutil.rmtree(entry)
+            else:
+                entry.unlink()
+        except OSError as e:
+            print(f"Warning: cannot remove {entry.name}: {e}", file=sys.stderr)
+
 def main():
+    prune_state()
     colours, mode = get_scheme_data()
     if not colours:
         return

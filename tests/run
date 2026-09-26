@@ -671,15 +671,41 @@ STUB
     grep -qx sddm "$sb/conf/caelestia-mod/adapters.enabled" 2>/dev/null &&
         ok "install enables the sddm sync" || no "install did not enable the sddm sync"
 
+    # Reinstalling over any earlier version leaves only what this one ships:
+    # the recorded prune commands, run for real against a theme directory full
+    # of what earlier versions and a stray file could have left. The sandbox
+    # has no Google Sans Flex, so this version ships no font.
+    fx="$sb/theme"
+    mkdir -p "$fx/backgrounds" "$fx/fonts" "$fx/faces/olddir"
+    touch "$fx/backgrounds/caelestia_wallpaper.png" "$fx/backgrounds/default.svg" "$fx/backgrounds/.caelestia_wallpaper.jpg.tmp" \
+          "$fx/fonts/GoogleSansFlex.ttf" "$fx/fonts/OFL.txt" "$fx/fonts/Rubik.ttf" \
+          "$fx/faces/$(id -un)" "$fx/faces/nosuchuser_cm_test"
+    grep -E '^find /usr/share/sddm/themes/caelestia/(backgrounds|fonts|faces) ' "$sb/calls" | while read -r line; do
+        eval "${line//\/usr\/share\/sddm\/themes\/caelestia/$fx}"
+    done
+    left="$(cd "$fx" && find backgrounds fonts faces -mindepth 1 | sort | tr '\n' ' ')"
+    [ "$left" = "backgrounds/caelestia_wallpaper.png faces/$(id -un) " ] &&
+        ok "a reinstall prunes backgrounds, fonts and faces to what this version ships" ||
+        no "a reinstall left: $left"
+    if getent passwd sddm >/dev/null; then
+        grep -qx -- "-u sddm rm -rf -- $(getent passwd sddm | cut -d: -f6)/.cache/sddm-greeter-qt6" "$sb/calls" &&
+            ok "a reinstall clears the greeter's QML cache, as the greeter's user" ||
+            no "the greeter's QML cache is not cleared as sddm"
+    else skipt "no sddm account to clear a cache for"; fi
+
     rm -f "$sb/calls"
+    mkdir -p "$sb/home/.local/state/caelestia/sddm" && touch "$sb/home/.local/state/caelestia/sddm/wallpaper.jpg"
     runi bash "$CM_ROOT/system/sddm/remove" >/dev/null 2>&1
+    [ ! -e "$sb/home/.local/state/caelestia/sddm" ] &&
+        ok "remove deletes the staging directory sync keeps" || no "remove left the staging directory sync keeps"
     badrm=""
     while read -r cmd; do
         case "$cmd" in
             "rm -f -- /usr/local/libexec/caelestia-sddm-sync"|"rm -f -- /etc/sudoers.d/caelestia-sddm"|\
             "rm -f -- /etc/sddm.conf.d/zz-caelestia.conf"|"rm -rf --one-file-system -- /usr/share/sddm/themes/caelestia"|\
             "rm -f -- /usr/share/sddm/themes/corners/theme.conf.user"|\
-            "rm -f -- /usr/share/sddm/themes/corners/backgrounds/caelestia_wallpaper."[pj][np]g) ;;
+            "rm -f -- /usr/share/sddm/themes/corners/backgrounds/caelestia_wallpaper."[pj][np]g|\
+            "-u sddm rm -rf -- $(getent passwd sddm | cut -d: -f6)/.cache/sddm-greeter-qt6") ;;
             *) badrm="$badrm [$cmd]" ;;
         esac
     done < <(cat "$sb/calls" 2>/dev/null)
@@ -759,6 +785,16 @@ sddm_case "a ~/.face is handed over as the profile picture"          a.png  png 
 sddm_case "a removed ~/.face leaves no stale picture"                a.png  png  ""     none  avatar.jpg
 sddm_case "an unsupported ~/.face is not handed over"                a.png  png  e.webp none  avatar.png
 
+# What earlier versions staged, and anything else, goes: only sync's own names stay.
+rm -rf "$st/sddm" "$sd/snap" "$sd/home/.face"; mkdir -p "$st/sddm/olddir"
+touch "$st/sddm/caelestia_wallpaper.png" "$st/sddm/theme.conf" "$st/sddm/avatar.webp"
+printf '%s\n' "$sd/walls/a.png" > "$st/wallpaper/path.txt"
+HOME="$sd/home" XDG_CONFIG_HOME="$sd/home/.config" PATH="$sd/bin:$PATH" \
+    SCHEME_COLOURS='{"primary":"b4befe","surface":"1e1e2e"}' "$PY" "$sd/sync" >/dev/null 2>&1
+left="$(ls -A "$st/sddm" | sort | tr '\n' ' ')"
+[ "$left" = "theme.conf.user wallpaper.png " ] &&
+    ok "sync clears what earlier versions staged" || no "sync left: $left"
+
 # appearance.transparency from shell.json, as the helper will read it: the
 # plugin's defaults when it is absent, clamped when out of range, and the
 # defaults again for anything that is not a number.
@@ -798,7 +834,7 @@ if ! cm_have sddm-greeter-qt6; then skipt "sddm-greeter-qt6 is not installed"
 else
     tt="$(mktemp -d)"
     cp -r "$THEME/." "$tt/"
-    QT_FORCE_STDERR_LOGGING=1 QT_QPA_PLATFORM=offscreen timeout 6 \
+    XDG_CACHE_HOME="$tt/.cache" QT_FORCE_STDERR_LOGGING=1 QT_QPA_PLATFORM=offscreen timeout 6 \
         sddm-greeter-qt6 --test-mode --theme "$tt" > "$tt.log" 2>&1
     # A missing picture or Google Sans Flex is a documented fallback, not an
     # error: the next lookup, or Rubik, takes over.
@@ -994,7 +1030,7 @@ Item {
     }
 }
 EOF
-    res="$(QT_FORCE_STDERR_LOGGING=1 QT_QPA_PLATFORM=offscreen timeout 20 qml6 "$hx/harness.qml" 2>&1 | sed -n 's/^qml: RESULTS //p')"
+    res="$(XDG_CACHE_HOME="$hx/.cache" QT_FORCE_STDERR_LOGGING=1 QT_QPA_PLATFORM=offscreen timeout 20 qml6 "$hx/harness.qml" 2>&1 | sed -n 's/^qml: RESULTS //p')"
     if [ -z "$res" ]; then
         no "the login flow harness did not run"
     else
@@ -1154,7 +1190,7 @@ Item {
     }
 }
 EOF
-    QT_FORCE_STDERR_LOGGING=1 QT_QPA_PLATFORM=offscreen timeout 30 "$QMLTEST" -input "$kx/tst_keys.qml" > "$kx/log" 2>&1
+    XDG_CACHE_HOME="$kx/.cache" QT_FORCE_STDERR_LOGGING=1 QT_QPA_PLATFORM=offscreen timeout 30 "$QMLTEST" -input "$kx/tst_keys.qml" > "$kx/log" 2>&1
     for t in "test_menuKeys:with a menu open, the arrow keys, Enter and Escape work the menu, not the password" \
              "test_typedUser:a user name can be typed or picked, and Tab moves between it and the password"; do
         if grep -q "^PASS *: .*::${t%%:*}()" "$kx/log"; then ok "${t#*:}"

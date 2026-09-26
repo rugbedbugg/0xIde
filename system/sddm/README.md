@@ -51,6 +51,14 @@ The installer prints every change and asks once. It installs:
 Removing the drop-in restores whichever theme was chosen before. Re-run the
 installer after changing the theme's QML.
 
+Reinstalling never piles anything up, whichever version was there before: the
+theme is re-synced with `--delete`; `backgrounds/`, `fonts/` and `faces/` are
+pruned to what this version puts there (the wallpaper, the font, a picture per
+existing account); and the greeter's compiled-QML cache under the `sddm`
+account is cleared, as that account. `sync` likewise keeps only its own files in
+`~/.local/state/caelestia/sddm/`. `remove` takes all of it away, that directory
+and the cache included, and `preview` keeps its caches in its temporary copy.
+
 ## How it stays in step
 
 ```text
