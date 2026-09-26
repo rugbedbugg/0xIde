@@ -545,119 +545,402 @@ cm_step "No broken symlinks"
 if [ -n "$(find "$CM_ROOT" -path "$CM_ROOT/build" -prune -o -xtype l -print 2>/dev/null)" ]
 then no "broken symlink(s) in the repository"; else ok "none"; fi
 
-cm_step "SDDM reproducibility"
-# Tracked helper exists
-[ -x "$CM_ROOT/system/sddm/caelestia-sddm-sync" ] && ok "tracked helper exists" || no "tracked helper missing"
+cm_step "SDDM helper"
+# The privileged helper, run as the unprivileged user it would be run for: it
+# refuses before sudo metadata is even read, so none of this can write.
+HELPER="$CM_ROOT/system/sddm/caelestia-sddm-sync"
+head -1 "$HELPER" | grep -qx '#!/usr/bin/python3' && ok "the helper runs the distribution interpreter" ||
+    no "the helper is not #!/usr/bin/python3"
+out="$(env -i PATH=/usr/bin "$HELPER" --help 2>&1)"; st=$?
+[ "$st" = 0 ] && grep -q '^Usage:' <<<"$out" && ok "--help prints usage and exits 0" || no "--help exited $st"
+env -i PATH=/usr/bin "$HELPER" --bogus >/dev/null 2>&1 && no "an unknown argument was accepted" ||
+    ok "an unknown argument is refused"
+env -i PATH=/usr/bin "$HELPER" --help --bogus >/dev/null 2>&1 && no "--help with more arguments was accepted" ||
+    ok "--help with further arguments is refused"
+env -i PATH=/usr/bin SUDO_USER="$(id -un)" SUDO_UID=0 "$HELPER" >/dev/null 2>&1 &&
+    no "a SUDO_UID that does not match SUDO_USER was accepted" || ok "a SUDO_UID that does not match SUDO_USER is refused"
 
-# Helper shebang is fixed /usr/bin/python3
-head -1 "$CM_ROOT/system/sddm/caelestia-sddm-sync" | grep -q '^#!/usr/bin/python3$' && ok "helper shebang is /usr/bin/python3" || no "helper shebang is not /usr/bin/python3"
+if "$PY" - "$HELPER" "$CM_ROOT/system/sddm/sync" "$CM_ROOT/system/sddm/theme/components/Colours.qml" <<'CHK'
+import ast, importlib.machinery, importlib.util, os, re, sys, tempfile
+from pathlib import Path
+loader = importlib.machinery.SourceFileLoader("helper", sys.argv[1])
+h = importlib.util.module_from_spec(importlib.util.spec_from_loader("helper", loader))
+loader.exec_module(h)
+bad = []
+def check(ok, what):
+    if not ok:
+        bad.append(what)
 
-# Installer references tracked helper
-grep -q 'HELPER_SRC.*system/sddm/caelestia-sddm-sync' "$CM_ROOT/system/sddm/install" && ok "installer references tracked helper" || no "installer does not reference tracked helper"
+good = b'[General]\nBgSource=\nmode=dark\nuseTwelveHourClock=false\nosName="Arch Linux"\nprimary="#aabbcc"\n'
+check(h.parse_theme_conf_user(good) is not None, "a well-formed file is refused")
+for name, data in {
+    "a continuation line": b'[General]\nBgSource=\nosName="x"\n BgSource=/etc/shadow\n',
+    "an unknown key": b'[General]\nBgSource=\nFontFamily=Evil\n',
+    "a second section": b'[General]\nBgSource=\n[Other]\nx=1\n',
+    "a BgSource outside the fixed names": b'[General]\nBgSource="backgrounds/caelestia_wallpaper.webp"\n',
+    "a BgSource path": b'[General]\nBgSource="/etc/shadow"\n',
+    "a colour that is not #rrggbb": b'[General]\nBgSource=\nprimary="red"\n',
+    "a backslash escape": b'[General]\nBgSource=\nosName="a\\nb"\n',
+    "a repeated key": b'[General]\nBgSource=\nBgSource="backgrounds/caelestia_wallpaper.png"\n',
+    "a stray quote": b'[General]\nBgSource=\nosName="a"b"\n',
+    "no BgSource": b'[General]\nmode=dark\n',
+    "invalid UTF-8": b'[General]\nBgSource=\nosName="\xff"\n',
+}.items():
+    check(h.parse_theme_conf_user(data) is None, f"accepts {name}")
+out = h.render_theme_conf_user(h.parse_theme_conf_user(good)).decode()
+check(out.startswith("[General]\n") and 'osName="Arch Linux"' in out, "the re-written file is not canonical")
 
-# Installer installs to correct destination
-grep -q 'HELPER_DEST="/usr/local/libexec/caelestia-sddm-sync"' "$CM_ROOT/system/sddm/install" && ok "installer targets /usr/local/libexec/caelestia-sddm-sync" || no "installer does not target /usr/local/libexec/caelestia-sddm-sync"
+# Every write lands in the theme directory, and only in a directory root owns.
+for p in (h.THEME_CONF_USER_DEST, h.BACKGROUNDS_DIR, h.FACES_DIR):
+    check(str(p).startswith("/usr/share/sddm/themes/caelestia"), f"{p} is outside the theme")
+import contextlib, io
+with tempfile.TemporaryDirectory() as d, contextlib.redirect_stderr(io.StringIO()):
+    check(not h.install_file_atomic(Path(d) / "x", b"data"), "wrote into a directory it does not own")
+    check(not (Path(d) / "x").exists(), "left a file in a refused directory")
+    os.symlink("/etc/passwd", Path(d) / "link")
+    check(not h.validate_destination(Path(d) / "link"), "accepts a symlink as a destination")
 
-# Helper source in Git is never executed directly with sudo
-! grep -q 'sudo.*system/sddm/caelestia-sddm-sync' "$CM_ROOT/system/sddm/install" && ok "helper source never executed directly with sudo" || no "helper source executed directly with sudo"
+# The only environment the helper reads is sudo's own.
+env = set(re.findall(r'os\.environ\.get\("([A-Z_]+)"\)', open(sys.argv[1]).read()))
+check(env == {"SUDO_USER", "SUDO_UID"}, f"reads environment beyond sudo's: {sorted(env)}")
 
-# Installer uses tracked helper with install -Dm0755
-grep -q 'install -Dm0755.*HELPER_SRC.*HELPER_DEST' "$CM_ROOT/system/sddm/install" && ok "installer uses install -Dm0755" || no "installer does not use install -Dm0755"
+# The palette roles agree in all three places that list them.
+def tuple_in(path, name):
+    tree = ast.parse(open(path).read())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and any(getattr(t, "id", "") == name for t in node.targets):
+            v = node.value.args[0] if isinstance(node.value, ast.Call) else node.value
+            return {e.value for e in v.elts}
+qml = set(re.findall(r'"(\w+)"', re.search(r"property var roles: \[(.*?)\]", open(sys.argv[3]).read()).group(1)))
+check(tuple_in(sys.argv[2], "PALETTE_ROLES") == set(h.PALETTE_ROLES) == qml, "the palette role lists differ")
 
-# Sudoers rule is exact
-grep -q '\$TARGET_USER ALL=(root) NOPASSWD: /usr/local/libexec/caelestia-sddm-sync' "$CM_ROOT/system/sddm/install" && ok "sudoers rule is exact" || no "sudoers rule is not exact"
+for b in bad:
+    print(f"        helper {b}")
+sys.exit(1 if bad else 0)
+CHK
+then ok "the helper parses strictly, re-writes canonically, and writes only where root owns"
+else no "the helper's validation or destinations are wrong"; fi
 
-# Sudoers mode target is 0440
-grep -q 'chmod 0440.*SUDOERS_FILE' "$CM_ROOT/system/sddm/install" && ok "sudoers mode target is 0440" || no "sudoers mode target is not 0440"
+cm_step "SDDM install and remove"
+# Driven for real with sudo stubbed to record, never to run, and HOME in a
+# sandbox so the closing sync cannot touch the real state directory.
+if ! cm_have visudo || ! cm_have rsync; then
+    skipt "visudo or rsync is missing"
+else
+    sb="$(mktemp -d)"
+    mkdir -p "$sb/bin" "$sb/home" "$sb/conf" "$sb/cap"
+    cat > "$sb/bin/sudo" <<STUB
+#!/bin/bash
+printf '%s\n' "\$*" >> "$sb/calls"
+# install ... <src> <dest>: keep what would have been installed
+if [ "\$1" = install ] && [ "\$2" != -d ]; then
+    dest="\${@: -1}"; src="\${@: -2:1}"
+    [ "\$src" = /dev/stdin ] && cat > "$sb/cap/\$(basename "\$dest")" || cp "\$src" "$sb/cap/\$(basename "\$dest")" 2>/dev/null
+fi
+exit 0
+STUB
+    chmod +x "$sb/bin/sudo"
+    runi() { env HOME="$sb/home" XDG_CONFIG_HOME="$sb/conf" XDG_DATA_HOME="$sb/home/.local/share" \
+                 XDG_STATE_HOME="$sb/home/.local/state" PATH="$sb/bin:$PATH" CM_ASSUME_YES=1 "$@"; }
 
-# visudo validation occurs before installation
-grep -q 'visudo -cf.*SUDOERS_FILE' "$CM_ROOT/system/sddm/install" && ok "visudo validation occurs before installation" || no "visudo validation missing"
+    if cm_have unshare && unshare -r true 2>/dev/null; then
+        runi unshare -r bash "$CM_ROOT/system/sddm/install" >/dev/null 2>&1 &&
+            no "install ran as root" || { [ -s "$sb/calls" ] && no "install called sudo before refusing root" ||
+            ok "install refuses to run as root, before any sudo"; }
+    else skipt "no user namespaces to test the root refusal"; fi
 
-# No hardcoded username in sudoers (check install script only)
-! python3 -c "import sys, re; sys.exit(0 if not re.search(r'[a-zA-Z][a-zA-Z0-9_-]{2,} ALL=', open('$CM_ROOT/system/sddm/install').read()) else 1)" && ok "no hardcoded username in sudoers" || no "hardcoded username found in sudoers"
+    rm -f "$sb/calls"
+    SUDO_USER=mallory SUDO_UID=0 runi bash "$CM_ROOT/system/sddm/install" >/dev/null 2>&1
+    rule="$(grep -v '^#' "$sb/cap/caelestia-sddm" 2>/dev/null)"
+    [ "$rule" = "$(id -un) ALL=(root) NOPASSWD: /usr/local/libexec/caelestia-sddm-sync" ] &&
+        ok "the sudoers rule grants the helper, to the running user only" ||
+        no "the sudoers rule is '$rule'"
+    grep -q '^install -m 0440 -o root -g root .* /etc/sudoers.d/caelestia-sddm$' "$sb/calls" &&
+        ok "the rule is installed root:root 0440 in one step" || no "the rule is not installed 0440 in one step"
+    grep -qx 'install -D -m 0755 -o root -g root '"$CM_ROOT"'/system/sddm/caelestia-sddm-sync /usr/local/libexec/caelestia-sddm-sync' "$sb/calls" &&
+        cmp -s "$sb/cap/caelestia-sddm-sync" "$CM_ROOT/system/sddm/caelestia-sddm-sync" &&
+        ok "the helper is installed from tracked source to its fixed path" || no "the helper install is wrong"
+    grep -qx 'Current=caelestia' "$sb/cap/zz-caelestia.conf" 2>/dev/null &&
+        ok "the theme is chosen by a drop-in that removal can take back" || no "the SDDM drop-in is missing"
+    grep -E '^rsync ' "$sb/calls" | grep -q -- "--exclude /backgrounds/ --exclude /faces/ --exclude /fonts/ --exclude /theme.conf.user $CM_ROOT/system/sddm/theme/ /usr/share/sddm/themes/caelestia/" &&
+        ok "the theme deploy keeps what the helper writes" || no "the theme deploy could delete the helper's files"
+    grep -qx sddm "$sb/conf/caelestia-mod/adapters.enabled" 2>/dev/null &&
+        ok "install enables the sddm sync" || no "install did not enable the sddm sync"
 
-# Uninstall removes only Caelestia additions
-grep -q 'theme.conf.user' "$CM_ROOT/system/sddm/remove" && grep -q 'caelestia_wallpaper' "$CM_ROOT/system/sddm/remove" && ok "uninstall removes Caelestia additions" || no "uninstall does not remove Caelestia additions"
+    rm -f "$sb/calls"
+    runi bash "$CM_ROOT/system/sddm/remove" >/dev/null 2>&1
+    badrm=""
+    while read -r cmd; do
+        case "$cmd" in
+            "rm -f -- /usr/local/libexec/caelestia-sddm-sync"|"rm -f -- /etc/sudoers.d/caelestia-sddm"|\
+            "rm -f -- /etc/sddm.conf.d/zz-caelestia.conf"|"rm -rf --one-file-system -- /usr/share/sddm/themes/caelestia"|\
+            "rm -f -- /usr/share/sddm/themes/corners/theme.conf.user"|\
+            "rm -f -- /usr/share/sddm/themes/corners/backgrounds/caelestia_wallpaper."[pj][np]g) ;;
+            *) badrm="$badrm [$cmd]" ;;
+        esac
+    done < <(cat "$sb/calls" 2>/dev/null)
+    [ -z "$badrm" ] && ok "remove only ever deletes what install added" || no "remove would run:$badrm"
+    rm -rf "$sb"
+fi
 
-# Uninstall never touches package theme.conf
-! grep -q 'rm.*theme.conf[^.]' "$CM_ROOT/system/sddm/remove" && ok "uninstall never touches package theme.conf" || no "uninstall touches package theme.conf"
-
-# No root-requiring SDDM integration enabled by default
-! grep -q 'sddm.*on' "$CM_ROOT/installer/components.conf" || grep -q 'sddm.*off' "$CM_ROOT/installer/components.conf" && ok "SDDM not enabled by default" || no "SDDM enabled by default"
-
-# Remove script exists
-[ -x "$CM_ROOT/system/sddm/remove" ] && ok "remove script exists" || no "remove script missing"
-
-cm_step "SDDM wallpaper hand-off"
+cm_step "SDDM wallpaper and profile picture hand-off"
 # Runs the real sync with HOME in a sandbox and sudo stubbed, so nothing is
 # installed. The stub snapshots the state directory at the moment the helper
-# would run, and the snapshot is judged with the helper's own validators:
+# would run, and the helper's own parser and type check judge the snapshot:
 # exactly one wallpaper.{png,jpg}, named by its bytes, and BgSource naming the
-# file the helper will install from it. Or no wallpaper and the theme's own.
-if [ ! -d /usr/share/sddm/themes/corners ]; then
-    skipt "the corners SDDM theme is not installed, so sync does nothing"
-else
-    sd="$(mktemp -d)"
-    st="$sd/home/.local/state/caelestia"
-    mkdir -p "$sd/bin" "$st/wallpaper" "$st/sddm" "$sd/walls"
-    cat > "$sd/bin/sudo" <<STUB
+# file the helper will install from it, or no wallpaper and an empty BgSource.
+# sync does nothing until the theme is installed, so a copy points it at a
+# directory that exists.
+sd="$(mktemp -d)"
+st="$sd/home/.local/state/caelestia"
+mkdir -p "$sd/bin" "$st/wallpaper" "$st/sddm" "$sd/walls"
+sed 's|^THEME_DIR = .*|THEME_DIR = Path("/")|' "$CM_ROOT/system/sddm/sync" > "$sd/sync"
+cat > "$sd/bin/sudo" <<STUB
 #!/bin/sh
 rm -rf "$sd/snap"; cp -a "$st/sddm" "$sd/snap"
 STUB
-    chmod +x "$sd/bin/sudo"
-    printf '\x89PNG\r\n\x1a\npng-body' > "$sd/walls/a.png"
-    printf '\xff\xd8\xff\xe0jpeg-body' > "$sd/walls/b.jpg"
-    printf '\xff\xd8\xff\xe0jpeg-body' > "$sd/walls/c.jpeg"
-    printf '\x89PNG\r\n\x1a\npng-body' > "$sd/walls/d.jpg"
-    printf 'RIFF\0\0\0\0WEBPVP8 ' > "$sd/walls/e.webp"
+chmod +x "$sd/bin/sudo"
+printf '\x89PNG\r\n\x1a\npng-body' > "$sd/walls/a.png"
+printf '\xff\xd8\xff\xe0jpeg-body' > "$sd/walls/b.jpg"
+printf '\xff\xd8\xff\xe0jpeg-body' > "$sd/walls/c.jpeg"
+printf '\x89PNG\r\n\x1a\npng-body' > "$sd/walls/d.jpg"
+printf 'RIFF\0\0\0\0WEBPVP8 ' > "$sd/walls/e.webp"
 
-    # sddm_case <description> <wallpaper or ""> <expect: png|jpg|none> [stale state files...]
-    sddm_case() {
-        local what="$1" wall="$2" expect="$3" s
-        shift 3
-        rm -rf "$st/sddm" "$sd/snap"; mkdir -p "$st/sddm"
-        for s in "$@"; do printf 'stale' > "$st/sddm/$s"; done
-        if [ -n "$wall" ]; then printf '%s\n' "$sd/walls/$wall" > "$st/wallpaper/path.txt"
-        else rm -f "$st/wallpaper/path.txt"; fi
-        HOME="$sd/home" PATH="$sd/bin:$PATH" SCHEME_COLOURS='{"primary":"b4befe","surface":"1e1e2e"}' \
-            "$PY" "$CM_ROOT/system/sddm/sync" >/dev/null 2>&1
-        if "$PY" - "$CM_ROOT/system/sddm/caelestia-sddm-sync" "$sd/snap" "$expect" \
-               "${wall:+$sd/walls/$wall}" <<'CHK'
-import configparser, importlib.machinery, importlib.util, pathlib, sys
+# sddm_case <description> <wallpaper or ""> <expect: png|jpg|none> <face or ""> <face expect> [stale state files...]
+sddm_case() {
+    local what="$1" wall="$2" expect="$3" face="$4" fexpect="$5" s
+    shift 5
+    rm -rf "$st/sddm" "$sd/snap" "$sd/home/.face"; mkdir -p "$st/sddm"
+    for s in "$@"; do printf 'stale' > "$st/sddm/$s"; done
+    if [ -n "$wall" ]; then printf '%s\n' "$sd/walls/$wall" > "$st/wallpaper/path.txt"
+    else rm -f "$st/wallpaper/path.txt"; fi
+    [ -n "$face" ] && cp "$sd/walls/$face" "$sd/home/.face"
+    HOME="$sd/home" XDG_CONFIG_HOME="$sd/home/.config" PATH="$sd/bin:$PATH" \
+        SCHEME_COLOURS='{"primary":"b4befe","surface":"1e1e2e"}' "$PY" "$sd/sync" >/dev/null 2>&1
+    if "$PY" - "$HELPER" "$sd/snap" "$expect" "$fexpect" "${wall:+$sd/walls/$wall}" "${face:+$sd/walls/$face}" <<'CHK'
+import importlib.machinery, importlib.util, pathlib, sys
 loader = importlib.machinery.SourceFileLoader("helper", sys.argv[1])
 helper = importlib.util.module_from_spec(importlib.util.spec_from_loader("helper", loader))
 loader.exec_module(helper)
-snap, expect = pathlib.Path(sys.argv[2]), sys.argv[3]
-source = pathlib.Path(sys.argv[4]) if len(sys.argv) > 4 else None
-conf = (snap / "theme.conf.user").read_bytes()
-bg = configparser.ConfigParser()
-bg.read_string(conf.decode())
-bg = bg.get("General", "BgSource").strip('"')
+snap, expect, fexpect = pathlib.Path(sys.argv[2]), sys.argv[3], sys.argv[4]
+wall = pathlib.Path(sys.argv[5]) if sys.argv[5] else None
+face = pathlib.Path(sys.argv[6]) if len(sys.argv) > 6 and sys.argv[6] else None
+settings = helper.parse_theme_conf_user((snap / "theme.conf.user").read_bytes())
+bg = (settings or {}).get("BgSource")
 walls = sorted(p.name for p in snap.glob("wallpaper.*"))
-ok = helper.validate_theme_conf_user(conf)
-if expect == "none":
-    ok = ok and walls == [] and bg == "backgrounds/glacier.png"
-else:
-    data = (snap / f"wallpaper.{expect}").read_bytes() if walls == [f"wallpaper.{expect}"] else b""
-    ok = (ok and data == source.read_bytes()
-          and helper.validate_wallpaper(data)[1] == f".{expect}"
-          and bg == f"backgrounds/caelestia_wallpaper.{expect}")
+faces = sorted(p.name for p in snap.glob("avatar.*"))
+ok = settings is not None
+def one(files, stem, want, source):
+    if want == "none":
+        return files == []
+    data = (snap / f"{stem}.{want}").read_bytes() if files == [f"{stem}.{want}"] else b""
+    return data == source.read_bytes() and helper.image_type(data) == f".{want}"
+ok = ok and one(walls, "wallpaper", expect, wall) and one(faces, "avatar", fexpect, face)
+ok = ok and bg == ("" if expect == "none" else f"backgrounds/caelestia_wallpaper.{expect}")
 if not ok:
-    print(f"        state: {walls}, BgSource: {bg}")
+    print(f"        state: {walls + faces}, BgSource: {bg!r}, parsed: {settings is not None}")
 sys.exit(0 if ok else 1)
 CHK
-        then ok "$what"; else no "$what"; fi
+    then ok "$what"; else no "$what"; fi
+}
+
+sddm_case "a PNG wallpaper is handed over as PNG"                    a.png  png  ""     none
+sddm_case "a JPEG replacing an earlier PNG is the one installed"     b.jpg  jpg  ""     none  wallpaper.png
+sddm_case "a PNG replacing an earlier JPEG is the one installed"     a.png  png  ""     none  wallpaper.jpg
+sddm_case "a .jpeg file is handed over as JPEG"                      c.jpeg jpg  ""     none  wallpaper.jpeg
+sddm_case "a PNG named .jpg is handed over as PNG"                   d.jpg  png  ""     none
+sddm_case "an unsupported format falls back, leaving no stale file"  e.webp none ""     none  wallpaper.png wallpaper.webp
+sddm_case "no wallpaper leaves BgSource empty"                       ""     none ""     none  wallpaper.jpg
+sddm_case "a ~/.face is handed over as the profile picture"          a.png  png  b.jpg  jpg   avatar.png
+sddm_case "a removed ~/.face leaves no stale picture"                a.png  png  ""     none  avatar.jpg
+sddm_case "an unsupported ~/.face is not handed over"                a.png  png  e.webp none  avatar.png
+rm -rf "$sd"
+
+cm_step "SDDM theme"
+THEME="$CM_ROOT/system/sddm/theme"
+grep -qx 'QtVersion=6' "$THEME/metadata.desktop" && grep -qx 'MainScript=Main.qml' "$THEME/metadata.desktop" &&
+    ok "the theme asks SDDM for its Qt 6 greeter" || no "metadata.desktop does not select the Qt 6 greeter"
+
+# The real greeter, in test mode on the offscreen platform: no window, no
+# daemon. Any QML error, or SDDM falling back to its built-in theme, fails.
+if ! cm_have sddm-greeter-qt6; then skipt "sddm-greeter-qt6 is not installed"
+else
+    tt="$(mktemp -d)"
+    cp -r "$THEME/." "$tt/"
+    QT_FORCE_STDERR_LOGGING=1 QT_QPA_PLATFORM=offscreen timeout 6 \
+        sddm-greeter-qt6 --test-mode --theme "$tt" > "$tt.log" 2>&1
+    # A missing picture or Google Sans Flex is a documented fallback, not an
+    # error: the next lookup, or Rubik, takes over.
+    errs="$(grep -E "file://$tt/[^ ]+\.qml:[0-9]+|Fallback to embedded theme|TypeError|ReferenceError" "$tt.log" |
+        grep -vE 'faces/|Cannot load font: "file://[^"]+/fonts/GoogleSansFlex\.ttf"' | head -5)"
+    [ -z "$errs" ] && grep -q "Loading file://$tt/Main.qml" "$tt.log" &&
+        ok "the real greeter loads the theme with no QML errors" ||
+        { no "the greeter reported errors loading the theme:"; sed 's/^/        /' <<<"$errs"; }
+    rm -rf "$tt" "$tt.log"
+fi
+
+# The login flow, with the greeter's context stood in for: SDDM's objects are
+# only there inside the greeter, so a harness provides them and records what
+# the theme asks SDDM to do.
+if ! cm_have qml6; then skipt "no qml6 runtime for the login flow"
+else
+    hx="$(mktemp -d)"
+    cat > "$hx/harness.qml" <<EOF
+import QtQuick
+
+Item {
+    id: harness
+    width: 1280
+    height: 720
+
+    property bool primaryScreen: true
+    property var config: ({ "BgSource": "", "mode": "dark", "useTwelveHourClock": "true", "osName": "Test OS", "primary": "#aabbcc" })
+    property var calls: []
+    property var results: ({})
+
+    QtObject {
+        id: sddm
+        property string hostName: "host"
+        property bool canPowerOff: true
+        property bool canReboot: true
+        property bool canSuspend: true
+        property bool canHibernate: false
+        signal loginFailed
+        signal loginSucceeded
+        signal informationMessage(string message)
+        function login(u, p, s) { harness.calls.push([u, p, s]); }
+        function powerOff() { harness.calls.push(["powerOff"]); }
+        function reboot() {}
+        function suspend() {}
+        function hibernate() {}
+    }
+    ListModel {
+        id: userModel
+        property int lastIndex: 1
+        property string lastUser: "bob"
+        ListElement { name: "alice"; realName: "Alice"; icon: ""; needsPassword: true }
+        ListElement { name: "bob"; realName: "Bob"; icon: ""; needsPassword: true }
+    }
+    ListModel {
+        id: sessionModel
+        property int lastIndex: 1
+        ListElement { name: "One"; comment: "" }
+        ListElement { name: "Two"; comment: "" }
+    }
+    QtObject {
+        id: keyboard
+        property bool capsLock: false
+        property bool numLock: false
+        property var layouts: []
+        property int currentLayout: 0
     }
 
-    sddm_case "a PNG wallpaper is handed over as PNG"                  a.png  png
-    sddm_case "a JPEG replacing an earlier PNG is the one installed"   b.jpg  jpg  wallpaper.png
-    sddm_case "a PNG replacing an earlier JPEG is the one installed"   a.png  png  wallpaper.jpg
-    sddm_case "a .jpeg file is handed over as JPEG"                    c.jpeg jpg  wallpaper.jpeg
-    sddm_case "a PNG named .jpg is handed over as PNG"                 d.jpg  png
-    sddm_case "an unsupported format falls back, leaving no stale file" e.webp none wallpaper.png wallpaper.webp
-    sddm_case "no wallpaper falls back to the theme's background"      ""     none   wallpaper.jpg
-    rm -rf "$sd"
+    Loader {
+        id: main
+        anchors.fill: parent
+        source: "file://$THEME/Main.qml"
+    }
+
+    function find(item, prop) {
+        if (item[prop] !== undefined)
+            return item;
+        for (const c of item.children ?? []) {
+            const hit = harness.find(c, prop);
+            if (hit)
+                return hit;
+        }
+        return null;
+    }
+
+    function key(k, text, mods) {
+        main.item.auth.handleKey({ key: k, text: text ?? "", modifiers: mods ?? 0 });
+    }
+
+    Timer {
+        running: main.status === Loader.Ready
+        interval: 50
+        onTriggered: {
+            const a = main.item.auth;
+            const r = harness.results;
+            r.lastUserChosen = a.user === "bob";
+            const clock = harness.find(main.item, "hourStr");
+            // An afternoon time, where a 24-hour hour would show.
+            if (clock)
+                clock.now = new Date(2026, 0, 1, 15, 4);
+            r.twelveHourClock = clock !== null && clock.hourStr === "03" && clock.minuteStr === "04" && clock.amPmStr === "PM";
+            for (const c of "pw1") harness.key(0, c);
+            harness.key(Qt.Key_Backspace, "");
+            harness.key(0, "2");
+            r.emptyEnterIgnored = true;
+            harness.key(Qt.Key_Return, "");
+            r.loginCall = JSON.stringify(harness.calls[0]);
+            r.busyWhileChecking = a.active;
+            harness.key(0, "x");
+            r.inputIgnoredWhileChecking = a.buffer === "pw2";
+            sddm.loginFailed();
+            r.failedClears = a.buffer === "" && a.state === 2;
+            harness.key(0, "a");
+            harness.key(Qt.Key_Backspace, "", Qt.ControlModifier);
+            r.ctrlBackspaceClears = a.buffer === "";
+            harness.key(0, "b");
+            main.item.userIndex = 0;
+            r.userSwitchClears = a.user === "alice" && a.buffer === "";
+            harness.key(Qt.Key_Return, "");
+            r.emptyPasswordNotSent = harness.calls.length === 1;
+            main.item.sessionIndex = 0;
+            harness.key(0, "z");
+            harness.key(Qt.Key_Enter, "");
+            r.secondCall = JSON.stringify(harness.calls[1]);
+            sddm.loginSucceeded();
+            r.succeeded = a.state === 3;
+            harness.key(0, "q");
+            r.frozenAfterSuccess = a.buffer === "z";
+            console.log("RESULTS " + JSON.stringify(r));
+            Qt.quit();
+        }
+    }
+}
+EOF
+    res="$(QT_FORCE_STDERR_LOGGING=1 QT_QPA_PLATFORM=offscreen timeout 20 qml6 "$hx/harness.qml" 2>&1 | sed -n 's/^qml: RESULTS //p')"
+    if [ -z "$res" ]; then
+        no "the login flow harness did not run"
+    else
+        "$PY" - "$res" <<'CHK'
+import json, sys
+r = json.loads(sys.argv[1])
+want = {
+    "lastUserChosen": (True, "the last user is preselected"),
+    "twelveHourClock": (True, "a twelve-hour clock shows 01-12 and AM/PM, as the shell does"),
+    "loginCall": ('["bob","pw2",1]', "Enter sends the user, the password as typed, and the session"),
+    "busyWhileChecking": (True, "the field shows it is checking while SDDM does"),
+    "inputIgnoredWhileChecking": (True, "typing is ignored while a login is in flight"),
+    "failedClears": (True, "a failed login clears the password and reports it"),
+    "ctrlBackspaceClears": (True, "Ctrl+Backspace clears the field, as on the lockscreen"),
+    "userSwitchClears": (True, "choosing another account clears the field"),
+    "emptyPasswordNotSent": (True, "an empty password is not sent for an account that needs one"),
+    "secondCall": ('["alice","z",0]', "the chosen account and session are the ones sent"),
+    "succeeded": (True, "a successful login starts the exit"),
+    "frozenAfterSuccess": (True, "input stops once the login has succeeded"),
+}
+bad = 0
+for k, (v, what) in want.items():
+    if r.get(k) == v:
+        print(f"  \033[32mok\033[0m    {what}")
+    else:
+        print(f"  \033[31mFAIL\033[0m  {what} (got {r.get(k)!r})")
+        bad += 1
+sys.exit(bad)
+CHK
+        n=$?
+        # The checker printed its own lines; count them into the totals.
+        pass=$((pass + 12 - n)); fail=$((fail + n))
+    fi
+    rm -rf "$hx"
 fi
+
+# The whole SDDM component stays opt-in.
+grep -qE '^sddm[[:space:]]*:[[:space:]]*system[[:space:]]*:[[:space:]]*off[[:space:]]*:' "$CM_ROOT/installer/components.conf" &&
+    ok "the SDDM theme is not installed by a plain ./install" || no "the SDDM theme is on by default"
 
 cm_step "Spotify process liveness"
 # Drives the real adapter with pgrep, ps and spicetify stubbed, so each case is

@@ -2,8 +2,9 @@
 """
 Caelestia SDDM theme synchronization (unprivileged adapter).
 
-Generates validated theme.conf.user and wallpaper in user state,
-then invokes the fixed privileged helper to install them.
+Writes the current Caelestia scheme, wallpaper and profile picture into user
+state for the caelestia SDDM theme, then invokes the fixed privileged helper
+to install them.
 """
 
 import json
@@ -21,8 +22,23 @@ STATE_DIR.chmod(0o700)
 # Privileged helper
 HELPER = "/usr/local/libexec/caelestia-sddm-sync"
 
-# Theme directory (for reading package files if needed)
-CORNERS_DIR = Path("/usr/share/sddm/themes/corners")
+# The theme system/sddm/install places; nothing to do without it.
+THEME_DIR = Path("/usr/share/sddm/themes/caelestia")
+
+# Every palette role the theme reads (theme/components/Colours.qml). The helper
+# accepts exactly these keys, so the two lists change together.
+PALETTE_ROLES = (
+    "primary", "onPrimary", "primaryContainer", "onPrimaryContainer",
+    "secondary", "onSecondary", "secondaryContainer", "onSecondaryContainer",
+    "tertiary", "onTertiary", "tertiaryContainer", "onTertiaryContainer",
+    "error", "onError", "errorContainer", "onErrorContainer",
+    "surface", "onSurface", "surfaceVariant", "onSurfaceVariant",
+    "surfaceContainerLowest", "surfaceContainerLow", "surfaceContainer",
+    "surfaceContainerHigh", "surfaceContainerHighest",
+    "outline", "outlineVariant", "shadow", "scrim",
+    "inverseSurface", "inverseOnSurface", "inversePrimary",
+    "term0", "term1", "term2", "term3", "term4", "term5", "term6", "term7",
+)
 
 def get_scheme_data():
     if env_colours := os.environ.get("SCHEME_COLOURS"):
@@ -53,8 +69,9 @@ def get_wallpaper():
         return current_symlink.resolve()
     return None
 
-# The helper's limit; a larger file makes it refuse the whole sync.
+# The helper's limits; a larger file makes it refuse the whole sync.
 MAX_WALLPAPER_SIZE = 50 * 1024 * 1024
+MAX_AVATAR_SIZE = 5 * 1024 * 1024
 
 def image_type(path):
     """The extension the helper will give this file, from its bytes, or None."""
@@ -66,137 +83,105 @@ def image_type(path):
         return ".png"
     return None
 
-def prepare_wallpaper(wall):
-    """Leaves exactly one wallpaper.{png,jpg} in STATE_DIR, or none.
+def prepare_image(src, stem, limit, what):
+    """Leaves exactly one <stem>.{png,jpg} in STATE_DIR, or none.
 
-    The helper installs the first of wallpaper.png and wallpaper.jpg it finds
-    and names the result by the file's bytes, not its name. So the state file
-    is named by content, and any other wallpaper.* is removed first: a copy
-    left from an earlier wallpaper would otherwise be installed in place of
-    this one, under a name BgSource does not point at. Returns the extension
-    BgSource should use, or None for the theme's own background.
+    The helper installs the first of <stem>.png and <stem>.jpg it finds and
+    names the result by the file's bytes, not its name. So the state file is
+    named by content, and any other <stem>.* is removed first: a copy left
+    from an earlier image would otherwise be installed in place of this one,
+    under a name the theme does not look for. Returns the extension, or None.
     """
     ext = None
-    if wall:
+    if src:
         try:
-            ext = image_type(wall)
+            ext = image_type(src)
             if ext is None:
-                print(f"Warning: {wall.name} is not PNG or JPEG; the login screen keeps its own background",
+                print(f"Warning: {src.name} is not PNG or JPEG; the login screen shows no {what}",
                       file=sys.stderr)
-            elif wall.stat().st_size > MAX_WALLPAPER_SIZE:
-                print(f"Warning: {wall.name} is over 50 MiB; the login screen keeps its own background",
+            elif src.stat().st_size > limit:
+                print(f"Warning: {src.name} is over {limit // (1024 * 1024)} MiB; the login screen shows no {what}",
                       file=sys.stderr)
                 ext = None
         except OSError as e:
-            print(f"Warning: cannot read wallpaper: {e}", file=sys.stderr)
+            print(f"Warning: cannot read {what}: {e}", file=sys.stderr)
             ext = None
 
-    target = STATE_DIR / f"wallpaper{ext}" if ext else None
-    for old in STATE_DIR.glob("wallpaper.*"):
+    target = STATE_DIR / f"{stem}{ext}" if ext else None
+    for old in STATE_DIR.glob(f"{stem}.*"):
         if old != target:
             old.unlink(missing_ok=True)
     if target is None:
         return None
 
-    tmp = STATE_DIR / f".wallpaper{ext}.tmp"
+    tmp = STATE_DIR / f".{stem}{ext}.tmp"
     try:
-        shutil.copyfile(wall, tmp)
+        shutil.copyfile(src, tmp)
         tmp.chmod(0o644)
         os.replace(tmp, target)
     except OSError as e:
-        print(f"Warning: failed to prepare wallpaper: {e}", file=sys.stderr)
+        print(f"Warning: failed to prepare {what}: {e}", file=sys.stderr)
         tmp.unlink(missing_ok=True)
         target.unlink(missing_ok=True)
         return None
     return ext
 
+def prepare_wallpaper(wall):
+    return prepare_image(wall, "wallpaper", MAX_WALLPAPER_SIZE, "wallpaper")
+
+def get_avatar():
+    face = Path.home() / ".face"
+    return face if face.is_file() else None
+
+def os_name():
+    """PRETTY_NAME from os-release, reduced to what the helper accepts."""
+    for path in ("/etc/os-release", "/usr/lib/os-release"):
+        try:
+            for line in Path(path).read_text().splitlines():
+                if line.startswith("PRETTY_NAME="):
+                    name = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    name = "".join(c for c in name if c.isprintable() and c not in '"\\')
+                    return name[:64]
+        except OSError:
+            continue
+    return ""
+
+def twelve_hour_clock():
+    """The shell's own setting, so the login clock matches the lockscreen's."""
+    config = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "caelestia/shell.json"
+    try:
+        return bool(json.loads(config.read_text()).get("services", {}).get("useTwelveHourClock", False))
+    except (OSError, ValueError, AttributeError):
+        return False
+
 def main():
-    if not CORNERS_DIR.exists():
+    if not THEME_DIR.exists():
         return
 
     colours, mode = get_scheme_data()
     if not colours:
         return
 
-    # Material You / Caelestia color tokens
-    surface = colours.get("surface", "1e1e2e")
-    surface_container = colours.get("surfaceContainer", surface)
-    surface_container_high = colours.get("surfaceContainerHigh", surface_container)
-    on_surface = colours.get("onSurface", "ffffff" if mode == "dark" else "000000")
-    on_surface_variant = colours.get("onSurfaceVariant", on_surface)
-    primary = colours.get("primary", "b4befe")
-    secondary = colours.get("secondary", primary)
-    on_primary = colours.get("onPrimary", "1e1e2e")
-    secondary_container = colours.get("secondaryContainer", surface_container_high)
-    on_secondary_container = colours.get("onSecondaryContainer", on_surface)
+    wallpaper = prepare_wallpaper(get_wallpaper())
+    prepare_image(get_avatar(), "avatar", MAX_AVATAR_SIZE, "profile picture")
 
-    alpha = "E6"
-
-    # --- Generate wallpaper in user state ---
-    ext = prepare_wallpaper(get_wallpaper())
-
-    # --- Generate theme.conf.user in user state ---
-    if ext:
-        bg_relative = f"backgrounds/caelestia_wallpaper{ext}"
-    else:
-        bg_relative = "backgrounds/glacier.png"
-    
-    config_content = f"""## Autogenerated by Caelestia Complete SDDM Sync Engine
-[General]
-BgSource="{bg_relative}"
-FontFamily="Google Sans Flex"
-FontSize=10
-Padding=45
-Radius=16
-Scale=1
-
-UserPictureEnabled=false
-UserBorderWidth=4
-UserBorderColor="#{primary}"
-UserColor="#{alpha}{surface_container_high}"
-
-InputColor="#{alpha}{surface_container}"
-InputTextColor="#{on_surface}"
-InputBorderWidth=2
-InputBorderColor="#{primary}"
-UserPlaceholderText="User"
-PassPlaceholderText="Password"
-HidePassword=true
-
-LoginButtonTextColor="#{on_primary}"
-LoginButtonText="Login"
-LoginButtonColor="#{primary}"
-
-PopupColor="#{alpha}{surface_container}"
-PopupActiveColor="#{primary}"
-PopupActiveTextColor="#{on_primary}"
-
-SessionButtonColor="#{alpha}{secondary_container}"
-SessionIconColor="#{on_secondary_container}"
-PowerButtonColor="#{alpha}{secondary_container}"
-PowerIconColor="#{on_secondary_container}"
-
-DateColor="#{on_surface_variant}"
-DateSize=16
-DateIsBold=true
-DateOpacity=0.85
-DateFormat="dddd • d MMM"
-
-TimeColor="#{primary}"
-TimeSecondaryColor="#{secondary}"
-ClockChipColor="#{alpha}{surface_container_high}"
-ClockChipTextColor="#{on_surface}"
-ClockHourSize=84
-ClockMinuteSize=46
-ClockAmPmSize=18
-TimeIsBold=true
-TimeOpacity=1.0
-TimeFormat="hh:mm AP"
-"""
+    # Only the keys and value shapes the helper accepts. It re-writes the file
+    # itself from what it parses, so nothing else would reach the theme.
+    lines = [
+        "[General]",
+        f'BgSource="backgrounds/caelestia_wallpaper{wallpaper}"' if wallpaper else "BgSource=",
+        f"mode={'light' if mode == 'light' else 'dark'}",
+        f"useTwelveHourClock={'true' if twelve_hour_clock() else 'false'}",
+        f'osName="{os_name()}"',
+    ]
+    for role in PALETTE_ROLES:
+        value = str(colours.get(role, "")).lstrip("#")
+        if len(value) == 6 and all(c in "0123456789abcdefABCDEF" for c in value):
+            lines.append(f'{role}="#{value}"')
 
     state_theme_conf = STATE_DIR / "theme.conf.user"
     try:
-        state_theme_conf.write_text(config_content)
+        state_theme_conf.write_text("\n".join(lines) + "\n")
         state_theme_conf.chmod(0o644)
     except Exception as e:
         print(f"Warning: failed to prepare theme.conf.user: {e}", file=sys.stderr)

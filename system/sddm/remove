@@ -1,46 +1,50 @@
 #!/usr/bin/env bash
+# Reverses system/sddm/install: the theme, the helper, its sudoers rule and
+# the SDDM drop-in. With the drop-in gone, SDDM uses whichever theme was set
+# before. Prints what it will remove and asks first.
 set -euo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
 
-echo "Removing Caelestia SDDM integration..."
-
-# Remove privileged helper
+THEME_DIR="/usr/share/sddm/themes/caelestia"
 HELPER_DEST="/usr/local/libexec/caelestia-sddm-sync"
-[ -e "$HELPER_DEST" ] && {
-    sudo rm -f "$HELPER_DEST"
-    cm_log "removed $HELPER_DEST"
-}
-
-# Remove sudoers rule
 SUDOERS_FILE="/etc/sudoers.d/caelestia-sddm"
-[ -e "$SUDOERS_FILE" ] && {
-    sudo rm -f "$SUDOERS_FILE"
-    cm_log "removed $SUDOERS_FILE"
-}
+SDDM_DROPIN="/etc/sddm.conf.d/zz-caelestia.conf"
+LEGACY_DIR="/usr/share/sddm/themes/corners"
+LEGACY_FILES=("$LEGACY_DIR/theme.conf.user" "$LEGACY_DIR/backgrounds/caelestia_wallpaper.png" "$LEGACY_DIR/backgrounds/caelestia_wallpaper.jpg")
 
-# Remove Caelestia-generated theme files (NOT package-owned)
-THEME_DIR="${CM_SDDM_THEME_DIR:-/usr/share/sddm/themes/corners}"
-
-# theme.conf.user (Caelestia overlay)
-USER_CONF="$THEME_DIR/theme.conf.user"
-[ -e "$USER_CONF" ] && {
-    sudo rm -f "$USER_CONF"
-    cm_log "removed $USER_CONF"
-}
-
-# Caelestia wallpaper files (non-package-owned additions)
-for f in "$THEME_DIR/backgrounds/caelestia_wallpaper.png" \
-         "$THEME_DIR/backgrounds/caelestia_wallpaper.jpg"; do
-    [ -e "$f" ] && {
-        sudo rm -f "$f"
-        cm_log "removed $f"
-    }
+targets=()
+# The theme directory only when it is the one install made: a real directory
+# owned by root, carrying this theme's metadata, and owned by no package.
+if [ -d "$THEME_DIR" ] && [ ! -L "$THEME_DIR" ] && [ "$(stat -c %u "$THEME_DIR")" = 0 ] &&
+   grep -qx 'Name=Caelestia' "$THEME_DIR/metadata.desktop" 2>/dev/null &&
+   ! pacman -Qqo "$THEME_DIR" >/dev/null 2>&1; then
+    targets+=("$THEME_DIR")
+fi
+for f in "$HELPER_DEST" "$SUDOERS_FILE" "$SDDM_DROPIN" "${LEGACY_FILES[@]}"; do
+    [ -e "$f" ] && ! pacman -Qqo "$f" >/dev/null 2>&1 && targets+=("$f")
 done
 
-# Disable adapter
-grep -qx sddm "$CM_CONFIG/adapters.enabled" 2>/dev/null && {
-    sed -i '/^sddm$/d' "$CM_CONFIG/adapters.enabled"
-    cm_log "disabled sddm adapter"
-}
+if [ ${#targets[@]} -eq 0 ]; then
+    cm_log "nothing to remove"
+else
+    echo "This removes:"
+    printf '  %s\n' "${targets[@]}"
+    if [ "${CM_ASSUME_YES:-0}" != 1 ]; then
+        printf 'Remove them? [y/N] '
+        read -r reply
+        case "$reply" in [yY]*) ;; *) cm_log "nothing was removed"; exit 0 ;; esac
+    fi
+    for t in "${targets[@]}"; do
+        if [ "$t" = "$THEME_DIR" ]; then
+            sudo rm -rf --one-file-system -- "$t"
+        else
+            sudo rm -f -- "$t"
+        fi
+        cm_log "removed $t"
+    done
+fi
 
-cm_log "Caelestia SDDM integration removed"
+if grep -qx sddm "$CM_CONFIG/adapters.enabled" 2>/dev/null; then
+    sed -i '/^sddm$/d' "$CM_CONFIG/adapters.enabled"
+    cm_log "disabled sddm sync"
+fi
