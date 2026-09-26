@@ -44,7 +44,7 @@ jobs:
       - name: Install dependencies
         run: |
           pacman -Syu --noconfirm --needed git rsync python jq lua sudo diffutils sddm qt6-declarative \
-              tesseract tesseract-data-eng imagemagick ttf-dejavu
+              tesseract tesseract-data-eng imagemagick fontconfig ttf-dejavu
       - uses: actions/checkout@v4
       - name: Fetch the pinned upstream shell
         run: |

@@ -280,7 +280,9 @@ done
 printf 'Cancel\n'
 STUB
     chmod +x "$sdir/bin/xdg-open" "$sdir/bin/notify-send" "$sdir/bin/fuzzel"
-    magick -background white -fill black -pointsize 60 \
+    # A font file fontconfig resolves, not ImageMagick's default Helvetica,
+    # which only Ghostscript's fonts provide.
+    magick -background white -fill black -font "$(fc-match -f '%{file}' sans)" -pointsize 60 \
         label:'REGION SEARCH PROBE' "$sdir/probe.png" 2>/dev/null
 
     # A dragged rectangle resolves locally to a text search.
@@ -441,7 +443,7 @@ if ! cm_have tesseract; then skipt "tesseract not installed"
 elif ! cm_have magick; then skipt "no magick to render a test image"
 else
     ocrtmp="$(mktemp -d)"
-    magick -background white -fill black -pointsize 64 \
+    magick -background white -fill black -font "$(fc-match -f '%{file}' sans)" -pointsize 64 \
         label:'CAELESTIA OCR TEST' "$ocrtmp/sample.png" 2>/dev/null
     langs=$(tesseract --list-langs 2>/dev/null | tail -n +2 | grep -vx osd | paste -sd+)
     got="$(tesseract "$ocrtmp/sample.png" - -l "${langs:-eng}" 2>/dev/null | tr -d '\n' | tr -s ' ')"
