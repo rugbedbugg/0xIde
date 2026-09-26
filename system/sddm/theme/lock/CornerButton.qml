@@ -10,6 +10,8 @@ StyledRect {
     required property string icon
     required property real scaleFactor
     property bool checked
+    // The buttons blur as one, as Hyprland's blur behind a panel would.
+    property Item frostRegion: null
 
     signal clicked
 
@@ -33,6 +35,7 @@ StyledRect {
         anchors.fill: parent
         z: -1
         surface: "buttons"
+        region: root.frostRegion
         radius: root.radius
     }
 

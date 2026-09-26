@@ -323,6 +323,8 @@ Item {
         }
 
         sourceComponent: RowLayout {
+            id: cornerRow
+
             readonly property alias powerButton: powerButton
             readonly property alias sessionButton: sessionButton
 
@@ -333,6 +335,7 @@ Item {
 
                 icon: "power_settings_new"
                 scaleFactor: root.scaleFactor
+                frostRegion: cornerRow
                 checked: powerMenu.expanded
                 onClicked: powerMenu.open()
             }
@@ -342,6 +345,7 @@ Item {
 
                 icon: "settings"
                 scaleFactor: root.scaleFactor
+                frostRegion: cornerRow
                 checked: sessionMenu.expanded
                 visible: root.sessionItems.length > 0
                 onClicked: sessionMenu.open()

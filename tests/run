@@ -1021,6 +1021,16 @@ Item {
             const solid = Colours.surface(hi, "password");
             r.frostedSurfaces = Colours.frostedOn("account") && Colours.frostedOn("buttons") && !Colours.frostedOn("password") && !Colours.frostedOn("clock")
                 && Math.abs(frosted.a - 0.4) < 0.01 && solid === hi;
+            // The corner buttons share one blur, and each shows the same part of it.
+            const grouped = [];
+            (function walk(item) {
+                if (item.blurRegion !== undefined && item.region)
+                    grouped.push(item.children[0]);
+                for (const c of item.children ?? [])
+                    walk(c);
+            })(main.item);
+            r.buttonsMatch = grouped.length === 2 && grouped[0].width > 0
+                && ["x", "y", "width", "height"].every(k => Math.abs(grouped[0][k] - grouped[1][k]) < 0.5);
             // With the shell's transparency off, nothing is frosted.
             Colours.load(Object.assign({}, harness.config, { "frostedSurfaces": "account", "transparencyEnabled": "false" }));
             r.frostedFollowsShell = !Colours.frostedOn("account") && Colours.surface(hi, "account") === hi;
@@ -1047,6 +1057,7 @@ want = {
     "tPalette": (True, "translucent surfaces follow the shell's transparency and the wallpaper, as tPalette does"),
     "frostedSurfaces": (True, "frostedSurfaces makes the named surfaces translucent and leaves the rest solid"),
     "frostedFollowsShell": (True, "with the shell's transparency off, every surface is solid"),
+    "buttonsMatch": (True, "the corner buttons show the same frost, whatever lies under each"),
     "powerOffered": ('["Suspend","Hibernate (off)","Reboot","Shut down"]', "the power menu shows every action, and disables what SDDM cannot do"),
     "powerRuns": ('["powerOff"] false', "a disabled action cannot be chosen; Shut down powers off, once, and closes the menu"),
     "loginCall": ('["bob","pw2",1]', "Enter sends the user, the password as typed, and the session"),
@@ -1071,7 +1082,7 @@ sys.exit(bad)
 CHK
         n=$?
         # The checker printed its own lines; count them into the totals.
-        pass=$((pass + 21 - n)); fail=$((fail + n))
+        pass=$((pass + 22 - n)); fail=$((fail + n))
     fi
     rm -rf "$hx"
 fi
