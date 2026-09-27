@@ -334,15 +334,16 @@ Item {
                 }
             }
 
-            // The content sits on its own surface, so the text has an edge.
+            // Settings sit on one surface; the text and the response each get
+            // their own, with the response's title in the gap between them.
             StyledRect {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 // Anchored children do not size their parent, so report what
                 // whichever view is showing actually needs.
-                implicitHeight: (root.showSettings ? settings.implicitHeight : content.implicitHeight) + Tokens.padding.medium * 2
+                implicitHeight: root.showSettings ? settings.implicitHeight + Tokens.padding.medium * 2 : content.implicitHeight
                 radius: Tokens.rounding.medium
-                color: Colours.palette.m3surfaceContainerHigh
+                color: root.showSettings ? Colours.palette.m3surfaceContainerHigh : "transparent"
 
                 ScrollView {
                     id: settingsView
@@ -367,134 +368,149 @@ Item {
                     id: content
 
                     anchors.fill: parent
-                    anchors.margins: Tokens.padding.medium
                     visible: !root.showSettings
                     spacing: Tokens.spacing.small
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Tokens.spacing.extraSmall
-
-                        StyledText {
-                            Layout.fillWidth: true
-                            text: qsTr("Extracted text")
-                            color: Colours.palette.m3outline
-                            font: Tokens.font.label.large
-                        }
-                        TextButton {
-                            visible: !!root.structured.words
-                            type: TextButton.Text
-                            font: Tokens.font.label.large
-                            text: root.tableMode ? qsTr("Show as text") : qsTr("Show as table")
-                            onClicked: {
-                                root.tableMode = !root.tableMode;
-                                GlobalConfig.ai.tableMode = root.tableMode;
-                            }
-                        }
-                        IconButton {
-                            visible: !root.tableMode
-                            type: IconButton.Text
-                            icon: "undo"
-                            disabled: !extractedText.canUndo
-                            onClicked: extractedText.undo()
-                        }
-                        IconButton {
-                            visible: !root.tableMode
-                            type: IconButton.Text
-                            icon: "redo"
-                            disabled: !extractedText.canRedo
-                            onClicked: extractedText.redo()
-                        }
-                    }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        visible: root.tableMode
-                        spacing: Tokens.spacing.small
-
-                        StyledTextField {
-                            id: boundaries
-
-                            objectName: "tableBoundaries"
-                            Layout.fillWidth: true
-
-                            placeholderText: qsTr("Column boundaries in pixels, e.g. 150, 420, 650")
-                        }
-                        TextButton {
-                            type: TextButton.Tonal
-                            text: qsTr("Rebuild")
-                            onClicked: root.rebuildTable()
-                        }
-                    }
-                    Item {
+                    StyledRect {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        Layout.preferredHeight: 180
+                        implicitHeight: extractedPane.implicitHeight + Tokens.padding.medium * 2
+                        radius: Tokens.rounding.medium
+                        color: Colours.palette.m3surfaceContainerHigh
 
-                        ScrollView {
+                        ColumnLayout {
+                            id: extractedPane
+
                             anchors.fill: parent
-                            visible: !root.tableMode
-                            clip: true
+                            anchors.margins: Tokens.padding.medium
+                            spacing: Tokens.spacing.small
 
-                            TextArea {
-                                id: extractedText
-
-                                objectName: "ocrEditor"
-
-                                selectByMouse: true
-                                persistentSelection: true
-                                Keys.onTabPressed: nextItemInFocusChain(true).forceActiveFocus(Qt.TabFocusReason)
-                                Keys.onBacktabPressed: nextItemInFocusChain(false).forceActiveFocus(Qt.BacktabFocusReason)
-                                wrapMode: TextArea.Wrap
-                                font: Tokens.font.mono.medium
-                                color: Colours.palette.m3onSurface
-                                padding: 0
-                                background: null
-                            }
-                        }
-                        ScrollView {
-                            anchors.fill: parent
-                            visible: root.tableMode
-                            clip: true
-
-                            Column {
+                            RowLayout {
+                                Layout.fillWidth: true
                                 spacing: Tokens.spacing.extraSmall
 
-                                Repeater {
-                                    model: root.rows
+                                StyledText {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Extracted text")
+                                    color: Colours.palette.m3outline
+                                    font: Tokens.font.label.large
+                                }
+                                TextButton {
+                                    visible: !!root.structured.words
+                                    type: TextButton.Text
+                                    font: Tokens.font.label.large
+                                    text: root.tableMode ? qsTr("Show as text") : qsTr("Show as table")
+                                    onClicked: {
+                                        root.tableMode = !root.tableMode;
+                                        GlobalConfig.ai.tableMode = root.tableMode;
+                                    }
+                                }
+                                IconButton {
+                                    visible: !root.tableMode
+                                    type: IconButton.Text
+                                    icon: "undo"
+                                    disabled: !extractedText.canUndo
+                                    onClicked: extractedText.undo()
+                                }
+                                IconButton {
+                                    visible: !root.tableMode
+                                    type: IconButton.Text
+                                    icon: "redo"
+                                    disabled: !extractedText.canRedo
+                                    onClicked: extractedText.redo()
+                                }
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                visible: root.tableMode
+                                spacing: Tokens.spacing.small
 
-                                    Row {
-                                        id: tableRow
+                                StyledTextField {
+                                    id: boundaries
 
-                                        required property int index
-                                        required property var modelData
+                                    objectName: "tableBoundaries"
+                                    Layout.fillWidth: true
 
+                                    placeholderText: qsTr("Column boundaries in pixels, e.g. 150, 420, 650")
+                                }
+                                TextButton {
+                                    type: TextButton.Tonal
+                                    text: qsTr("Rebuild")
+                                    onClicked: root.rebuildTable()
+                                }
+                            }
+                            Item {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                Layout.preferredHeight: 180
+
+                                ScrollView {
+                                    anchors.fill: parent
+                                    visible: !root.tableMode
+                                    clip: true
+
+                                    TextArea {
+                                        id: extractedText
+
+                                        objectName: "ocrEditor"
+
+                                        selectByMouse: true
+                                        persistentSelection: true
+                                        Keys.onTabPressed: nextItemInFocusChain(true).forceActiveFocus(Qt.TabFocusReason)
+                                        Keys.onBacktabPressed: nextItemInFocusChain(false).forceActiveFocus(Qt.BacktabFocusReason)
+                                        wrapMode: TextArea.Wrap
+                                        font: Tokens.font.mono.medium
+                                        color: Colours.palette.m3onSurface
+                                        padding: 0
+                                        background: null
+                                    }
+                                }
+                                ScrollView {
+                                    anchors.fill: parent
+                                    visible: root.tableMode
+                                    clip: true
+
+                                    Column {
                                         spacing: Tokens.spacing.extraSmall
 
                                         Repeater {
-                                            model: tableRow.modelData
+                                            model: root.rows
 
-                                            TextField {
+                                            Row {
+                                                id: tableRow
+
                                                 required property int index
-                                                required property string modelData
+                                                required property var modelData
 
-                                                objectName: "ocrCell_" + tableRow.index + "_" + index
-                                                width: 200
-                                                text: modelData
-                                                selectByMouse: true
-                                                persistentSelection: true
-                                                color: Colours.palette.m3onSurface
-                                                font: Tokens.font.mono.small
-                                                leftPadding: Tokens.padding.small
-                                                rightPadding: Tokens.padding.small
-                                                background: StyledRect {
-                                                    radius: Tokens.rounding.small
-                                                    color: Colours.palette.m3surfaceContainerHighest
-                                                }
-                                                onActiveFocusChanged: if (activeFocus)
-                                                    root.activeCell = this
-                                                onTextEdited: {
-                                                    root.rows[tableRow.index][index] = text;
-                                                    root.tableRevision++;
+                                                spacing: Tokens.spacing.extraSmall
+
+                                                Repeater {
+                                                    model: tableRow.modelData
+
+                                                    TextField {
+                                                        required property int index
+                                                        required property string modelData
+
+                                                        objectName: "ocrCell_" + tableRow.index + "_" + index
+                                                        width: 200
+                                                        text: modelData
+                                                        selectByMouse: true
+                                                        persistentSelection: true
+                                                        color: Colours.palette.m3onSurface
+                                                        font: Tokens.font.mono.small
+                                                        leftPadding: Tokens.padding.small
+                                                        rightPadding: Tokens.padding.small
+                                                        background: StyledRect {
+                                                            radius: Tokens.rounding.small
+                                                            color: Colours.palette.m3surfaceContainerHighest
+                                                        }
+                                                        onActiveFocusChanged: if (activeFocus)
+                                                            root.activeCell = this
+                                                        onTextEdited: {
+                                                            root.rows[tableRow.index][index] = text;
+                                                            root.tableRevision++;
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -505,10 +521,12 @@ Item {
                     }
 
                     // The response grows under the text rather than beside it in
-                    // a tab, and takes no room at all until there is one.
+                    // a tab, and takes no room at all until there is one. Its
+                    // title sits between the two panes, on neither.
                     RowLayout {
                         Layout.fillWidth: true
-                        Layout.topMargin: Tokens.spacing.small
+                        Layout.leftMargin: Tokens.padding.medium
+                        Layout.rightMargin: Tokens.padding.medium
                         visible: root.hasResponse
                         spacing: Tokens.spacing.small
 
@@ -525,29 +543,36 @@ Item {
                             text: root.waiting ? qsTr("Starting the local model...") : request.error || (request.status === "stopped" ? qsTr("Stopped. Partial response kept.") : request.status === "loading" ? qsTr("Generating...") : qsTr("AI response"))
                         }
                     }
-                    ScrollView {
+                    StyledRect {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        Layout.preferredHeight: 200
+                        Layout.preferredHeight: 200 + Tokens.padding.medium * 2
                         visible: root.hasResponse
-                        clip: true
+                        radius: Tokens.rounding.medium
+                        color: Colours.palette.m3surfaceContainerHigh
 
-                        TextArea {
-                            id: aiText
+                        ScrollView {
+                            anchors.fill: parent
+                            anchors.margins: Tokens.padding.medium
+                            clip: true
 
-                            objectName: "aiResponse"
+                            TextArea {
+                                id: aiText
 
-                            readOnly: true
-                            selectByMouse: true
-                            persistentSelection: true
-                            Keys.onTabPressed: nextItemInFocusChain(true).forceActiveFocus(Qt.TabFocusReason)
-                            Keys.onBacktabPressed: nextItemInFocusChain(false).forceActiveFocus(Qt.BacktabFocusReason)
-                            text: request.text
-                            wrapMode: TextArea.Wrap
-                            font: Tokens.font.mono.medium
-                            color: Colours.palette.m3onSurface
-                            padding: 0
-                            background: null
+                                objectName: "aiResponse"
+
+                                readOnly: true
+                                selectByMouse: true
+                                persistentSelection: true
+                                Keys.onTabPressed: nextItemInFocusChain(true).forceActiveFocus(Qt.TabFocusReason)
+                                Keys.onBacktabPressed: nextItemInFocusChain(false).forceActiveFocus(Qt.BacktabFocusReason)
+                                text: request.text
+                                wrapMode: TextArea.Wrap
+                                font: Tokens.font.mono.medium
+                                color: Colours.palette.m3onSurface
+                                padding: 0
+                                background: null
+                            }
                         }
                     }
                 }
