@@ -44,10 +44,8 @@ if [[ "$gesture" == "circle" ]]; then
 fi
 confirm="always"
 search_url="https://www.google.com/search?q="
-# Lens takes the image itself and answers with a redirect to its results. It
-# only answers a browser, so it is asked as one.
+# Lens's own upload form. The browser posts to it, then follows it to the results.
 lens_upload="https://lens.google.com/v3/upload"
-browser_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36"
 # host|field=value|...|filefield=@   The reply is either the URL itself or
 # JSON containing it. Listed in order; the first that answers with a link wins.
 upload_endpoints=(
@@ -97,16 +95,32 @@ fi
 if [[ "$mode" == "lens" ]]; then
     ask "Send this region to lens.google.com?" ||
         { note -u low "Search cancelled" "Nothing was sent."; exit 0; }
-    # No --location: the redirect is the answer, not something to follow.
-    results="$(curl --silent --show-error --max-time 30 --user-agent "$browser_agent" \
-        --form "encoded_image=@${image};type=image/png" \
-        --output /dev/null --write-out '%{http_code} %{redirect_url}' "$lens_upload" 2>/dev/null || true)"
-    status="${results%% *}"
-    results="${results#* }"
-    [[ "$status" == 30* && "$results" == https://* ]] ||
-        die "Google Lens did not accept the image (HTTP ${status:-no reply}). Set mode=host-upload in ${conf} to go through a file host instead."
+    # Lens ties its results to the session cookie set by the upload itself, so
+    # a results link from an upload made here opens empty in the browser. The
+    # browser has to post the image: this page carries it inline and submits
+    # Lens's own upload form as soon as it loads. It lives in the private
+    # runtime directory and is removed once the browser has had time to read it.
+    handoff_dir="${XDG_RUNTIME_DIR:-/tmp}/0xide-search"
+    mkdir -p -m 700 "$handoff_dir"
+    rm -f -- "$handoff_dir"/lens-*.html
+    page="$(mktemp "$handoff_dir/lens-XXXXXX.html")"
+    {
+        printf '<!doctype html><meta charset="utf-8"><title>Google Lens</title>\n'
+        printf '<form id="f" method="post" enctype="multipart/form-data" action="%s">' "$lens_upload"
+        printf '<input id="i" type="file" name="encoded_image"></form>\n<script>\n'
+        printf 'const b64 = "%s";\n' "$(base64 -w0 "$image")"
+        cat <<'JS'
+const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+const files = new DataTransfer();
+files.items.add(new File([bytes], "region.png", { type: "image/png" }));
+document.getElementById("i").files = files.files;
+document.getElementById("f").submit();
+</script>
+JS
+    } > "$page"
+    ( sleep 60; rm -f -- "$page" ) >/dev/null 2>&1 &
     note "Google Lens" "Region sent to Google Lens; results opened in your browser."
-    open_search "$results"
+    open_search "file://$page"
 fi
 
 # --- mode: host-upload (image leaves this machine) ---------------------------

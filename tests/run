@@ -315,8 +315,9 @@ STUB
     [ -e "$sdir/circle.png" ] && no "the circle capture was not removed" ||
         ok "the circle capture is removed"
 
-    # Accepted, the image goes to Lens alone and its results open. curl is
-    # stubbed to answer as Lens does: a redirect to the results page.
+    # Accepted, the browser itself posts the image to Lens: Lens ties its
+    # results to the cookie that upload sets, so an upload made by the script
+    # opens an empty results page. Nothing here may upload with curl.
     cat > "$sdir/bin/fuzzel" <<STUB
 #!/bin/sh
 cat >/dev/null
@@ -325,18 +326,26 @@ STUB
     cat > "$sdir/bin/curl" <<STUB
 #!/bin/sh
 printf '%s\n' "\$@" > "$sdir/curl-args"
-printf '303 https://www.google.com/search?vsrid=probe'
 STUB
     chmod +x "$sdir/bin/fuzzel" "$sdir/bin/curl"
-    rm -f "$sdir/opened"
+    rm -f "$sdir/opened" "$sdir/curl-args"
+    mkdir -p "$sdir/run"
     cp "$sdir/probe.png" "$sdir/sent.png"
-    PATH="$sdir/bin:$PATH" XDG_CONFIG_HOME="$sdir/conf" \
+    b64="$(base64 -w0 "$sdir/probe.png")"
+    PATH="$sdir/bin:$PATH" XDG_CONFIG_HOME="$sdir/conf" XDG_RUNTIME_DIR="$sdir/run" \
         bash "$rs" "$sdir/sent.png" circle >/dev/null 2>&1 || true
     sleep 1
-    [ "$(cat "$sdir/opened" 2>/dev/null)" = "https://www.google.com/search?vsrid=probe" ] &&
-        grep -qx 'https://lens.google.com/v3/upload' "$sdir/curl-args" && ! grep -qiE 'uguu|uploadbyurl' "$sdir/curl-args" &&
-        ok "an accepted circle goes to Google Lens alone and opens its results" ||
-        no "an accepted circle did not go straight to Google Lens"
+    opened="$(cat "$sdir/opened" 2>/dev/null)"
+    page="${opened#file://}"
+    if [[ "$opened" == "file://$sdir/run/0xide-search/lens-"*.html ]] && [ -f "$page" ] &&
+        grep -q 'action="https://lens.google.com/v3/upload"' "$page" &&
+        grep -q 'name="encoded_image"' "$page" && grep -qF "$b64" "$page" &&
+        [ ! -e "$sdir/curl-args" ] && ! grep -qiE 'uguu|uploadbyurl' "$page"
+    then ok "an accepted circle has the browser post the image to Google Lens alone"
+    else no "an accepted circle did not hand the image to the browser for Lens (opened: ${opened:-nothing})"; fi
+    [ "$(stat -c %a "$sdir/run/0xide-search" 2>/dev/null)" = 700 ] &&
+        ok "the page carrying the image is private to the user" ||
+        no "the handoff directory is not private"
     rm -f "$sdir/bin/curl"
     printf '#!/bin/sh\ncat >/dev/null\nprintf "Cancel\\n"\n' > "$sdir/bin/fuzzel"
 

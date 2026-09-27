@@ -58,7 +58,7 @@ applications Caelestia does not theme itself.
 -   [`quickshell-git`](https://git.outfoxxed.me/quickshell/quickshell)
 -   `git`, `rsync`, `python`, `jq`
 -   For text extraction: [`tesseract`][tesseract] with the language data you want, and `wl-clipboard`
--   For web search: `curl`, and [`fuzzel`](https://codeberg.org/dnkl/fuzzel) to ask before a circle sends anything
+-   For web search: [`fuzzel`](https://codeberg.org/dnkl/fuzzel) to ask before a circle sends anything, and `curl` for the optional file-host mode
 -   For the cursor: [`sweet-cursors-git`](https://aur.archlinux.org/packages/sweet-cursors-git),
     `librsvg` and `xorg-xcursorgen`, plus `hyprcursor` for a cursor that stays sharp at any scale
 -   For building the shell: `cmake`, `ninja`, `libqalculate` and the Qt 6 development
