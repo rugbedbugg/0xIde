@@ -59,6 +59,8 @@ applications Caelestia does not theme itself.
 -   `git`, `rsync`, `python`, `jq`
 -   For text extraction: [`tesseract`][tesseract] with the language data you want, and `wl-clipboard`
 -   For web search: [`fuzzel`](https://codeberg.org/dnkl/fuzzel) to ask before a circle sends anything, and `curl` for the optional file-host mode
+-   For the local AI model: [`uv`](https://docs.astral.sh/uv/), `git`, `clang`, `cmake` and
+    `ninja`, to build the runtime on your machine. Not needed for an external endpoint
 -   For the cursor: [`sweet-cursors-git`](https://aur.archlinux.org/packages/sweet-cursors-git),
     `librsvg` and `xorg-xcursorgen`, plus `hyprcursor` for a cursor that stays sharp at any scale
 -   For building the shell: `cmake`, `ninja`, `libqalculate` and the Qt 6 development
@@ -121,8 +123,8 @@ start dragging; press `Esc` to start over.
 ### Asking AI
 
 1. **Choose a backend, once.** In the shell's settings, open **OCR & AI** and pick
-   **Local** to run a small model on this computer, installed from the same page, or an
-   external OpenAI-compatible endpoint.
+   **Local** to run a small model on this computer (see below), or point it at any
+   OpenAI-compatible endpoint.
 2. **Capture.** Press `SUPER + SHIFT + A`, choose **Ask AI**, and drag over the text.
 3. **Ask.** Pick **Explain**, **Summarize**, **Translate** or **Custom** and press
    **Ask AI**. Any text you select in either pane is what gets asked about instead of the
@@ -141,6 +143,34 @@ qs -c caelestia ipc call picker showText "$(wl-paste)"  # ask about text you alr
 ```
 
 The backend can also be set under `ai` in `shell.json`.
+
+#### Installing the local model
+
+The local backend runs Microsoft's
+[BitNet b1.58 2B4T](https://huggingface.co/microsoft/bitnet-b1.58-2B-4T-gguf), a
+2-billion-parameter model with ternary weights, on
+[BitNet.cpp](https://github.com/microsoft/BitNet). Neither is shipped here:
+[`manifests/ai.toml`](manifests/ai.toml) pins both revisions and the model's SHA-256.
+
+Install it from **OCR & AI** in the shell's settings, or say yes when the AI panel offers
+it the first time you ask. The page lists any missing build tools before it starts, and
+shows progress while it runs. It then:
+
+1. checks for the tools above and about 4.1 GiB of free disk,
+2. downloads `ggml-model-i2_s.gguf`, about 1.1 GiB, and verifies its hash,
+3. builds BitNet.cpp for your CPU, which takes several minutes,
+4. starts the model once as a health check.
+
+Everything goes in `$XDG_DATA_HOME/0xide/ai` (`~/.local/share/0xide/ai`), and **Uninstall**
+on the same page deletes it. From a terminal, the same installer is:
+
+```sh
+cd ~/.config/quickshell/caelestia/assets/ai
+uv run --no-project --python 3.13 runtime.py install
+```
+
+The model server listens on `127.0.0.1` only, starts on the first question, and stops
+after five idle minutes.
 
 ## Updating
 

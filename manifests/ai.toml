@@ -6,7 +6,7 @@
 # path gives fluent but wrong answers for this model on some CPUs.
 #
 # Fetching is never part of `./install`. It happens only when you ask for it
-# from the OCR & AI settings page, or via `./install --fetch-ai-model`.
+# from the OCR & AI settings page, or by running runtime.py install yourself.
 
 [runtime]
 name = "BitNet.cpp"
