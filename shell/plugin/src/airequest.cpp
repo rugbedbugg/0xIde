@@ -78,6 +78,11 @@ void AiRequest::send(const QUrl& url, const QString& payload, int timeoutMs) {
             settle(u"failed"_s, reply->errorString());
         else
             settle(u"complete"_s);
+
+        // A [DONE] event settles the request while the reply is still open, so
+        // settle() above is a no-op, but running has only now turned false.
+        // Without this the UI keeps showing Stop after the answer is complete.
+        emit changed();
     });
 
     if (timeoutMs > 0)
