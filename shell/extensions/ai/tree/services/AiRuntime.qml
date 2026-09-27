@@ -158,7 +158,7 @@ Scope {
 
         property bool didExit: false
 
-        command: ["uv", "run", "--no-project", "--python", "3.13", root.helper, "serve"]
+        command: ["uv", "run", "--no-project", "--python", "3.13", root.helper, "serve", "--owner", String(Quickshell.processId)]
         stdout: SplitParser {
             onRead: line => {
                 try {

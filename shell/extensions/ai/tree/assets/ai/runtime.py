@@ -160,7 +160,20 @@ def build_runtime(runtime, log):
     run(['cmake', '--build', 'build', '--target', 'llama-server', '-j', '2'], runtime, log)
 
 
-def serve(directory, once=False):
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        pass
+    return True
+
+
+def serve(directory, once=False, owner=None):
+    """Runs the model server until it stops, or until owner (the shell that
+    asked for it) is gone. Without that, a shell restart orphans the server,
+    which keeps the lock and makes every later start fail."""
     global CHILD
     # Reserve a candidate port, then verify only our child's readiness. A bind
     # conflict makes the child exit; never attach to an unrelated local server.
@@ -186,7 +199,12 @@ def serve(directory, once=False):
         CHILD = None
     else:
         emit(stage='ready', endpoint=f'http://127.0.0.1:{port}/v1/chat/completions')
-        code = CHILD.wait()
+        while CHILD.poll() is None:
+            if owner and not alive(owner):
+                stop_child()
+                return
+            time.sleep(2)
+        code = CHILD.returncode
         CHILD = None
         if code:
             raise RuntimeError(f'Local server stopped ({code})')
@@ -238,7 +256,9 @@ def install():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('action', choices=['status', 'install', 'serve', 'uninstall'])
-    action = parser.parse_args().action
+    parser.add_argument('--owner', type=int, help='serve: exit when this process is gone')
+    args = parser.parse_args()
+    action = args.action
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, terminate)
     try:
@@ -249,7 +269,16 @@ def main():
             return 0
         ROOT.mkdir(parents=True, exist_ok=True)
         with (ROOT / '.lock').open('w') as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            # A server from a shell that just exited releases the lock within
+            # seconds, so wait that long before calling it busy.
+            for attempt in range(10):
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if attempt == 9:
+                        raise RuntimeError('The local model is already running or being installed') from None
+                    time.sleep(1)
             if action == 'install':
                 install()
             elif action == 'uninstall':
@@ -259,7 +288,7 @@ def main():
             else:
                 if not (ACTIVE / 'ready.json').exists():
                     raise RuntimeError('Install the managed model first')
-                serve(ACTIVE)
+                serve(ACTIVE, owner=args.owner)
     except KeyboardInterrupt:
         emit(stage='cancelled')
         return 130
