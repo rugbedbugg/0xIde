@@ -661,6 +661,59 @@ STUB
     rm -rf "$td"
 fi
 
+ox_step "Zed theme overlay"
+# Zed's settings are JSON with comments, so the overlay must change the one
+# top-level key and leave comments, nested keys of the same name and every
+# other setting exactly as they were.
+td="$(mktemp -d)"
+cat > "$td/settings.json" <<'JSONC'
+// Zed settings
+{
+  // "theme": "commented out",
+  "ui_font_size": 16,
+  "theme": {
+    "mode": "system",
+    "light": "One Light",
+    "dark": "One Dark"
+  },
+  "lsp": { "x": { "theme": 1 } }, /* trailing */
+  "path": "a:,{b"
+}
+JSONC
+cp "$td/settings.json" "$td/before.json"
+"$PY" "$OX_ROOT/installer/apply_overlay.py" "$OX_ROOT/overrides/zed/overlay.jsonc" "$td/settings.json" --jsonc >/dev/null
+expected="$(sed '5,9c\  "theme": "Caelestia",' "$td/before.json")"
+[ "$(cat "$td/settings.json")" = "$expected" ] &&
+    ok "only the top-level theme is changed, to Caelestia" ||
+    no "the overlay changed more than the theme: $(diff "$td/before.json" "$td/settings.json" | tr '\n' ' ')"
+"$PY" "$OX_ROOT/installer/apply_overlay.py" "$OX_ROOT/overrides/zed/overlay.jsonc" "$td/settings.json" --jsonc --check >/dev/null &&
+    ok "a second run changes nothing" || no "a second run would change the settings again"
+rm -rf "$td"
+
+ox_step "Firefox layout"
+# Caelestia's dots deploy to ~/.mozilla only; a profile under
+# $XDG_CONFIG_HOME/mozilla must get the files too, and the user's own user.js
+# must survive.
+td="$(mktemp -d)"
+mkdir -p "$td/state/caelestia/dots/firefox" "$td/conf/mozilla/firefox/abc.default-release" "$td/home/.mozilla/firefox/old.default"
+printf '#urlbar { border-radius: 10px; }\n' > "$td/state/caelestia/dots/firefox/userChrome.css"
+printf '// comment\nuser_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);\n' > "$td/state/caelestia/dots/firefox/user.js"
+printf 'user_pref("browser.startup.page", 3);\n' > "$td/conf/mozilla/firefox/abc.default-release/user.js"
+firefox_layout() {
+    HOME="$td/home" XDG_CONFIG_HOME="$td/conf" XDG_STATE_HOME="$td/state" \
+        "$OX_ROOT/overrides/firefox/install" >/dev/null 2>&1
+}
+firefox_layout; firefox_layout
+new="$td/conf/mozilla/firefox/abc.default-release"
+cmp -s "$new/chrome/userChrome.css" "$td/state/caelestia/dots/firefox/userChrome.css" &&
+    cmp -s "$td/home/.mozilla/firefox/old.default/chrome/userChrome.css" "$td/state/caelestia/dots/firefox/userChrome.css" &&
+    ok "userChrome.css reaches profiles under both ~/.mozilla and \$XDG_CONFIG_HOME/mozilla" ||
+    no "userChrome.css is missing from a profile"
+[ "$(grep -c . "$new/user.js")" = 2 ] && grep -qF 'browser.startup.page' "$new/user.js" &&
+    ok "user.js keeps the user's own preferences and gains the one line, once" ||
+    no "user.js: $(tr '\n' ' ' < "$new/user.js")"
+rm -rf "$td"
+
 ox_step "Cursor fallback in hypr-vars.lua"
 if ! ox_have lua; then skipt "no lua"
 else

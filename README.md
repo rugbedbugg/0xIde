@@ -44,6 +44,12 @@ applications Caelestia does not theme itself.
     -   **Cursor**: Caelestia's Sweet cursor, rebuilt in the scheme's colours. Upstream
         names it `sweet-cursors` while the package installs `Sweet-cursors`, so stock
         Caelestia always shows the default cursor. See [`adapters/cursor`](adapters/cursor/README.md).
+-   Fixes for Caelestia's own app themes that never take effect:
+    -   **Zed**: Caelestia regenerates a Zed theme on every change, but its settings select
+        One Light and One Dark. This selects the Caelestia theme, which Zed reloads live.
+    -   **Firefox**: the CaelestiaFox extension colours it live, but Caelestia copies its
+        layout (`userChrome.css`, `user.js`) only into `~/.mozilla`, while current Firefox
+        keeps profiles under `~/.config/mozilla`. This puts them in both.
 -   **Login screen** (optional): an SDDM theme that follows the Caelestia scheme,
     wallpaper and profile picture. See [`system/sddm`](system/sddm/README.md).
 
@@ -201,9 +207,10 @@ it by hand in `build/shell-src` with `git apply --3way`, then write it back as a
 | `overrides/caelestia/hypr-vars.lua`                              | Hyprland variables: browser, editor, cursor theme, the keybinds above |
 | `overrides/caelestia/hypr-user.lua`                              | Hyprland settings and binds that are not plain variables              |
 | `overrides/caelestia/shell.json`                                 | Caelestia Shell settings, including the AI backend under `ai`         |
-| `overrides/caelestia/cli.json`                                   | caelestia-cli settings                                                |
+| `overrides/caelestia/cli.json`                                   | caelestia-cli settings, including `enableGtk` for the gtk adapter     |
 | `overrides/fish/user-config.fish`                                | fish additions                                                        |
 | `overrides/foot/overlay.conf`, `overrides/starship/overlay.toml` | keys merged into two files that have no include mechanism             |
+| `overrides/zed/overlay.jsonc`                                    | the theme key merged into Zed's `settings.json`                       |
 | `$XDG_CONFIG_HOME/0xide/region-search.conf`                      | region search mode and confirmation                                   |
 | `$XDG_CONFIG_HOME/0xide/adapters.enabled`                        | which adapters the theme hook runs                                    |
 

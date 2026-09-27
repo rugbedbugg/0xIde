@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Puts Caelestia's userChrome.css and user.js into every Firefox profile.
+#
+# Caelestia's dots deploy both to $HOME/.mozilla/firefox/*.default*, but
+# Firefox now keeps new profiles under $XDG_CONFIG_HOME/mozilla/firefox, where
+# nothing arrives, so the browser misses the layout half of its theme. The
+# colours come from the CaelestiaFox extension and are not affected. The files
+# are taken from the Caelestia dots checkout, not copied into this repository.
+set -euo pipefail
+. "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
+
+src="$XDG_STATE_HOME/caelestia/dots/firefox"
+[ -r "$src/userChrome.css" ] && [ -r "$src/user.js" ] || {
+    ox_log "no Caelestia dots checkout at $src; skipped"
+    exit 0
+}
+
+found=0
+for root in "$HOME/.mozilla/firefox" "$XDG_CONFIG_HOME/mozilla/firefox"; do
+    for profile in "$root"/*.default*/; do
+        [ -d "$profile" ] || continue
+        found=1
+        profile="${profile%/}"
+        if ox_install_file "$profile/chrome/userChrome.css" 644 < "$src/userChrome.css"; then
+            ox_log "userChrome.css -> ${profile#"$HOME"/}"
+        fi
+        ox_own "$profile/chrome/userChrome.css"
+        # user.js may hold the user's own preferences, so only the lines
+        # Caelestia's needs are added, never the file replaced.
+        while IFS= read -r line; do
+            case "$line" in user_pref\(*) ;; *) continue ;; esac
+            if ! grep -qxF -- "$line" "$profile/user.js" 2>/dev/null; then
+                printf '%s\n' "$line" >> "$profile/user.js"
+                ox_log "user.js += $line"
+            fi
+        done < "$src/user.js"
+    done
+done
+
+[ "$found" = 1 ] || ox_log "no Firefox profile yet; start Firefox once, then run this again"

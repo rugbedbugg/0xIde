@@ -1,0 +1,5 @@
+# Caelestia writes $XDG_CONFIG_HOME/zed/themes/caelestia.json on every scheme
+# change, one theme whose appearance follows the scheme's mode, but its own Zed
+# settings select One Light and One Dark, so nothing ever used it. This selects
+# it; Zed reloads both the setting and the theme file while it is running.
+theme = "Caelestia"

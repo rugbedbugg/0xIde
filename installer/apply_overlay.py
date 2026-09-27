@@ -2,16 +2,20 @@
 """Rewrite named keys in a config file this project does not own.
 
 Used only where upstream offers no include or drop-in mechanism, which is
-currently foot and starship. Everything else goes through a supported override
-point instead.
+currently foot, starship and Zed. Everything else goes through a supported
+override point instead.
 
 The overlay names sections and keys; every other line of the target is left
 exactly as it is, so an upstream change to an untouched setting survives. A key
 already at the wanted value is not rewritten, so repeated runs are no-ops.
 
-    apply_overlay.py <overlay> <target> [--ini|--toml] [--check]
+    apply_overlay.py <overlay> <target> [--ini|--toml|--jsonc] [--check]
+
+For JSONC (JSON with comments and trailing commas, as Zed writes it) only
+top-level keys are supported, and each overlay value is a JSON value.
 """
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -102,18 +106,96 @@ def apply(target: str, wanted: dict, style: str) -> tuple[str, list[str]]:
     return "\n".join(out) + "\n", changes
 
 
+def top_level_values(text: str) -> dict[str, tuple[int, int]]:
+    """Top-level key -> (start, end) of its value in a JSONC document.
+
+    A scanner, not a parser: it only tracks depth, strings and comments, which
+    is all it takes to find where each top-level value begins and ends.
+    """
+    spans: dict[str, tuple[int, int]] = {}
+    i, depth, n = 0, 0, len(text)
+    key, value_start, last_string = None, None, None
+
+    def skip_string(j: int) -> int:
+        j += 1
+        while text[j] != '"':
+            j += 2 if text[j] == "\\" else 1
+        return j + 1
+
+    while i < n:
+        c = text[i]
+        if text.startswith("//", i):
+            i = text.find("\n", i)
+            i = n if i < 0 else i
+            continue
+        if text.startswith("/*", i):
+            i = text.index("*/", i) + 2
+            continue
+        if c == '"':
+            end = skip_string(i)
+            if depth == 1 and value_start is None:
+                last_string = json.loads(text[i:end])
+            i = end
+            continue
+        if c in "{[":
+            depth += 1
+        elif c in "}]":
+            if depth == 1 and value_start is not None:
+                spans[key] = (value_start, len(text[:i].rstrip()))
+                value_start = None
+            depth -= 1
+        elif depth == 1 and c == ":" and value_start is None:
+            key = last_string
+            value_start = i + 1
+            while text[value_start] in " \t":
+                value_start += 1
+        elif depth == 1 and c == "," and value_start is not None:
+            spans[key] = (value_start, len(text[:i].rstrip()))
+            value_start = None
+        i += 1
+    return spans
+
+
+def apply_jsonc(target: str, wanted: dict) -> tuple[str, list[str]]:
+    keys = wanted.get(None, {})
+    changes: list[str] = []
+    for key, value in keys.items():
+        spans = top_level_values(target)
+        rendered = json.dumps(json.loads(value))
+        if key in spans:
+            start, end = spans[key]
+            if json.loads(value) == _loads_loose(target[start:end]):
+                continue
+            target = target[:start] + rendered + target[end:]
+            changes.append(f"{key} = {rendered}")
+        else:
+            brace = target.index("{")
+            target = f'{target[:brace + 1]}\n  "{key}": {rendered},{target[brace + 1:]}'
+            changes.append(f"{key} = {rendered} (added)")
+    return target, changes
+
+
+def _loads_loose(value: str):
+    """A value as JSON, or None when it holds comments or trailing commas."""
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return None
+
+
 def main() -> int:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     flags = {a for a in sys.argv[1:] if a.startswith("--")}
     overlay, target = Path(args[0]), Path(args[1])
-    style = "toml" if "--toml" in flags else "ini"
+    style = "toml" if "--toml" in flags else "jsonc" if "--jsonc" in flags else "ini"
 
     if not target.exists():
         print(f"{target}: does not exist, skipping", file=sys.stderr)
         return 0
 
     original = target.read_text()
-    updated, changes = apply(original, parse_overlay(overlay.read_text()), style)
+    wanted = parse_overlay(overlay.read_text())
+    updated, changes = apply_jsonc(original, wanted) if style == "jsonc" else apply(original, wanted, style)
 
     if not changes:
         print(f"{target.name}: already current")
