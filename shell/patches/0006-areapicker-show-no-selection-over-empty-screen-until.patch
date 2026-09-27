@@ -1,0 +1,73 @@
+From 47f3d0cbc8c455a8d97c2ad35729e01ea2d2343a Mon Sep 17 00:00:00 2001
+From: Oxide 1-6 <yes.par781@gmail.com>
+Date: Sun, 27 Sep 2026 08:12:39 +0530
+Subject: [PATCH] areapicker: show no selection over empty screen until a drag
+
+Upstream starts with a 200px box in the middle of the screen when no window is under the pointer, and keeps the last window's outline after the pointer leaves it, so an empty screen shows an outline that selects nothing you chose. Now the selection is the window under the pointer or what you drag, and nothing otherwise; a click on empty screen closes the picker instead of capturing the invisible box.
+---
+ modules/areapicker/Picker.qml | 19 ++++++++++++++-----
+ 1 file changed, 14 insertions(+), 5 deletions(-)
+
+diff --git a/modules/areapicker/Picker.qml b/modules/areapicker/Picker.qml
+index 1694d020..21dd359c 100644
+--- a/modules/areapicker/Picker.qml
++++ b/modules/areapicker/Picker.qml
+@@ -17,6 +17,9 @@ MouseArea {
+     required property ShellScreen screen
+ 
+     property bool onClient
++    // Set by the first drag. Until then the only selection is the window under
++    // the pointer, so empty screen shows no outline at all.
++    property bool dragged
+ 
+     property real realBorderWidth: onClient ? (Hypr.options["general:border_size"] ?? 1) : 2
+     property real realRounding: onClient ? (Hypr.options["decoration:rounding"] ?? 0) : 0
+@@ -71,9 +74,15 @@ MouseArea {
+                 sy = cy;
+                 ex = cx + cw;
+                 ey = cy + ch;
+-                break;
++                return;
+             }
+         }
++
++        // No window here: select nothing rather than keep the last window's
++        // outline, or upstream's box in the middle of an empty screen.
++        onClient = false;
++        sx = ex = x;
++        sy = ey = y;
+     }
+ 
+     function save(): void {
+@@ -131,10 +140,8 @@ MouseArea {
+             ex = cx + c.lastIpcObject.size[0];
+             ey = cy + c.lastIpcObject.size[1];
+         } else {
+-            sx = screen.width / 2 - 100;
+-            sy = screen.height / 2 - 100;
+-            ex = screen.width / 2 + 100;
+-            ey = screen.height / 2 + 100;
++            sx = ex = screen.width / 2;
++            sy = ey = screen.height / 2;
+         }
+     }
+ 
+@@ -182,6 +189,7 @@ MouseArea {
+ 
+         if (pressed) {
+             onClient = false;
++            dragged = true;
+             sx = ssx;
+             sy = ssy;
+             ex = x;
+@@ -332,6 +340,7 @@ MouseArea {
+     Rectangle {
+         id: border
+ 
++        visible: root.onClient || root.dragged
+         color: "transparent"
+         radius: root.realRounding > 0 ? root.realRounding + root.realBorderWidth : 0
+         border.width: root.realBorderWidth
+-- 
+2.55.0
+
