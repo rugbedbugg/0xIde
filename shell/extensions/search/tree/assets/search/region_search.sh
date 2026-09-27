@@ -101,7 +101,8 @@ if [[ "$mode" == "lens" ]]; then
     # Lens's own upload form as soon as it loads. It lives in the private
     # runtime directory and is removed once the browser has had time to read it.
     handoff_dir="${XDG_RUNTIME_DIR:-/tmp}/0xide-search"
-    mkdir -p -m 700 "$handoff_dir"
+    mkdir -p "$handoff_dir"
+    chmod 700 "$handoff_dir"
     rm -f -- "$handoff_dir"/lens-*.html
     page="$(mktemp "$handoff_dir/lens-XXXXXX.html")"
     {

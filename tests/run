@@ -597,7 +597,7 @@ PY
         no "settings.ini: $(tr '\n' ' ' < "$td/conf/gtk-3.0/settings.ini")"
     grep -qx 'Inherits=0xide-sweet' "$td/home/.icons/default/index.theme" &&
         ok "the default X cursor theme follows, since it pointed at Sweet" ||
-        no "~/.icons/default still inherits $(grep -oP '(?<=Inherits=).*' "$td/home/.icons/default/index.theme")"
+        no ".icons/default still inherits $(grep -oP '(?<=Inherits=).*' "$td/home/.icons/default/index.theme")"
     grep -q 'gsettings set org.gnome.desktop.interface cursor-theme 0xide-sweet' "$td/calls.log" &&
         grep -q 'hyprctl setcursor 0xide-sweet 24' "$td/calls.log" &&
         ok "gsettings and Hyprland are pointed at it" || no "calls: $(tr '\n' ';' < "$td/calls.log")"
