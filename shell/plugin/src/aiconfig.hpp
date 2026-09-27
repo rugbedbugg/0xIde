@@ -18,7 +18,7 @@ class AiConfig : public settings::ObjectNode {
     CONFIG_GLOBAL_PROPERTY(QString, backendUrl, u"http://127.0.0.1:8080/v1/chat/completions"_s)
     CONFIG_GLOBAL_PROPERTY(QString, model, QString())
     CONFIG_GLOBAL_PROPERTY(QString, systemPrompt, QString())
-    CONFIG_GLOBAL_PROPERTY(QString, dictationLanguage, u"auto"_s)
+    CONFIG_GLOBAL_PROPERTY(QString, dictationLanguage, u"en"_s)
 };
 
 } // namespace caelestia::config

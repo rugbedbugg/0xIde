@@ -200,8 +200,8 @@ pause. Speech is transcribed on this computer by
 [whisper.cpp](https://github.com/ggml-org/whisper.cpp), and no recording is kept. A muted
 microphone is refused rather than recorded as silence. It needs the `whisper-cpp` and
 `wtype` packages, and the speech model, which **Voice dictation** in the OCR & AI settings
-installs (148 MB, pinned in [`manifests/speech.toml`](manifests/speech.toml)). The language
-is detected unless you set one there.
+installs (148 MB, pinned in [`manifests/speech.toml`](manifests/speech.toml)). It listens
+for English unless you set another language there, or `auto` to detect it.
 
 ## Updating
 

@@ -24,6 +24,7 @@ import math
 import os
 from pathlib import Path
 import queue
+import re
 import shutil
 import signal
 import socket
@@ -84,7 +85,7 @@ def install():
 RATE = 16000
 FRAME = RATE * 30 // 1000          # 30 ms of samples
 START_FRAMES = 3                   # this much loud audio starts a phrase
-END_FRAMES = 25                    # this much quiet (750 ms) ends it
+END_FRAMES = 17                    # this much quiet (about 500 ms) ends it
 PREROLL = 10                       # kept from before the start, so no clipped first word
 MIN_VOICED = 8                     # under 240 ms of sound is a click, not a word
 MAX_FRAMES = 20 * 1000 // 30       # a phrase is cut at 20 s regardless
@@ -155,26 +156,55 @@ def as_wav(pcm):
     return buffer.getvalue()
 
 
-def transcribe(port, pcm):
+def transcribe(port, pcm, language):
+    """The phrase's text, and the language it was in. With language 'auto' the
+    whole 30 s window is used, since detection on a cut-down one is unreliable."""
     boundary = uuid.uuid4().hex
+    seconds = len(pcm) / 2 / RATE
+    fields = {
+        'response_format': 'verbose_json',
+        'language': language,
+        # Whisper encodes a 30 s window however short the phrase is. A window
+        # about twice the phrase (50 steps a second each) keeps its accuracy at
+        # a fraction of the time; tighter than that, it starts repeating itself.
+        'audio_ctx': '1500' if language == 'auto' else str(min(1500, int(seconds * 100) + 256)),
+        # Tags like [Music] are never dictation.
+        'suppress_nst': 'true',
+        # One greedy pass: no beam search, and no retries at higher temperatures.
+        'temperature': '0',
+        'temperature_inc': '0',
+        'beam_size': '1',
+        'best_of': '1',
+    }
     parts = [
         f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="phrase.wav"\r\n'
         'Content-Type: audio/wav\r\n\r\n'.encode() + as_wav(pcm) + b'\r\n',
-        f'--{boundary}\r\nContent-Disposition: form-data; name="response_format"\r\n\r\njson\r\n'.encode(),
-        f'--{boundary}\r\nContent-Disposition: form-data; name="temperature"\r\n\r\n0\r\n'.encode(),
+        *(f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode()
+          for k, v in fields.items()),
         f'--{boundary}--\r\n'.encode(),
     ]
     request = urllib.request.Request(f'http://127.0.0.1:{port}/inference', data=b''.join(parts),
                                      headers={'Content-Type': f'multipart/form-data; boundary={boundary}'})
     with urllib.request.urlopen(request, timeout=120) as response:
-        return json.loads(response.read()).get('text', '')
+        data = json.loads(response.read())
+    return data.get('text', ''), data.get('language') or language
 
 
 def clean(text):
     text = ' '.join(text.split())
     if text.lower() in NOISE or (text[:1] in '[(' and text[-1:] in '])'):
         return ''
-    return text
+    # Whisper sometimes loops: the same sentence twice, or one word on and on.
+    sentences, kept = re.split(r'(?<=[.!?])\s+', text), []
+    for sentence in sentences:
+        if not kept or sentence.lower() != kept[-1].lower():
+            kept.append(sentence)
+    words, out = ' '.join(kept).split(' '), []
+    for word in words:
+        if len(out) >= 2 and word.lower().strip(',.') == out[-1].lower().strip(',.') == out[-2].lower().strip(',.'):
+            continue
+        out.append(word)
+    return ' '.join(out)
 
 
 class Typist:
@@ -223,11 +253,16 @@ def listen(language):
 
         phrases = queue.Queue()
         typist = Typist()
+        # Detected once, on the first phrase, then kept: detecting on every
+        # phrase doubles the time and misjudges short ones.
+        session = {'language': language}
 
         def worker():
             while (pcm := phrases.get()) is not None:
                 try:
-                    text = clean(transcribe(port, pcm))
+                    text, detected = transcribe(port, pcm, session['language'])
+                    session['language'] = detected
+                    text = clean(text)
                 except OSError as error:
                     emit(stage='error', error=str(error))
                     continue
@@ -270,7 +305,7 @@ def main():
         print(__doc__, file=sys.stderr)
         return 2
     if action == 'listen':
-        language = sys.argv[3] if sys.argv[2:3] == ['--language'] and len(sys.argv) > 3 else 'auto'
+        language = sys.argv[3] if sys.argv[2:3] == ['--language'] and len(sys.argv) > 3 else 'en'
         try:
             listen(language)
         except Exception as error:

@@ -343,13 +343,13 @@ PageBase {
 
         TextFieldRow {
             label: qsTr("Language")
-            subtext: qsTr("A code such as en or de, or auto to detect it")
-            placeholderText: qsTr("auto")
+            subtext: qsTr("A code such as en or de. auto detects it once, on the first phrase, which is slower")
+            placeholderText: qsTr("en")
             value: GlobalConfig.ai.dictationLanguage
             validate: /^\s*([a-z]{2,3}|auto)?\s*$/
             errorText: qsTr("Use a two-letter code or auto")
             onEditingFinished: value => {
-                const code = value.trim() || "auto";
+                const code = value.trim() || "en";
                 if (field.valid && code !== GlobalConfig.ai.dictationLanguage)
                     GlobalConfig.ai.dictationLanguage = code;
             }

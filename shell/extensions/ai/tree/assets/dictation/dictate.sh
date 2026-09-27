@@ -52,8 +52,8 @@ if command -v pactl >/dev/null 2>&1 && pactl get-source-mute @DEFAULT_SOURCE@ 2>
     fail "Your microphone is muted. Unmute it, then turn dictation on again."
 fi
 
-language="$(jq -r '.ai.dictationLanguage // "auto"' "$config" 2>/dev/null || echo auto)"
-[ -n "$language" ] || language=auto
+language="$(jq -r '.ai.dictationLanguage // "en"' "$config" 2>/dev/null || echo en)"
+[ -n "$language" ] || language=en
 setsid "$python" "$here/speech.py" listen --language "$language" > "$state/listener.log" 2>&1 &
 echo $! > "$pidfile"
 note -p -t 0 "Dictation on" "Speak; each phrase is typed as you pause. Press the dictation key again to stop." > "$idfile" || true

@@ -841,6 +841,8 @@ lengths = [round(len(p) / 2 / rate, 1) for p in phrases]
 assert len(phrases) == 2 and 1.5 <= lengths[0] <= 3 and 2 <= lengths[1] <= 3.5, lengths
 assert sp.clean(" you ") == "" and sp.clean("[BLANK_AUDIO]") == "" and sp.clean("(music)") == ""
 assert sp.clean("  Hello   there. ") == "Hello there."
+assert sp.clean("Ask what you can do. Ask what you can do.") == "Ask what you can do."
+assert sp.clean("bright, bright, bright, bright, bright") == "bright, bright,"
 PY
 n=$(grep -c '^bind_to("kbDictation"' "$OX_ROOT/overrides/caelestia/hypr-user.lua")
 [ "$n" = 1 ] && ok "hypr-user.lua binds the dictation key once" || no "kbDictation is bound $n times"

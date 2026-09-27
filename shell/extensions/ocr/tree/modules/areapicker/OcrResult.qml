@@ -739,8 +739,8 @@ Item {
                                             wrapMode: segment.part.code ? TextEdit.WrapAtWordBoundaryOrAnywhere : TextEdit.Wrap
                                             textFormat: segment.part.code ? TextEdit.PlainText : TextEdit.MarkdownText
                                             text: segment.part.text
-                                            font.family: segment.part.code ? root.codeFamily : Tokens.font.body.large.family
-                                            font.pointSize: segment.part.code ? root.codeSize : Tokens.font.body.large.pointSize
+                                            font.family: segment.part.code ? root.codeFamily : Tokens.font.mono.medium.family
+                                            font.pointSize: segment.part.code ? root.codeSize : Tokens.font.mono.medium.pointSize
                                             color: Colours.palette.m3onSurface
                                             selectionColor: Qt.alpha(Colours.palette.m3primary, 0.3)
                                             selectedTextColor: Colours.palette.m3onSurface
