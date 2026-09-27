@@ -132,7 +132,9 @@ Scope {
 
         property bool exited: false
 
-        command: ["tesseract", root.extractPath, "-", "-l", root.effectiveLanguages]
+        // Read a grey copy three times the size: screen text is far below the
+        // resolution Tesseract is trained on. Without magick, the capture as is.
+        command: ["sh", "-c", 'if command -v magick >/dev/null 2>&1; then magick "$1" -colorspace Gray -resize 300% png:- | tesseract stdin - -l "$2"; else tesseract "$1" - -l "$2"; fi', "sh", root.extractPath, root.effectiveLanguages]
         stdout: StdioCollector {
             id: extracted
         }

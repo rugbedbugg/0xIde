@@ -769,48 +769,79 @@ fi
 rm -rf "$td"
 
 ox_step "Voice dictation"
-# Recorder, recogniser and typist are stubs; what is checked is the toggle, the
-# typed text, the clipboard and the notification.
+# The listener is replaced by a stand-in beside a copy of the script, so this
+# checks the toggle itself: refusing a muted microphone, turning on, and
+# turning off again with the notification replaced.
 td="$(mktemp -d)"
-mkdir -p "$td/bin" "$td/run" "$td/data/0xide/speech" "$td/conf/caelestia"
+mkdir -p "$td/bin" "$td/run" "$td/data/0xide/speech" "$td/conf/caelestia" "$td/assets"
 : > "$td/data/0xide/speech/ggml-base.bin"
-printf '{"ai":{"dictationLanguage":"en"}}\n' > "$td/conf/caelestia/shell.json"
-cat > "$td/bin/pw-record" <<'STUB'
-#!/bin/sh
-for f; do :; done
-printf 'RIFF' > "$f"
-trap 'exit 0' INT TERM
-while :; do sleep 0.1; done
+printf '{"ai":{"dictationLanguage":"de"}}\n' > "$td/conf/caelestia/shell.json"
+cp "$OX_ROOT/shell/extensions/ai/tree/assets/dictation/dictate.sh" "$td/assets/"
+cat > "$td/assets/speech.py" <<STUB
+import signal, sys, time
+open("$td/listener.args", "w").write(" ".join(sys.argv[1:]))
+signal.signal(signal.SIGTERM, lambda *_: (open("$td/stopped", "w").close(), sys.exit(0)))
+while True:
+    time.sleep(0.1)
 STUB
-cat > "$td/bin/whisper-cli" <<STUB
+for tool in whisper-server pw-record wtype; do printf '#!/bin/sh\n' > "$td/bin/$tool"; done
+printf '#!/bin/sh\nprintf "Mute: %%s\\n" "$(cat "%s/muted")"\n' "$td" > "$td/bin/pactl"
+cat > "$td/bin/notify-send" <<STUB
 #!/bin/sh
-printf '%s\n' "\$*" > "$td/whisper.args"
-printf ' Hello from the microphone.\n'
+printf '%s\n' "\$*" >> "$td/notify.log"
+case " \$* " in *" -p "*) echo 7 ;; esac
+exit 0
 STUB
-for stub in wtype wl-copy notify-send; do
-    printf '#!/bin/sh\n[ "%s" = wl-copy ] && cat > "%s/clipboard"\nprintf "%%s\\n" "$*" >> "%s/%s.log"\n[ "%s" = notify-send ] && case " $* " in *" -p "*) echo 7 ;; esac\nexit 0\n' \
-        "$stub" "$td" "$td" "$stub" "$stub" > "$td/bin/$stub"
-done
 chmod +x "$td/bin/"*
 dictate() {
     PATH="$td/bin:$PATH" XDG_RUNTIME_DIR="$td/run" XDG_DATA_HOME="$td/data" XDG_CONFIG_HOME="$td/conf" \
-        bash "$OX_ROOT/shell/extensions/ai/tree/assets/dictation/dictate.sh"
+        bash "$td/assets/dictate.sh" >/dev/null 2>&1
 }
+echo yes > "$td/muted"
 dictate
-[ -f "$td/run/0xide-dictation/recorder.pid" ] && grep -q 'Listening' "$td/notify-send.log" &&
-    ok "the first press starts recording and says so" || no "the first press did not start recording"
+grep -q 'microphone is muted' "$td/notify.log" && [ ! -e "$td/run/0xide-dictation/listener.pid" ] &&
+    ok "a muted microphone is refused rather than recorded as silence" || no "a muted microphone was not refused"
+echo no > "$td/muted"; : > "$td/notify.log"
 dictate
-grep -qx -- '-- Hello from the microphone.' "$td/wtype.log" &&
-    ok "the second press types what was said into the focused window" ||
-    no "typed: $(cat "$td/wtype.log" 2>/dev/null)"
-[ "$(cat "$td/clipboard" 2>/dev/null)" = "Hello from the microphone." ] &&
-    ok "and leaves it on the clipboard" || no "clipboard: $(cat "$td/clipboard" 2>/dev/null)"
-grep -q -- '-l en' "$td/whisper.args" && ok "the configured language is passed to whisper" ||
-    no "whisper got: $(cat "$td/whisper.args")"
-grep -q -- '-r 7 .*Dictated' "$td/notify-send.log" && [ ! -e "$td/run/0xide-dictation/recording.wav" ] &&
-    ok "the Listening notification is replaced, and the recording deleted" ||
-    no "notifications: $(tr '\n' '|' < "$td/notify-send.log")"
+pid="$(cat "$td/run/0xide-dictation/listener.pid" 2>/dev/null)"
+[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && grep -q 'Dictation on' "$td/notify.log" &&
+    grep -qx 'listen --language de' "$td/listener.args" &&
+    ok "the key turns dictation on, listening in the configured language" || no "dictation did not turn on"
+dictate
+[ -e "$td/stopped" ] && [ ! -e "$td/run/0xide-dictation/listener.pid" ] &&
+    grep -q -- '-r 7 .*Dictation off' "$td/notify.log" &&
+    ok "pressing it again stops listening and replaces the notification" ||
+    no "dictation did not turn off: $(tr '\n' '|' < "$td/notify.log")"
+[ -n "$pid" ] && kill "$pid" 2>/dev/null
 rm -rf "$td"
+
+"$PY" - "$OX_ROOT/shell/extensions/ai/tree/assets/dictation/speech.py" <<'PY' && ok "speech is cut into phrases at pauses, and noise is not typed" || no "the phrase splitter or noise filter is wrong"
+import array, importlib.util, json, math, pathlib, random, sys, tempfile
+source = pathlib.Path(sys.argv[1])
+with tempfile.TemporaryDirectory() as d:
+    (pathlib.Path(d) / "speech.py").write_text(source.read_text())
+    (pathlib.Path(d) / "speech.json").write_text(json.dumps({"model": {"file": "m.bin", "bytes": 1}}))
+    spec = importlib.util.spec_from_file_location("speech", f"{d}/speech.py")
+    sp = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sp)
+rate = sp.RATE
+def noise(seconds):
+    return array.array("h", (random.randint(-40, 40) for _ in range(int(rate * seconds)))).tobytes()
+def tone(seconds):
+    return array.array("h", (int(8000 * math.sin(2 * math.pi * 220 * i / rate)) for i in range(int(rate * seconds)))).tobytes()
+stream = noise(1) + tone(1.5) + noise(1.2) + tone(2) + noise(1) + tone(0.1) + noise(1)
+seg, phrases = sp.Segmenter(), []
+for i in range(0, len(stream), sp.FRAME * 2):
+    if (p := seg.push(stream[i:i + sp.FRAME * 2])) is not None:
+        phrases.append(p)
+if (p := seg.flush()) is not None:
+    phrases.append(p)
+lengths = [round(len(p) / 2 / rate, 1) for p in phrases]
+# Two phrases; the 100 ms click is dropped as too short.
+assert len(phrases) == 2 and 1.5 <= lengths[0] <= 3 and 2 <= lengths[1] <= 3.5, lengths
+assert sp.clean(" you ") == "" and sp.clean("[BLANK_AUDIO]") == "" and sp.clean("(music)") == ""
+assert sp.clean("  Hello   there. ") == "Hello there."
+PY
 n=$(grep -c '^bind_to("kbDictation"' "$OX_ROOT/overrides/caelestia/hypr-user.lua")
 [ "$n" = 1 ] && ok "hypr-user.lua binds the dictation key once" || no "kbDictation is bound $n times"
 

@@ -463,10 +463,53 @@ Item {
                     rowSpacing: Tokens.spacing.small
                     columnSpacing: Tokens.spacing.medium
 
-                    StyledRect {
+                    // Both titles sit above their panes, so the two panes share
+                    // a row and are always the same height.
+                    RowLayout {
                         Layout.row: 0
                         Layout.column: 0
-                        Layout.rowSpan: content.sideBySide ? 2 : 1
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: content.columnWidth - Tokens.padding.medium * 2
+                        Layout.maximumWidth: content.columnWidth - Tokens.padding.medium * 2
+                        Layout.leftMargin: Tokens.padding.medium
+                        Layout.rightMargin: Tokens.padding.medium
+                        spacing: Tokens.spacing.extraSmall
+
+                        StyledText {
+                            Layout.fillWidth: true
+                            text: qsTr("Extracted text")
+                            color: Colours.palette.m3outline
+                            font: Tokens.font.label.large
+                        }
+                        TextButton {
+                            visible: !!root.structured.words
+                            type: TextButton.Text
+                            font: Tokens.font.label.large
+                            text: root.tableMode ? qsTr("Show as text") : qsTr("Show as table")
+                            onClicked: {
+                                root.tableMode = !root.tableMode;
+                                GlobalConfig.ai.tableMode = root.tableMode;
+                            }
+                        }
+                        IconButton {
+                            visible: !root.tableMode
+                            type: IconButton.Text
+                            icon: "undo"
+                            disabled: !extractedText.canUndo
+                            onClicked: extractedText.undo()
+                        }
+                        IconButton {
+                            visible: !root.tableMode
+                            type: IconButton.Text
+                            icon: "redo"
+                            disabled: !extractedText.canRedo
+                            onClicked: extractedText.redo()
+                        }
+                    }
+
+                    StyledRect {
+                        Layout.row: 1
+                        Layout.column: 0
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         Layout.preferredWidth: content.columnWidth
@@ -482,41 +525,6 @@ Item {
                             anchors.margins: Tokens.padding.medium
                             spacing: Tokens.spacing.small
 
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: Tokens.spacing.extraSmall
-
-                                StyledText {
-                                    Layout.fillWidth: true
-                                    text: qsTr("Extracted text")
-                                    color: Colours.palette.m3outline
-                                    font: Tokens.font.label.large
-                                }
-                                TextButton {
-                                    visible: !!root.structured.words
-                                    type: TextButton.Text
-                                    font: Tokens.font.label.large
-                                    text: root.tableMode ? qsTr("Show as text") : qsTr("Show as table")
-                                    onClicked: {
-                                        root.tableMode = !root.tableMode;
-                                        GlobalConfig.ai.tableMode = root.tableMode;
-                                    }
-                                }
-                                IconButton {
-                                    visible: !root.tableMode
-                                    type: IconButton.Text
-                                    icon: "undo"
-                                    disabled: !extractedText.canUndo
-                                    onClicked: extractedText.undo()
-                                }
-                                IconButton {
-                                    visible: !root.tableMode
-                                    type: IconButton.Text
-                                    icon: "redo"
-                                    disabled: !extractedText.canRedo
-                                    onClicked: extractedText.redo()
-                                }
-                            }
                             RowLayout {
                                 Layout.fillWidth: true
                                 visible: root.tableMode
@@ -619,7 +627,7 @@ Item {
 
                     // The response takes no room at all until there is one.
                     RowLayout {
-                        Layout.row: content.sideBySide ? 0 : 1
+                        Layout.row: content.sideBySide ? 0 : 2
                         Layout.column: content.sideBySide ? 1 : 0
                         Layout.fillWidth: true
                         // Margins sit outside the width a layout item is given.
@@ -648,7 +656,7 @@ Item {
                         }
                     }
                     StyledRect {
-                        Layout.row: content.sideBySide ? 1 : 2
+                        Layout.row: content.sideBySide ? 1 : 3
                         Layout.column: content.sideBySide ? 1 : 0
                         Layout.fillWidth: true
                         Layout.fillHeight: true

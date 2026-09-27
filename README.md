@@ -116,7 +116,7 @@ rather than failing. The first version of every file this project replaces is ke
 | ------------------- | ----------------------------------- | ----------------------------------------- |
 | `SUPER + SHIFT + T` | Extract text from a region          | clipboard, nothing opens                  |
 | `SUPER + SHIFT + A` | Search a region, or ask AI about it | browser, or the AI panel                  |
-| `SUPER + SHIFT + D` | Start dictating; press again to end | typed where you are, and on the clipboard |
+| `SUPER + SHIFT + D` | Dictation on or off                 | each phrase typed where you are           |
 
 They are set in `overrides/caelestia/hypr-vars.lua` and bound in
 `overrides/caelestia/hypr-user.lua`, both extension points Caelestia supports. A binding
@@ -194,12 +194,14 @@ after five idle minutes or when the shell exits.
 
 ### Voice dictation
 
-Press `SUPER + SHIFT + D`, speak, and press it again. The recording is transcribed on this
-computer by [whisper.cpp](https://github.com/ggml-org/whisper.cpp), typed into the focused
-window, and left on the clipboard; the recording is deleted straight away. It needs the
-`whisper-cpp` and `wtype` packages, and the speech model, which **Voice dictation** in the
-OCR & AI settings installs (148 MB, pinned in [`manifests/speech.toml`](manifests/speech.toml)).
-The language is detected unless you set one there.
+`SUPER + SHIFT + D` turns dictation on; press it again to turn it off. While it is on,
+everything you say is typed into the focused window, a phrase at a time, as soon as you
+pause. Speech is transcribed on this computer by
+[whisper.cpp](https://github.com/ggml-org/whisper.cpp), and no recording is kept. A muted
+microphone is refused rather than recorded as silence. It needs the `whisper-cpp` and
+`wtype` packages, and the speech model, which **Voice dictation** in the OCR & AI settings
+installs (148 MB, pinned in [`manifests/speech.toml`](manifests/speech.toml)). The language
+is detected unless you set one there.
 
 ## Updating
 
@@ -255,8 +257,8 @@ paths and binary names for a machine that puts things somewhere unusual.
     choice, and the destination is shown above the submit button.
 -   **No model is in this repository.** `manifests/ai.toml`, `translate.toml` and
     `speech.toml` pin what is fetched, and each is downloaded only when you ask.
--   **Dictation stays on this computer.** Audio is recorded to the private runtime
-    directory, transcribed locally, and deleted.
+-   **Dictation stays on this computer.** Audio goes from the microphone to a local
+    whisper-server on `127.0.0.1` and is not kept.
 -   **Nothing that needs root is on by default**, and sudo rules are checked with
     `visudo -c` before they are installed.
 

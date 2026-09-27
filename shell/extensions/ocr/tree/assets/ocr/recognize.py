@@ -6,9 +6,31 @@ import argparse
 import csv
 import io
 import json
+import os
+import shutil
 import statistics
 import subprocess
 import sys
+import tempfile
+
+# Screen text is around 96 DPI; Tesseract is trained on scans near 300. Reading
+# a copy three times the size fixes most misread letters and punctuation.
+SCALE = 3
+
+
+def upscaled(path):
+    """A grey, SCALE-times larger copy of the capture, or None without magick."""
+    if not shutil.which('magick'):
+        return None
+    handle, copy = tempfile.mkstemp(suffix='.png', prefix='0xide-ocr.')
+    os.close(handle)
+    try:
+        subprocess.run(['magick', path, '-colorspace', 'Gray', '-resize', f'{SCALE * 100}%', copy],
+                       check=True, capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        os.unlink(copy)
+        return None
+    return copy
 
 
 def languages():
@@ -66,10 +88,19 @@ def recognize(path, language):
     missing = set(language.split('+')) - set(languages())
     if missing:
         raise ValueError('Missing Tesseract language data: ' + ', '.join(sorted(missing)))
-    # TSV contains every occurrence; never key text by its value or deduplicate.
-    command = ['tesseract', path, '-', '-l', language, '--psm', '6', '-c', 'preserve_interword_spaces=1', 'tsv']
-    result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=120)
-    words = words_from_tsv(result.stdout)
+    copy = upscaled(path)
+    scale = SCALE if copy else 1
+    try:
+        # TSV contains every occurrence; never key text by its value or deduplicate.
+        command = ['tesseract', copy or path, '-', '-l', language, '--psm', '6', '-c', 'preserve_interword_spaces=1', 'tsv']
+        result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=120)
+    finally:
+        if copy:
+            os.unlink(copy)
+    # Word boxes are reported in the original capture's pixels, which is what
+    # the table's column boundaries are measured in.
+    words = [w | {k: round(w[k] / scale) for k in ('left', 'top', 'width', 'height')}
+             for w in words_from_tsv(result.stdout)]
     table = table_from_words(words)
     return {'words': words, **table, 'text': '\n'.join('    '.join(row) for row in table['rows'])}
 

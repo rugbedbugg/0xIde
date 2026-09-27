@@ -6,7 +6,8 @@ import Quickshell
 import Quickshell.Io
 
 // The whisper.cpp model behind voice dictation, through assets/dictation/speech.py.
-// Recording and transcribing is assets/dictation/dictate.sh, bound to a key.
+// Listening and typing is speech.py listen, turned on and off by
+// assets/dictation/dictate.sh on its key.
 Scope {
     id: root
 

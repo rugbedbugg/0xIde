@@ -335,7 +335,7 @@ PageBase {
                     return Speech.message;
                 if ((Speech.info.missing ?? []).length > 0)
                     return qsTr("Install first: %1").arg(Speech.info.missing.join(", "));
-                return qsTr("SUPER + SHIFT + D starts and stops dictation; the text is typed where you are");
+                return qsTr("SUPER + SHIFT + D turns dictation on and off; each phrase is typed where you are as you pause");
             }
             value: Speech.working ? qsTr("Working") : Speech.info.installed ? qsTr("Installed") : qsTr("Not installed")
             iconColour: Speech.error ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
