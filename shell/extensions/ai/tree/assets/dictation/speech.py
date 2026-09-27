@@ -16,6 +16,7 @@ pinned by revision and verified by SHA-256, as manifests/speech.toml says.
 from __future__ import annotations
 
 import array
+import collections
 import fcntl
 import hashlib
 import io
@@ -103,9 +104,19 @@ def level(frame):
 
 
 class Segmenter:
-    """Cuts a stream of frames into phrases, relative to the background level."""
+    """Cuts a stream of frames into phrases, relative to the background level.
+
+    The background is the quiet end (15th percentile) of the last few seconds,
+    measured all the time. Microphones differ by tens of decibels in their
+    idle noise, so no fixed threshold, and no estimate that assumes a quiet
+    room, can tell a pause from speech on all of them.
+    """
+
+    HISTORY = 150                  # 4.5 s of levels
+    WARMUP = 15                    # levels needed before a phrase can start
 
     def __init__(self):
+        self.levels = collections.deque(maxlen=self.HISTORY)
         self.floor = -60.0
         self.peak = -100.0
         self.frames, self.preroll = [], []
@@ -114,16 +125,12 @@ class Segmenter:
     def push(self, frame):
         """Returns a finished phrase as bytes, or None."""
         db = level(frame)
+        self.levels.append(db)
+        ordered = sorted(self.levels)
+        self.floor = ordered[len(ordered) * 15 // 100]
         if not self.frames:
-            # The background level follows the room while nobody speaks. It is
-            # held above digital silence, which no microphone really produces
-            # and which would make ordinary room noise look like speech.
-            if db < self.floor + 6:
-                self.floor = max(-70.0, 0.9 * self.floor + 0.1 * db)
-            else:
-                self.floor += 0.02
             self.preroll = (self.preroll + [frame])[-PREROLL:]
-            self.loud = self.loud + 1 if db > max(self.floor + 12, -50) else 0
+            self.loud = self.loud + 1 if db > self.floor + 10 and len(self.levels) >= self.WARMUP else 0
             if self.loud >= START_FRAMES:
                 self.frames, self.preroll, self.quiet, self.peak = self.preroll, [], 0, db
                 self.voiced = self.loud
@@ -131,7 +138,7 @@ class Segmenter:
         self.frames.append(frame)
         self.peak = max(self.peak, db)
         # A pause is near the background, or far below the phrase itself.
-        if db < max(self.floor + 6, self.peak - 30):
+        if db < max(self.floor + 5, self.peak - 25):
             self.quiet += 1
         else:
             self.quiet = 0
