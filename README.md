@@ -50,6 +50,9 @@ applications Caelestia does not theme itself.
     -   **Firefox**: the CaelestiaFox extension colours it live, but Caelestia copies its
         layout (`userChrome.css`, `user.js`) only into `~/.mozilla`, while current Firefox
         keeps profiles under `~/.config/mozilla`. This puts them in both.
+-   **Noise-suppressed microphone** (optional, `./install --enable voice`): PipeWire's
+    WebRTC filter on the default microphone, which removes steady background noise and
+    brings quiet speech up. Dictation and every other application record through it.
 -   **Login screen** (optional): an SDDM theme that follows the Caelestia scheme,
     wallpaper and profile picture. See [`system/sddm`](system/sddm/README.md).
 

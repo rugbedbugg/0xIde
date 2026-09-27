@@ -266,9 +266,12 @@ def listen(language):
 
         def worker():
             while (pcm := phrases.get()) is not None:
+                started = time.monotonic()
                 try:
                     text, detected = transcribe(port, pcm, session['language'])
                     session['language'] = detected
+                    emit(stage='phrase', seconds=round(len(pcm) / 2 / RATE, 1),
+                         took=round(time.monotonic() - started, 2), heard=text.strip())
                     text = clean(text)
                 except OSError as error:
                     emit(stage='error', error=str(error))
@@ -283,12 +286,21 @@ def listen(language):
                                      '--raw', '-'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         emit(stage='listening')
         segmenter = Segmenter()
+        # Once a second, the levels the pause detection is working from, so a
+        # microphone it misjudges can be seen in listener.log.
+        count, loudest = 0, -100.0
         while not stopping.is_set():
             frame = recorder.stdout.read(FRAME * 2)
             if not frame:
                 break
+            loudest = max(loudest, level(frame))
             if (pcm := segmenter.push(frame)) is not None:
                 phrases.put(pcm)
+            count += 1
+            if count % 33 == 0:
+                emit(stage='level', background=round(segmenter.floor, 1), loudest=round(loudest, 1),
+                     speaking=bool(segmenter.frames))
+                loudest = -100.0
         # Whatever was being said when dictation was turned off still counts.
         if (pcm := segmenter.flush()) is not None:
             phrases.put(pcm)

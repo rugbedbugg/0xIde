@@ -152,6 +152,28 @@ install_overrides() {
     run ox_own "$OX_CAELCONF/user-config.fish"
 }
 
+# A noise-suppressed microphone. PipeWire reads its drop-ins only when it
+# starts, so it is restarted when the file changes, and the new source is made
+# the default so every application records through it.
+install_voice() {
+    local dest="$XDG_CONFIG_HOME/pipewire/pipewire.conf.d/60-0xide-voice.conf"
+    if run ox_install_file "$dest" 644 < "$OX_ROOT/overrides/pipewire/60-0xide-voice.conf"; then
+        ox_log "60-0xide-voice.conf"
+        systemctl --user restart pipewire pipewire-pulse wireplumber 2>/dev/null || true
+    fi
+    run ox_own "$dest"
+    [ "$DRY" = 1 ] && return 0
+    local tries=0
+    until pactl list short sources 2>/dev/null | grep -q '\b0xide_voice\b' || [ "$tries" -ge 40 ]; do
+        sleep 0.25; tries=$((tries + 1))
+    done
+    if pactl set-default-source 0xide_voice 2>/dev/null; then
+        ox_log "default microphone: noise suppressed"
+    else
+        ox_warn "the noise-suppressed microphone did not appear; see journalctl --user -u pipewire"
+    fi
+}
+
 main() {
     while IFS= read -r line; do
         name="$(field "$line" 1)"; kind="$(field "$line" 2)"; default="$(field "$line" 3)"
@@ -178,6 +200,7 @@ main() {
                 "$(ox_python)" "$OX_ROOT/installer/apply_overlay.py" \
                     "$OX_ROOT/overrides/zed/overlay.jsonc" "$XDG_CONFIG_HOME/zed/settings.json" \
                     --jsonc $CHECK || true ;;
+            overrides:voice) install_voice ;;
             overrides:firefox)
                 run "$OX_ROOT/overrides/firefox/install" || true ;;
             shell:*)
