@@ -8,11 +8,12 @@ import qs.components.controls
 import qs.components.effects
 import qs.services
 
-// The two shapes a web search can take, offered inside the selector rather
-// than on two separate keys. Illogical Impulse puts the same choice in a
-// toolbar at the bottom of its own selector, and here the shape also decides
-// what leaves the machine, so it is worth being able to change your mind
-// without closing the selector and pressing something else.
+// The ways a region can be searched, offered inside the selector rather than
+// on separate keys: the web by its text or by the image, or the AI. Illogical
+// Impulse puts the same choice in a toolbar at the bottom of its own selector,
+// and here the choice also decides what leaves the machine, so it is worth
+// being able to change your mind without closing the selector and pressing
+// something else.
 Item {
     id: root
 
@@ -36,6 +37,13 @@ Item {
         visible: false
         font: Tokens.font.label.small
         text: qsTr("Uploads the image, and asks first")
+    }
+    StyledText {
+        id: aiSizer
+
+        visible: false
+        font: Tokens.font.label.small
+        text: qsTr("Read on this computer, then ask the AI about it")
     }
 
     Elevation {
@@ -76,18 +84,25 @@ Item {
                     checked: root.mode === "circle"
                     onClicked: root.selected("circle")
                 }
+                IconTextButton {
+                    icon: "auto_awesome"
+                    text: qsTr("Ask AI")
+                    isToggle: true
+                    checked: root.mode === "ai"
+                    onClicked: root.selected("ai")
+                }
             }
             // Which one uploads is the thing worth knowing, so it is stated
-            // rather than left to the icon. Both captions are measured and the
-            // wider one fixes the width, because a card that resizes when you
+            // rather than left to the icon. Every caption is measured and the
+            // widest fixes the width, because a card that resizes when you
             // switch moves the other button out from under the pointer.
             StyledText {
                 Layout.alignment: Qt.AlignHCenter
-                Layout.preferredWidth: Math.max(localSizer.implicitWidth, uploadSizer.implicitWidth)
+                Layout.preferredWidth: Math.max(localSizer.implicitWidth, uploadSizer.implicitWidth, aiSizer.implicitWidth)
                 horizontalAlignment: Text.AlignHCenter
                 font: Tokens.font.label.small
                 color: Colours.palette.m3outline
-                text: root.mode === "circle" ? uploadSizer.text : localSizer.text
+                text: root.mode === "circle" ? uploadSizer.text : root.mode === "ai" ? aiSizer.text : localSizer.text
             }
         }
     }

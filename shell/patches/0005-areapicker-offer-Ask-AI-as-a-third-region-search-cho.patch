@@ -1,0 +1,42 @@
+From d403ecb2b42fc675f85fcc03ade8d9b6ce616293 Mon Sep 17 00:00:00 2001
+From: Oxide 1-6 <yes.par781@gmail.com>
+Date: Sun, 27 Sep 2026 08:06:49 +0530
+Subject: [PATCH] areapicker: offer Ask AI as a third region search choice
+
+The search selector already chooses between a text search and an image search. Ask AI joins them: the region is read on this computer and opened in the result window, the same as the askAi shortcut, so it needs no key of its own.
+---
+ modules/areapicker/Picker.qml | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/modules/areapicker/Picker.qml b/modules/areapicker/Picker.qml
+index e8c99484..1694d020 100644
+--- a/modules/areapicker/Picker.qml
++++ b/modules/areapicker/Picker.qml
+@@ -84,6 +84,10 @@ MouseArea {
+                     Ocr.captureForPanel(path, root.screen);
+                 else
+                     Ocr.capture(path);
++            } else if (root.loader.searchMode === "ai") {
++                // The third choice in the search selector: read the region on
++                // this computer and open it in the result window to ask the AI.
++                Ocr.captureForPanel(path, root.screen);
+             } else if (root.loader.searchMode) {
+                 Quickshell.execDetached(["bash", Quickshell.shellPath("assets/search/region_search.sh"), path, root.loader.searchMode]);
+             } else if (root.loader.clipboardOnly) {
+@@ -292,10 +296,12 @@ MouseArea {
+     PickerGuide {
+         z: 4
+         visible: root.loader.ocr || !!root.loader.searchMode
+-        icon: root.loader.ocr ? "document_scanner" : "image_search"
++        icon: root.loader.ocr ? "document_scanner" : root.loader.searchMode === "ai" ? "auto_awesome" : "image_search"
+         label: {
+             if (root.loader.ocr)
+                 return qsTr("Extract text");
++            if (root.loader.searchMode === "ai")
++                return qsTr("Ask AI about this region");
+             return root.loader.searchMode === "circle" ? qsTr("Circle to search") : qsTr("Search this region");
+         }
+ 
+-- 
+2.55.0
+
