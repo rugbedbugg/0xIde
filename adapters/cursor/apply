@@ -1,0 +1,309 @@
+#!/usr/bin/python3
+"""Rebuild the Sweet cursor theme in the scheme's colours and point everything at it.
+
+Upstream Caelestia sets its cursor to "sweet-cursors", but the Sweet package
+installs "Sweet-cursors", and cursor theme names are case sensitive, so every
+install silently falls back to the default cursor. Nothing installs Sweet
+either. This adapter takes Sweet's own scalable sources (the KDE
+cursors_scalable format, one SVG per frame plus hotspot and delay metadata),
+swaps its fixed palette for the scheme's roles, and renders them to an XCursor
+theme and, when hyprcursor-util is present, a hyprcursor theme in the same
+directory. The shapes stay Sweet's; only the colours move.
+
+Rendering takes a few seconds, so the result is keyed on the palette and the
+source: a theme change that leaves the colours alone costs nothing.
+"""
+
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+THEME = "0xide-sweet"
+SOURCE = "Sweet-cursors"
+# Bumped whenever the output changes for the same palette.
+VERSION = "1"
+# XCursor nominal sizes: 1x, 1.5x, 2x and 3x of Caelestia's 24.
+SIZES = (24, 36, 48, 72)
+
+# Sweet's fixed colours, by what they draw, mapped to scheme roles. The
+# gradients run first stop -> last stop, so they become primary -> tertiary,
+# the same pairing the shell uses for its own accents.
+ROLES = {
+    "#161925": "body",
+    "#ffffff": "rim",
+    "#d60000": "error",
+    "#5800e2": "primary", "#11998e": "primary", "#ffe53b": "primary",
+    "#00ffd8": "primary", "#5433ff": "primary",
+    "#20bdff": "secondary",
+    "#ff00e6": "tertiary", "#38ef7d": "tertiary", "#ff005b": "tertiary",
+    "#00ffbb": "tertiary", "#a5fecb": "tertiary",
+}
+
+home = Path.home()
+data_home = Path(os.getenv("XDG_DATA_HOME") or home / ".local/share")
+config_home = Path(os.getenv("XDG_CONFIG_HOME") or home / ".config")
+state_home = Path(os.getenv("XDG_STATE_HOME") or home / ".local/state")
+scheme_path = Path(os.getenv("OX_SCHEME") or state_home / "caelestia/scheme.json")
+target = data_home / "icons" / THEME
+
+
+def find_source():
+    """Sweet's scalable sources, wherever an icon theme may live."""
+    dirs = [data_home / "icons", home / ".icons"]
+    for d in (os.getenv("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":"):
+        if d:
+            dirs.append(Path(d) / "icons")
+    for d in dirs:
+        if (d / SOURCE / "cursors_scalable").is_dir():
+            return d / SOURCE / "cursors_scalable"
+    return None
+
+
+def accent_tone(key, tone):
+    """One tone of a scheme key colour's tonal palette, as Material derives its roles."""
+    from materialyoucolor.hct import Hct
+    from materialyoucolor.palettes.tonal_palette import TonalPalette
+
+    argb = TonalPalette.from_hct(Hct.from_int(0xFF000000 | int(key, 16))).tone(tone)
+    return f"{argb & 0xFFFFFF:06x}"
+
+
+def palette(scheme):
+    c = scheme.get("colours", {})
+    need = ("primary", "secondary", "tertiary", "surface", "onSurface", "error")
+    if any(k not in c for k in need):
+        return None
+    # The body takes the surface the shell draws on and the rim the text drawn
+    # over it, so the cursor follows the scheme's light or dark mode.
+    roles = {
+        "body": c["surface"], "rim": c["onSurface"], "error": c["error"],
+        "primary": c["primary"], "secondary": c["secondary"], "tertiary": c["tertiary"],
+    }
+    # Sweet draws its badge glyphs in the rim colour on top of the accents, so
+    # the accents sit at the opposite end of the tone scale from the rim: tone
+    # 40 under a light rim, 70 under a dark one. Taking them from the key
+    # colours' palettes keeps the scheme's hue and full chroma, where the
+    # container roles come out washed out in the harder flavours.
+    tone = 70 if scheme.get("mode") == "light" else 40
+    try:
+        for role in ("primary", "secondary", "tertiary"):
+            key = c.get(f"{role}PaletteKeyColor") or c.get(f"{role}_paletteKeyColor")
+            if key:
+                roles[role] = accent_tone(key.lstrip("#"), tone)
+    except ImportError:
+        pass
+    return {k: "#" + v.lower().lstrip("#") for k, v in roles.items()}
+
+
+def recolour(text, colours):
+    pattern = re.compile("|".join(map(re.escape, ROLES)), re.IGNORECASE)
+    return pattern.sub(lambda m: colours[ROLES[m.group(0).lower()]], text)
+
+
+def shapes(src):
+    """(name, frames, aliases); frames are the metadata entries of a real shape."""
+    out = {}
+    for entry in sorted(src.iterdir()):
+        if entry.is_dir() and not entry.is_symlink() and (entry / "metadata.json").is_file():
+            out[entry.name] = (json.loads((entry / "metadata.json").read_text()), [])
+    for entry in sorted(src.iterdir()):
+        if entry.is_symlink():
+            # Some aliases point at other aliases (grabbing -> closedhand -> dnd-move).
+            real = Path(os.path.realpath(entry)).name
+            if real in out:
+                out[real][1].append(entry.name)
+    return out
+
+
+def render(job):
+    svg, png, px = job
+    subprocess.run(["rsvg-convert", "-w", str(px), "-h", str(px), "-o", str(png), str(svg)],
+                   check=True, capture_output=True)
+
+
+def build(src, colours, work):
+    all_shapes = shapes(src)
+    svgdir, pngdir = work / "svg", work / "png"
+    jobs, configs = [], {}
+    for name, (frames, _) in all_shapes.items():
+        (svgdir / name).mkdir(parents=True)
+        lines = []
+        for frame in frames:
+            svg = svgdir / name / frame["filename"]
+            svg.write_text(recolour((src / name / frame["filename"]).read_text(), colours))
+            # The SVG canvas is drawn for nominal_size; scale it to each size.
+            canvas = int(re.search(r'width="([\d.]+)"', svg.read_text()[:2000]).group(1).split(".")[0])
+            for size in SIZES:
+                px = round(size * canvas / frame["nominal_size"])
+                png = pngdir / f"{name}-{frame['filename'][:-4]}-{size}.png"
+                jobs.append((svg, png, px))
+                lines.append(f"{size} {round(frame['hotspot_x'] * px)} {round(frame['hotspot_y'] * px)} "
+                             f"{png} {frame.get('delay', 0)}")
+        configs[name] = lines
+
+    pngdir.mkdir()
+    with ThreadPoolExecutor(os.cpu_count() or 4) as pool:
+        list(pool.map(render, jobs))
+
+    out = work / THEME
+    cursors = out / "cursors"
+    cursors.mkdir(parents=True)
+    for name, lines in configs.items():
+        conf = work / f"{name}.xcg"
+        conf.write_text("\n".join(lines) + "\n")
+        subprocess.run(["xcursorgen", str(conf), str(cursors / name)], check=True, capture_output=True)
+        for alias in all_shapes[name][1]:
+            (cursors / alias).symlink_to(name)
+
+    (out / "index.theme").write_text(
+        "[Icon Theme]\n"
+        "Name=0xIde Sweet\n"
+        "Comment=Sweet cursors in the Caelestia scheme's colours\n"
+        f"Inherits={SOURCE}\n"
+    )
+
+    if shutil.which("hyprcursor-util"):
+        hypr_theme(all_shapes, svgdir, work, out)
+    return out
+
+
+def hypr_theme(all_shapes, svgdir, work, out):
+    """hyprcursor draws the SVGs itself, so it stays sharp at any scale."""
+    hsrc = work / "hyprsrc"
+    (hsrc / "hyprcursors").mkdir(parents=True)
+    (hsrc / "manifest.hl").write_text(
+        f"name = {THEME}\n"
+        "description = Sweet cursors in the Caelestia scheme's colours\n"
+        f"version = {VERSION}\n"
+        "cursors_directory = hyprcursors\n"
+    )
+    for name, (frames, aliases) in all_shapes.items():
+        d = hsrc / "hyprcursors" / name
+        d.mkdir()
+        first = frames[0]
+        meta = [
+            "resize_algorithm = bilinear",
+            f"hotspot_x = {first['hotspot_x']}",
+            f"hotspot_y = {first['hotspot_y']}",
+        ]
+        meta += [f"define_override = {alias}" for alias in aliases]
+        for frame in frames:
+            shutil.copy(svgdir / name / frame["filename"], d / frame["filename"])
+            delay = f", {frame['delay']}" if "delay" in frame else ""
+            meta.append(f"define_size = 0, {frame['filename']}{delay}")
+        (d / "meta.hl").write_text("\n".join(meta) + "\n")
+
+    built = work / "hyprout"
+    # hyprcursor-util aborts unless the output's parent already exists.
+    built.mkdir()
+    subprocess.run(["hyprcursor-util", "--create", str(hsrc), "--output", str(built)],
+                   check=True, capture_output=True)
+    result = next(built.iterdir())
+    shutil.copy(result / "manifest.hl", out / "manifest.hl")
+    shutil.copytree(result / "hyprcursors", out / "hyprcursors")
+
+
+def install(built):
+    """Swap the whole directory in at once so nothing reads a half-built theme."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    staged = target.parent / f".{THEME}.new"
+    old = target.parent / f".{THEME}.old"
+    for d in (staged, old):
+        shutil.rmtree(d, ignore_errors=True)
+    shutil.copytree(built, staged, symlinks=True)
+    if target.exists():
+        target.rename(old)
+    staged.rename(target)
+    shutil.rmtree(old, ignore_errors=True)
+
+
+def set_ini(path, key, value):
+    """Set one key under [Settings], leaving every other line alone."""
+    lines = path.read_text().splitlines() if path.is_file() else ["[Settings]"]
+    section, done = None, False
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if s.startswith("["):
+            if section == "[Settings]" and not done:
+                lines.insert(i, f"{key}={value}")
+                done = True
+                break
+            section = s
+        elif section == "[Settings]" and s.split("=", 1)[0].strip() == key:
+            lines[i] = f"{key}={value}"
+            done = True
+            break
+    if not done:
+        if "[Settings]" not in (l.strip() for l in lines):
+            lines.append("[Settings]")
+        lines.append(f"{key}={value}")
+    new = "\n".join(lines) + "\n"
+    if not path.is_file() or path.read_text() != new:
+        path.write_text(new)
+
+
+def point_at_theme(size):
+    """Everything that picks a cursor theme outside Hyprland's own config."""
+    for version in ("gtk-3.0", "gtk-4.0"):
+        d = config_home / version
+        if d.is_dir():
+            set_ini(d / "settings.ini", "gtk-cursor-theme-name", THEME)
+            set_ini(d / "settings.ini", "gtk-cursor-theme-size", str(size))
+    if shutil.which("gsettings"):
+        for key, value in (("cursor-theme", THEME), ("cursor-size", str(size))):
+            subprocess.run(["gsettings", "set", "org.gnome.desktop.interface", key, value],
+                           capture_output=True)
+    # X clients that get no XCURSOR_THEME read the "default" theme. Only take it
+    # over when it already pointed at Sweet, which is what Caelestia intended.
+    default = home / ".icons/default/index.theme"
+    if default.is_file():
+        text = default.read_text()
+        new = re.sub(r"(?im)^Inherits=sweet-cursors\s*$", f"Inherits={THEME}", text)
+        if new != text:
+            default.write_text(new)
+
+
+def main():
+    src = find_source()
+    if src is None:
+        print(f"cursor: {SOURCE} is not installed (AUR: sweet-cursors-git); nothing to recolour")
+        return 0
+    try:
+        scheme = json.loads(scheme_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return 0
+    colours = palette(scheme)
+    if colours is None:
+        print("cursor: scheme.json has no usable colours")
+        return 0
+
+    size = int(os.getenv("XCURSOR_SIZE") or 24)
+    stamp = hashlib.sha256(json.dumps(
+        [VERSION, colours, str(src), (src / "default").stat().st_mtime,
+         bool(shutil.which("hyprcursor-util"))], sort_keys=True).encode()).hexdigest()
+    stamp_file = target / ".stamp"
+    changed = not (stamp_file.is_file() and stamp_file.read_text() == stamp)
+
+    if changed:
+        with tempfile.TemporaryDirectory(prefix="0xide-cursor.") as tmp:
+            built = build(src, colours, Path(tmp))
+            (built / ".stamp").write_text(stamp)
+            install(built)
+
+    point_at_theme(size)
+
+    # Hyprland caches the theme it loaded; asking for it again rereads it.
+    if changed and os.getenv("HYPRLAND_INSTANCE_SIGNATURE") and shutil.which("hyprctl"):
+        subprocess.run(["hyprctl", "setcursor", THEME, str(size)], capture_output=True)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

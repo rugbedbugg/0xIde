@@ -39,6 +39,9 @@ applications Caelestia does not theme itself.
     -   **Spotify**: re-applies the spicetify theme after a scheme change
     -   **Microsoft Edge**: browser theme colour through a managed policy
     -   **Papirus**: folder icons follow the scheme
+    -   **Cursor**: Caelestia's Sweet cursor, rebuilt in the scheme's colours. Upstream
+        names it `sweet-cursors` while the package installs `Sweet-cursors`, so stock
+        Caelestia always shows the default cursor. See [`adapters/cursor`](adapters/cursor/README.md).
     -   **Yazi** and **rmpc**: nothing to run, their themes name terminal ANSI slots
 -   **Login screen** (optional): an SDDM theme that follows the Caelestia scheme,
     wallpaper and profile picture. See [`system/sddm`](system/sddm/README.md).
@@ -56,6 +59,8 @@ applications Caelestia does not theme itself.
 -   `git`, `rsync`, `python`, `jq`
 -   For text extraction: [`tesseract`][tesseract] with the language data you want, and `wl-clipboard`
 -   For web search: `curl`, and [`fuzzel`](https://codeberg.org/dnkl/fuzzel) to ask before a circle sends anything
+-   For the cursor: [`sweet-cursors-git`](https://aur.archlinux.org/packages/sweet-cursors-git),
+    `librsvg` and `xorg-xcursorgen`, plus `hyprcursor` for a cursor that stays sharp at any scale
 -   For building the shell: `cmake`, `ninja`, `libqalculate` and the Qt 6 development
     packages, the same set upstream needs
 

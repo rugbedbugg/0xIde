@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Reports whether the recoloured cursor theme exists and follows the scheme.
+set -uo pipefail
+. "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
+
+theme="$XDG_DATA_HOME/icons/0xide-sweet"
+for d in "$XDG_DATA_HOME/icons" "$HOME/.icons" /usr/local/share/icons /usr/share/icons; do
+    [ -d "$d/Sweet-cursors/cursors_scalable" ] && { src=1; break; }
+done
+
+if [ -z "${src:-}" ]; then
+    echo "cursor: Sweet is not installed, so there is nothing to recolour"
+    echo "        Install it with: yay -S sweet-cursors-git"
+    exit 1
+fi
+if [ ! -r "$theme/index.theme" ]; then
+    echo "cursor: 0xide-sweet has not been built yet; it is built on the next theme change"
+    exit 1
+fi
+echo "cursor: ok, 0xide-sweet follows the scheme"

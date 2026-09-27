@@ -534,6 +534,90 @@ STUB
     rm -rf "$td"
 fi
 
+ox_step "Cursor adapter"
+# A one-shape Sweet stands in for the real one: its body is Sweet's #161925
+# filling the whole canvas, so the rendered pixel shows what it became.
+# gsettings and hyprctl are stubbed and HOME is private, so nothing here
+# touches the real desktop.
+if ! ox_have rsvg-convert || ! ox_have xcursorgen; then skipt "no rsvg-convert or xcursorgen"
+else
+    td="$(mktemp -d)"
+    src="$td/data/icons/Sweet-cursors/cursors_scalable"
+    mkdir -p "$src/default" "$td/conf/gtk-3.0" "$td/home/.icons/default" "$td/state" "$td/bin"
+    printf '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" style="fill:#161925"/></svg>\n' \
+        > "$src/default/default.svg"
+    printf '[{"filename":"default.svg","hotspot_x":0.125,"hotspot_y":0.125,"nominal_size":24}]\n' > "$src/default/metadata.json"
+    ln -s default "$src/arrow"
+    ln -s arrow "$src/left_ptr"
+    printf '{"mode":"dark","colours":{"primary":"b4c8e9","secondary":"bdc7dc","tertiary":"d9bde2","surface":"123456","onSurface":"e3e2e6","error":"ffb4ab"}}\n' \
+        > "$td/state/scheme.json"
+    printf '[Settings]\ngtk-font-name=Sans 10\ngtk-cursor-theme-name=breeze_cursors\n' > "$td/conf/gtk-3.0/settings.ini"
+    printf '[Icon Theme]\nName=Default\nInherits=Sweet-cursors\n' > "$td/home/.icons/default/index.theme"
+    for stub in gsettings hyprctl; do
+        printf '#!/bin/sh\nprintf "%%s\\n" "%s $*" >> "%s/calls.log"\n' "$stub" "$td" > "$td/bin/$stub"
+        chmod +x "$td/bin/$stub"
+    done
+    cursor() {
+        HOME="$td/home" PATH="$td/bin:$PATH" XDG_DATA_HOME="$td/data" XDG_DATA_DIRS="$td/none" XDG_CONFIG_HOME="$td/conf" \
+            OX_SCHEME="$td/state/scheme.json" HYPRLAND_INSTANCE_SIGNATURE=test XCURSOR_SIZE=24 \
+            "$OX_ROOT/adapters/cursor/apply"
+    }
+    theme="$td/data/icons/0xide-sweet"
+
+    cursor >/dev/null 2>&1
+    if [ -f "$theme/cursors/default" ] && [ -r "$theme/index.theme" ]
+    then ok "Sweet is rebuilt as 0xide-sweet"; else no "no 0xide-sweet theme was built"; fi
+    [ "$(readlink "$theme/cursors/left_ptr")" = default ] &&
+        ok "an alias of an alias still resolves to the real shape" ||
+        no "left_ptr -> arrow -> default was not kept as a working alias"
+    # First image of the XCursor file: 36-byte image header, then ARGB pixels.
+    px="$("$PY" - "$theme/cursors/default" <<'PY'
+import struct, sys
+d = open(sys.argv[1], "rb").read()
+n = struct.unpack("<I", d[12:16])[0]
+pos = min(struct.unpack("<III", d[16 + 12 * i:28 + 12 * i])[2] for i in range(n))
+w, h = struct.unpack("<II", d[pos + 16:pos + 24])
+print("%06x" % (struct.unpack("<I", d[pos + 36 + 4 * (h // 2 * w + w // 2):][:4])[0] & 0xFFFFFF))
+PY
+)"
+    [ "$px" = 123456 ] && ok "Sweet's body is drawn in the scheme's surface (#$px)" ||
+        no "the body pixel is #$px, expected the surface #123456"
+    grep -qx 'gtk-cursor-theme-name=0xide-sweet' "$td/conf/gtk-3.0/settings.ini" &&
+        grep -qx 'gtk-font-name=Sans 10' "$td/conf/gtk-3.0/settings.ini" &&
+        ok "GTK's stale cursor setting is replaced and the rest of settings.ini kept" ||
+        no "settings.ini: $(tr '\n' ' ' < "$td/conf/gtk-3.0/settings.ini")"
+    grep -qx 'Inherits=0xide-sweet' "$td/home/.icons/default/index.theme" &&
+        ok "the default X cursor theme follows, since it pointed at Sweet" ||
+        no "~/.icons/default still inherits $(grep -oP '(?<=Inherits=).*' "$td/home/.icons/default/index.theme")"
+    grep -q 'gsettings set org.gnome.desktop.interface cursor-theme 0xide-sweet' "$td/calls.log" &&
+        grep -q 'hyprctl setcursor 0xide-sweet 24' "$td/calls.log" &&
+        ok "gsettings and Hyprland are pointed at it" || no "calls: $(tr '\n' ';' < "$td/calls.log")"
+
+    : > "$td/calls.log"
+    before="$(stat -c %Y "$theme/cursors/default")"
+    cursor >/dev/null 2>&1
+    if [ "$(stat -c %Y "$theme/cursors/default")" = "$before" ] && ! grep -q hyprctl "$td/calls.log"
+    then ok "an unchanged palette is not rebuilt or reloaded"; else no "an unchanged palette rebuilt the theme"; fi
+
+    rm -rf "$td/data/icons/Sweet-cursors" "$theme"
+    if cursor >/dev/null 2>&1 && [ ! -e "$theme" ]
+    then ok "without Sweet it does nothing and still succeeds"; else no "without Sweet the adapter failed or built something"; fi
+    rm -rf "$td"
+fi
+
+ox_step "Cursor fallback in hypr-vars.lua"
+if ! ox_have lua; then skipt "no lua"
+else
+    td="$(mktemp -d)"
+    pick() { XDG_DATA_HOME="$td" lua -e "print(dofile('$OX_ROOT/overrides/caelestia/hypr-vars.lua').cursorTheme)"; }
+    [ "$(pick)" = Sweet-cursors ] && ok "before the adapter runs, Sweet by its real name" ||
+        no "with no rebuilt theme it picked '$(pick)'"
+    mkdir -p "$td/icons/0xide-sweet" && : > "$td/icons/0xide-sweet/index.theme"
+    [ "$(pick)" = 0xide-sweet ] && ok "once rebuilt, the scheme-coloured theme" ||
+        no "with the rebuilt theme present it picked '$(pick)'"
+    rm -rf "$td"
+fi
+
 ox_step "Spotify adapter"
 # Driven for real with spicetify stubbed, so a theme change cannot open
 # Spotify behind the user's back.
