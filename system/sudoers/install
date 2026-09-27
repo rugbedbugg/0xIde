@@ -9,6 +9,8 @@ dest=/etc/sudoers.d/0xide
 staged="$OX_STATE/0xide.sudoers"
 
 mkdir -p "$OX_STATE"
+# The previous run left its copy read-only (0440), which cannot be written over.
+rm -f -- "$staged"
 sed "s|@USER@|$(id -un)|g" "$here/0xide.template" > "$staged"
 chmod 0440 "$staged"
 
