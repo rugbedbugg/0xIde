@@ -102,31 +102,45 @@ rather than failing. The first version of every file this project replaces is ke
 
 ### Keybinds
 
-| Key                 | Action                          | Result                   |
-| ------------------- | ------------------------------- | ------------------------ |
-| `SUPER + SHIFT + T` | Extract text from a region      | clipboard, nothing opens |
-| `SUPER + SHIFT + A` | Web search, rectangle or circle | browser                  |
+| Key                 | Action                              | Result                   |
+| ------------------- | ----------------------------------- | ------------------------ |
+| `SUPER + SHIFT + T` | Extract text from a region          | clipboard, nothing opens |
+| `SUPER + SHIFT + A` | Search a region, or ask AI about it | browser, or the AI panel |
 
 They are set in `overrides/caelestia/hypr-vars.lua` and bound in
 `overrides/caelestia/hypr-user.lua`, both extension points Caelestia supports. A binding
 that collides with one upstream already made is skipped, with a message, rather than
 shadowing it.
 
-Web search has one key. Rectangle or circle is picked from a toolbar at the bottom of
-the selector, which opens on rectangle, the one that uploads nothing.
+`SUPER + SHIFT + A` has three choices, picked from a card at the bottom of the selector
+before you drag: **Text** searches the words read from a rectangle, **Image** sends a
+circled region to Google Lens after asking, and **Ask AI** opens a rectangle's text in the
+AI panel. It opens on Text, the one that uploads nothing, and the card hides once you
+start dragging; press `Esc` to start over.
 
 ### Asking AI
 
-The AI capture ships without a key. It is the same selector, but it opens the recognised
-text in a panel instead of stopping at the clipboard:
+1. **Choose a backend, once.** In the shell's settings, open **OCR & AI** and pick
+   **Local** to run a small model on this computer, installed from the same page, or an
+   external OpenAI-compatible endpoint.
+2. **Capture.** Press `SUPER + SHIFT + A`, choose **Ask AI**, and drag over the text.
+3. **Ask.** Pick **Explain**, **Summarize**, **Translate** or **Custom** and press
+   **Ask AI**. Any text you select in either pane is what gets asked about instead of the
+   whole capture.
+
+The first answer takes a few seconds while the local model starts. It is a 2B model on the
+CPU, good for short passages rather than long documents. With the local backend nothing
+leaves this computer.
+
+For scripts, or a key of its own, the same panel is reachable over IPC and as the
+`caelestia:askAi` shortcut:
 
 ```sh
 qs -c caelestia ipc call picker openAskAi              # capture, then ask
 qs -c caelestia ipc call picker showText "$(wl-paste)"  # ask about text you already have
 ```
 
-Bind `caelestia:askAi` to give it a key. The backend is chosen under **OCR & AI** in the
-shell's settings, or under `ai` in `shell.json`.
+The backend can also be set under `ai` in `shell.json`.
 
 ## Updating
 
