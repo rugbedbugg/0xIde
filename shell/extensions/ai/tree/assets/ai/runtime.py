@@ -86,7 +86,7 @@ def download(destination):
     digest = hashlib.sha256()
     count = 0
     last = 0.0
-    request = urllib.request.Request(url, headers={'User-Agent': 'caelestia-local-ai/1'})
+    request = urllib.request.Request(url, headers={'User-Agent': '0xide-local-ai/1'})
     with urllib.request.urlopen(request, timeout=60) as response, destination.open('wb') as output:
         while block := response.read(1024 * 1024):
             count += len(block)
@@ -102,12 +102,62 @@ def download(destination):
 
 
 def server_command(directory, port):
+    # The pinned runtime carries BitNet's own chat template and token setup for
+    # this model, so the server needs neither a template nor overrides.
     return [str(directory / 'runtime/build/bin/llama-server'), '-m', str(directory / MANIFEST['modelFile']),
             '--host', '127.0.0.1', '--port', str(port), '-c', str(MANIFEST['contextTokens']),
-            '--parallel', '1', '--no-context-shift', '--jinja',
-            '--chat-template-file', str(Path(__file__).with_name('chat-template.jinja')),
-            '--override-kv', 'tokenizer.ggml.pre=str:llama-bpe,tokenizer.ggml.eos_token_id=int:128009',
+            '--parallel', '1', '--no-context-shift',
             '-n', str(MANIFEST['responseTokens']), '-t', str(max(1, min(4, (os.cpu_count() or 2) // 2))), '-ngl', '0']
+
+
+# Installed revisions are named <runtime>-<model>, twelve hex digits each.
+def revision_dirs():
+    return [p for p in ROOT.glob('*-*') if p.is_dir() and not p.is_symlink()
+            and len(p.name) == 25 and all(c in '0123456789abcdef-' for c in p.name)]
+
+
+def reuse_model(destination):
+    """Links a verified copy of the model from another installed revision, so a
+    runtime update does not download 1.1 GiB again. False if there is none."""
+    for other in revision_dirs():
+        candidate = other / MANIFEST['modelFile']
+        if other == ACTIVE or not candidate.is_file() or candidate.stat().st_size != MANIFEST['modelBytes']:
+            continue
+        digest = hashlib.sha256()
+        with candidate.open('rb') as source:
+            while block := source.read(4 * 1024 * 1024):
+                digest.update(block)
+        if digest.hexdigest() != MANIFEST['modelSha256']:
+            continue
+        try:
+            os.link(candidate, destination)
+        except OSError:
+            shutil.copyfile(candidate, destination)
+        return True
+    return False
+
+
+def build_runtime(runtime, log):
+    """BitNet's own setup_env.py for the pinned revision, for the 2B model: its
+    lookup-table kernels generated with the parameters setup_env gives this
+    model, and built in. The generic I2_S path of later revisions computes wrong
+    results for this model on some CPUs (fluent, wrong answers)."""
+    arch = platform.machine().lower()
+    if arch in ('x86_64', 'amd64'):
+        codegen, flag = 'utils/codegen_tl2.py', '-DBITNET_X86_TL2=ON'
+        sizes = ['--BM', '160,320,320', '--BK', '96,96,96', '--bm', '32,32,32']
+    elif arch in ('aarch64', 'arm64'):
+        codegen, flag = 'utils/codegen_tl1.py', '-DBITNET_ARM_TL1=ON'
+        sizes = ['--BM', '160,320,320', '--BK', '64,128,64', '--bm', '32,64,32']
+    else:
+        raise RuntimeError(f'No BitNet kernels for {arch}')
+    run([sys.executable, codegen, '--model', 'bitnet_b1_58-3B', *sizes], runtime, log)
+    # This revision predates clang making incompatible pointer types an error.
+    relax = '-Wno-error=incompatible-pointer-types'
+    run(['cmake', '-S', '.', '-B', 'build', '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release',
+         '-DCMAKE_C_COMPILER=clang', '-DCMAKE_CXX_COMPILER=clang++', '-DBUILD_SHARED_LIBS=OFF', flag,
+         f'-DCMAKE_C_FLAGS={relax}', f'-DCMAKE_CXX_FLAGS={relax}'], runtime, log)
+    run(['cmake', '--build', 'build', '--target', 'llama-server', '-j', '2'], runtime, log)
 
 
 def serve(directory, once=False):
@@ -166,17 +216,18 @@ def install():
         run(['git', 'checkout', '--detach', 'FETCH_HEAD'], runtime, log)
         run(['git', 'submodule', 'update', '--init', '--recursive', '--depth', '1'], runtime, log)
         emit(stage='build', message='Building the CPU inference runtime')
-        run(['cmake', '-S', '.', '-B', 'build', '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release',
-             '-DCMAKE_C_COMPILER=clang', '-DCMAKE_CXX_COMPILER=clang++', '-DBUILD_SHARED_LIBS=OFF',
-             '-DBITNET_X86_TL2=OFF', '-DBITNET_ARM_TL1=OFF', '-DLLAMA_BUILD_COMMON=ON',
-             '-DLLAMA_BUILD_TOOLS=ON', '-DLLAMA_BUILD_UI=OFF', '-DLLAMA_USE_PREBUILT_UI=OFF', '-DLLAMA_OPENSSL=OFF'], runtime, log)
-        run(['cmake', '--build', 'build', '--target', 'llama-server', '-j', '2'], runtime, log)
-        emit(stage='download', bytes=0, total=MANIFEST['modelBytes'])
-        download(stage / MANIFEST['modelFile'])
+        build_runtime(runtime, log)
+        if not reuse_model(stage / MANIFEST['modelFile']):
+            emit(stage='download', bytes=0, total=MANIFEST['modelBytes'])
+            download(stage / MANIFEST['modelFile'])
         emit(stage='verify', message='Starting model for a health check')
         serve(stage, once=True)
         (stage / 'ready.json').write_text(json.dumps(MANIFEST, indent=2))
         stage.rename(ACTIVE)
+        # Earlier revisions are superseded once this one is verified.
+        for other in revision_dirs():
+            if other != ACTIVE:
+                shutil.rmtree(other)
         emit(stage='installed', **preflight())
     finally:
         stop_child()
@@ -202,8 +253,8 @@ def main():
             if action == 'install':
                 install()
             elif action == 'uninstall':
-                if ACTIVE.exists():
-                    shutil.rmtree(ACTIVE)
+                for installed in revision_dirs():
+                    shutil.rmtree(installed)
                 emit(stage='removed', **preflight())
             else:
                 if not (ACTIVE / 'ready.json').exists():
