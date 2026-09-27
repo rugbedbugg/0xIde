@@ -1,15 +1,18 @@
-From 47f3d0cbc8c455a8d97c2ad35729e01ea2d2343a Mon Sep 17 00:00:00 2001
+From 3b1f8a4bb710e8085759f5d34d61f6d637e2ea49 Mon Sep 17 00:00:00 2001
 From: Oxide 1-6 <yes.par781@gmail.com>
 Date: Sun, 27 Sep 2026 08:12:39 +0530
 Subject: [PATCH] areapicker: show no selection over empty screen until a drag
 
 Upstream starts with a 200px box in the middle of the screen when no window is under the pointer, and keeps the last window's outline after the pointer leaves it, so an empty screen shows an outline that selects nothing you chose. Now the selection is the window under the pointer or what you drag, and nothing otherwise; a click on empty screen closes the picker instead of capturing the invisible box.
+
+The search choices also leave the screen once a drag starts: the choice is
+made by then, and the card would otherwise sit under the selection.
 ---
- modules/areapicker/Picker.qml | 19 ++++++++++++++-----
- 1 file changed, 14 insertions(+), 5 deletions(-)
+ modules/areapicker/Picker.qml | 24 +++++++++++++++++-------
+ 1 file changed, 17 insertions(+), 7 deletions(-)
 
 diff --git a/modules/areapicker/Picker.qml b/modules/areapicker/Picker.qml
-index 1694d020..21dd359c 100644
+index 1694d020..64620b92 100644
 --- a/modules/areapicker/Picker.qml
 +++ b/modules/areapicker/Picker.qml
 @@ -17,6 +17,9 @@ MouseArea {
@@ -60,7 +63,21 @@ index 1694d020..21dd359c 100644
              sx = ssx;
              sy = ssy;
              ex = x;
-@@ -332,6 +340,7 @@ MouseArea {
+@@ -281,10 +289,11 @@ MouseArea {
+     }
+ 
+     // The shape of a web search is chosen here rather than by which key you
+-    // pressed, so it can be changed without closing the selector.
++    // pressed, so it can be changed without closing the selector. Once a drag
++    // starts the choice is made, so the card gets out of the way.
+     PickerModes {
+         z: 5
+-        visible: !!root.loader.searchMode
++        visible: !!root.loader.searchMode && !root.dragged
+         mode: root.loader.searchMode
+         onSelected: mode => root.loader.searchMode = mode
+ 
+@@ -332,6 +341,7 @@ MouseArea {
      Rectangle {
          id: border
  
