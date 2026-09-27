@@ -1,0 +1,53 @@
+From 7dc8c5bb8468c7b6841bc162f385b8111c398b8e Mon Sep 17 00:00:00 2001
+From: Oxide 1-6 <yes.par781@gmail.com>
+Date: Sun, 27 Sep 2026 07:25:10 +0530
+Subject: [PATCH] launcher: step through the list with Tab and Shift+Tab
+ without vim keys
+
+Upstream handles Tab only when launcher.vimKeybinds is on. Otherwise the key falls through to Qt's focus chain, which since the text-field rework takes focus out of the search field into its trailing button, so Tab and Shift+Tab stop moving through apps and wallpapers. Shift+Tab is matched before Tab because some keyboards deliver it as Tab with Shift held.
+---
+ modules/launcher/Content.qml | 21 +++++++++++++++------
+ 1 file changed, 15 insertions(+), 6 deletions(-)
+
+diff --git a/modules/launcher/Content.qml b/modules/launcher/Content.qml
+index f2247686..37a836fc 100644
+--- a/modules/launcher/Content.qml
++++ b/modules/launcher/Content.qml
+@@ -86,6 +86,21 @@ Item {
+         Keys.onEscapePressed: root.screenState.launcher = false
+ 
+         Keys.onPressed: event => {
++            // Tab and Shift+Tab step through the list whether or not the vim
++            // keys are on; left unhandled, Tab moves focus out of the search
++            // field. Shift+Tab can arrive as Tab with Shift held, so it is
++            // checked first.
++            if (event.key === Qt.Key_Backtab || (event.key === Qt.Key_Tab && (event.modifiers & Qt.ShiftModifier))) {
++                list.currentList?.decrementCurrentIndex();
++                event.accepted = true;
++                return;
++            }
++            if (event.key === Qt.Key_Tab) {
++                list.currentList?.incrementCurrentIndex();
++                event.accepted = true;
++                return;
++            }
++
+             if (!GlobalConfig.launcher.vimKeybinds)
+                 return;
+ 
+@@ -97,12 +112,6 @@ Item {
+                     list.currentList?.decrementCurrentIndex();
+                     event.accepted = true;
+                 }
+-            } else if (event.key === Qt.Key_Tab) {
+-                list.currentList?.incrementCurrentIndex();
+-                event.accepted = true;
+-            } else if (event.key === Qt.Key_Backtab || (event.key === Qt.Key_Tab && (event.modifiers & Qt.ShiftModifier))) {
+-                list.currentList?.decrementCurrentIndex();
+-                event.accepted = true;
+             }
+         }
+ 
+-- 
+2.55.0
+
