@@ -70,6 +70,10 @@ done
 ox_step "AI manifest"
 "$(ox_python)" "$OX_ROOT/installer/render_manifest.py" \
     "$OX_ROOT/manifests/ai.toml" "$SRC/assets/ai/manifest.json"
+"$(ox_python)" "$OX_ROOT/installer/render_manifest.py" \
+    "$OX_ROOT/manifests/translate.toml" "$SRC/assets/ai/translate.json" --whole
+"$(ox_python)" "$OX_ROOT/installer/render_manifest.py" \
+    "$OX_ROOT/manifests/speech.toml" "$SRC/assets/dictation/speech.json" --whole
 
 if [ "$DO_PLUGIN" = 1 ]; then
     ox_step "Plugin"

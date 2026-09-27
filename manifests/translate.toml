@@ -1,0 +1,23 @@
+# Offline translation for the Ask AI panel's Translate mode. Nothing here is
+# vendored: each language is a pair of Argos Translate models (about 65 MB per
+# direction) fetched on request from the pinned index below and stored under
+# $XDG_DATA_HOME/0xide/translate.
+#
+# Only the models are Argos's. The argostranslate library pulls in stanza and
+# spacy, and through them PyTorch, for sentence splitting alone; the models are
+# plain CTranslate2 and SentencePiece files, so the helper runs them with those
+# two packages and nothing else.
+
+[index]
+url = "https://raw.githubusercontent.com/argosopentech/argospm-index/ff90de60728f7c1338ff6b75974e4c89b2442d22/index.json"
+# Every language installs both directions through English, so any two
+# installed languages translate by pivoting through it.
+pivot = "en"
+
+[runtime]
+python = "3.13"
+packages = ["ctranslate2==4.8.2", "sentencepiece==0.2.2"]
+
+[limits]
+# A larger download than this is refused rather than stored.
+modelBytes = 200000000

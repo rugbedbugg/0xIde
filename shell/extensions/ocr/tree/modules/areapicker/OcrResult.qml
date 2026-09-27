@@ -4,9 +4,11 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Io
 import Caelestia
 import Caelestia.Config
 import qs.components
+import qs.components.containers
 import qs.components.controls
 import qs.components.effects
 import qs.services
@@ -30,15 +32,51 @@ Item {
         return rows.map(row => row.join("\t")).join("\n");
     }
     // A selection anywhere wins; otherwise the whole extracted text.
+    // Whatever is selected in the response, which spans several text blocks.
+    property string responseSelection: ""
     readonly property string activeQuery: {
-        if (aiText.selectedText)
-            return aiText.selectedText;
+        if (responseSelection)
+            return responseSelection;
         if (tableMode)
             return activeCell?.selectedText || tableText;
         return extractedText.selectedText || extractedText.text;
     }
-    readonly property bool busy: request.running || waiting
-    readonly property bool hasResponse: busy || !!request.text || !!request.error
+    // Translate runs on the offline translator when both languages are
+    // installed; everything else, and Translate without them, asks the model.
+    property bool localMode: false
+    property string localText: ""
+    property string localError: ""
+    readonly property string responseText: localMode ? localText : request.text
+    readonly property string responseError: localMode ? localError : request.error
+    readonly property bool offlineTranslate: Translator.canTranslate(GlobalConfig.ai.translateFrom, GlobalConfig.ai.translateLanguage)
+    readonly property bool busy: request.running || waiting || Translator.translating
+    readonly property bool hasResponse: busy || !!responseText || !!responseError
+    // The response split at ``` fences: prose is rendered as Markdown, code is
+    // shown as it came, in the terminal's font. An unclosed fence while the
+    // answer is still streaming makes the rest code.
+    readonly property var segments: {
+        const out = [];
+        let code = false, buffer = [];
+        const flush = () => {
+            const text = buffer.join("\n");
+            if (text.trim())
+                out.push({ code, text: code ? text : text.trim() });
+            buffer = [];
+        };
+        for (const line of responseText.split("\n")) {
+            if (/^\s*```/.test(line)) {
+                flush();
+                code = !code;
+            } else {
+                buffer.push(line);
+            }
+        }
+        flush();
+        return out;
+    }
+    // foot's own font and size, so code reads as it would in the terminal.
+    property string codeFamily: Tokens.font.mono.medium.family
+    property real codeSize: Tokens.font.mono.medium.pointSize
     readonly property int actionIndex: action.menuItems.indexOf(action.active)
     readonly property string destination: {
         if (GlobalConfig.ai.backend === "managed")
@@ -60,18 +98,29 @@ Item {
         notice = "";
         offerInstall = false;
         showSettings = false;
+        responseSelection = "";
     }
     function cancel(): void {
         waiting = false;
         pendingQuery = "";
         request.cancel();
+        Translator.cancel();
         AiRuntime.release();
     }
     function submit(): void {
         if (busy || !activeQuery.trim())
             return;
         const snapshot = activeQuery;
-        const instructions = ["Explain the following text clearly.", "Summarize the following text.", "Translate the following text into " + target.text + ".", custom.text];
+        localMode = actionIndex === 2 && offlineTranslate;
+        if (localMode) {
+            localText = "";
+            localError = "";
+            notice = "";
+            Translator.translate(snapshot, GlobalConfig.ai.translateFrom, GlobalConfig.ai.translateLanguage);
+            return;
+        }
+        const language = Translator.name(GlobalConfig.ai.translateLanguage) || target.text;
+        const instructions = ["Explain the following text clearly.", "Summarize the following text.", "Translate the following text into " + language + ".", custom.text, "Write the minimal but complete, working code that solves the following. Reply with one code block in the most suitable language, then at most two sentences on how to run it."];
         pendingQuery = instructions[actionIndex] + "\n\n" + snapshot;
         notice = "";
         if (!GlobalConfig.ai.backend) {
@@ -142,7 +191,8 @@ Item {
     }
 
     anchors.centerIn: parent
-    implicitWidth: Math.min(parent.width - Tokens.padding.extraLarge * 2, 900)
+    // Wider once there is a response, so the text and the answer sit side by side.
+    implicitWidth: Math.min(parent.width - Tokens.padding.extraLarge * 2, hasResponse ? 1400 : 900)
     // Hug the content rather than always taking a fixed slab, so a short
     // capture and the settings view do not leave half the card empty.
     implicitHeight: Math.min(parent.height - Tokens.padding.extraLarge * 2, Math.max(360, layout.implicitHeight + Tokens.padding.large * 2))
@@ -151,6 +201,30 @@ Item {
     Behavior on implicitHeight {
         Anim {
             type: Anim.Emphasized
+        }
+    }
+    Behavior on implicitWidth {
+        Anim {
+            type: Anim.Emphasized
+        }
+    }
+
+    FileView {
+        path: `${Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config"}/foot/foot.ini`
+        onLoaded: {
+            let main = true;
+            for (const raw of text().split("\n")) {
+                const line = raw.trim();
+                if (line.startsWith("["))
+                    main = line === "[main]";
+                const match = main && line.match(/^font\s*=\s*([^:,]+)(?::size=([\d.]+))?/);
+                if (match) {
+                    root.codeFamily = match[1].trim();
+                    if (match[2])
+                        root.codeSize = Number(match[2]);
+                    break;
+                }
+            }
         }
     }
 
@@ -181,6 +255,16 @@ Item {
         id: request
 
         onFinished: AiRuntime.release()
+    }
+    Connections {
+        function onTranslated(text: string): void {
+            root.localText = text;
+        }
+        function onFailed(error: string): void {
+            root.localError = error;
+        }
+
+        target: Translator
     }
     Connections {
         function onReady(): void {
@@ -335,7 +419,8 @@ Item {
             }
 
             // Settings sit on one surface; the text and the response each get
-            // their own, with the response's title in the gap between them.
+            // their own. Once there is a response they sit side by side, the
+            // response's title above its own pane rather than inside it.
             StyledRect {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -364,16 +449,28 @@ Item {
                     }
                 }
 
-                ColumnLayout {
+                GridLayout {
                     id: content
+
+                    readonly property bool sideBySide: root.hasResponse
+                    // Each column gets exactly half. Left to fillWidth alone the
+                    // layout hands nearly all of it to the response.
+                    readonly property real columnWidth: sideBySide ? (width - columnSpacing) / 2 : width
 
                     anchors.fill: parent
                     visible: !root.showSettings
-                    spacing: Tokens.spacing.small
+                    columns: sideBySide ? 2 : 1
+                    rowSpacing: Tokens.spacing.small
+                    columnSpacing: Tokens.spacing.medium
 
                     StyledRect {
+                        Layout.row: 0
+                        Layout.column: 0
+                        Layout.rowSpan: content.sideBySide ? 2 : 1
                         Layout.fillWidth: true
                         Layout.fillHeight: true
+                        Layout.preferredWidth: content.columnWidth
+                        Layout.maximumWidth: content.columnWidth
                         implicitHeight: extractedPane.implicitHeight + Tokens.padding.medium * 2
                         radius: Tokens.rounding.medium
                         color: Colours.palette.m3surfaceContainerHigh
@@ -520,58 +617,129 @@ Item {
                         }
                     }
 
-                    // The response grows under the text rather than beside it in
-                    // a tab, and takes no room at all until there is one. Its
-                    // title sits between the two panes, on neither.
+                    // The response takes no room at all until there is one.
                     RowLayout {
+                        Layout.row: content.sideBySide ? 0 : 1
+                        Layout.column: content.sideBySide ? 1 : 0
                         Layout.fillWidth: true
+                        // Margins sit outside the width a layout item is given.
+                        Layout.preferredWidth: content.columnWidth - Tokens.padding.medium * 2
+                        Layout.maximumWidth: content.columnWidth - Tokens.padding.medium * 2
                         Layout.leftMargin: Tokens.padding.medium
                         Layout.rightMargin: Tokens.padding.medium
                         visible: root.hasResponse
                         spacing: Tokens.spacing.small
 
                         MaterialIcon {
-                            text: request.error ? "error" : request.status === "complete" ? "check_circle" : "auto_awesome"
-                            color: request.error ? Colours.palette.m3error : Colours.palette.m3outline
+                            text: root.responseError ? "error" : root.busy ? (root.localMode ? "translate" : "auto_awesome") : "check_circle"
+                            color: root.responseError ? Colours.palette.m3error : Colours.palette.m3outline
                             fontStyle: Tokens.font.icon.small
                         }
                         StyledText {
                             Layout.fillWidth: true
                             wrapMode: Text.Wrap
-                            color: request.error ? Colours.palette.m3error : Colours.palette.m3outline
+                            color: root.responseError ? Colours.palette.m3error : Colours.palette.m3outline
                             font: Tokens.font.label.large
-                            text: root.waiting ? qsTr("Starting the local model...") : request.error || (request.status === "stopped" ? qsTr("Stopped. Partial response kept.") : request.status === "loading" ? qsTr("Generating...") : qsTr("AI response"))
+                            text: {
+                                if (root.localMode)
+                                    return root.localError || (Translator.translating ? qsTr("Translating on this computer...") : qsTr("Translation, %1 to %2").arg(Translator.name(GlobalConfig.ai.translateFrom)).arg(Translator.name(GlobalConfig.ai.translateLanguage)));
+                                return root.waiting ? qsTr("Starting the local model...") : request.error || (request.status === "stopped" ? qsTr("Stopped. Partial response kept.") : request.status === "loading" ? qsTr("Generating...") : qsTr("AI response"));
+                            }
                         }
                     }
                     StyledRect {
+                        Layout.row: content.sideBySide ? 1 : 2
+                        Layout.column: content.sideBySide ? 1 : 0
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        Layout.preferredHeight: 200 + Tokens.padding.medium * 2
+                        Layout.preferredWidth: content.columnWidth
+                        Layout.maximumWidth: content.columnWidth
+                        Layout.preferredHeight: 360
                         visible: root.hasResponse
                         radius: Tokens.rounding.medium
                         color: Colours.palette.m3surfaceContainerHigh
 
-                        ScrollView {
+                        // A plain Flickable rather than a ScrollView around a
+                        // TextArea: nothing here chases a cursor, so the view
+                        // stays where it is scrolled while the answer streams
+                        // in, and follows the end only while already there.
+                        StyledFlickable {
+                            id: responseView
+
+                            property bool follow: true
+                            property bool scrolling
+
+                            function toEnd(): void {
+                                scrolling = true;
+                                contentY = Math.max(0, contentHeight - height);
+                                scrolling = false;
+                            }
+
                             anchors.fill: parent
                             anchors.margins: Tokens.padding.medium
                             clip: true
+                            contentWidth: width
+                            contentHeight: responseColumn.implicitHeight
+                            boundsBehavior: Flickable.StopAtBounds
 
-                            TextArea {
-                                id: aiText
+                            onContentYChanged: if (!scrolling)
+                                follow = contentY >= contentHeight - height - 4
+                            onContentHeightChanged: if (follow)
+                                toEnd()
 
-                                objectName: "aiResponse"
+                            StyledScrollBar.vertical: StyledScrollBar {
+                                flickable: responseView
+                            }
 
-                                readOnly: true
-                                selectByMouse: true
-                                persistentSelection: true
-                                Keys.onTabPressed: nextItemInFocusChain(true).forceActiveFocus(Qt.TabFocusReason)
-                                Keys.onBacktabPressed: nextItemInFocusChain(false).forceActiveFocus(Qt.BacktabFocusReason)
-                                text: request.text
-                                wrapMode: TextArea.Wrap
-                                font: Tokens.font.mono.medium
-                                color: Colours.palette.m3onSurface
-                                padding: 0
-                                background: null
+                            Connections {
+                                function onBusyChanged(): void {
+                                    if (root.busy)
+                                        responseView.follow = true;
+                                }
+
+                                target: root
+                            }
+
+                            Column {
+                                id: responseColumn
+
+                                width: responseView.width - Tokens.spacing.medium
+                                spacing: Tokens.spacing.medium
+
+                                Repeater {
+                                    model: root.segments.length
+
+                                    StyledRect {
+                                        id: segment
+
+                                        required property int index
+                                        readonly property var part: root.segments[index] ?? { code: false, text: "" }
+
+                                        width: responseColumn.width
+                                        implicitHeight: body.implicitHeight + (part.code ? Tokens.padding.medium * 2 : 0)
+                                        radius: Tokens.rounding.small
+                                        color: part.code ? Colours.palette.m3surfaceContainerHighest : "transparent"
+
+                                        TextEdit {
+                                            id: body
+
+                                            objectName: segment.index === 0 ? "aiResponse" : ""
+                                            anchors.fill: parent
+                                            anchors.margins: segment.part.code ? Tokens.padding.medium : 0
+                                            readOnly: true
+                                            selectByMouse: true
+                                            wrapMode: segment.part.code ? TextEdit.WrapAtWordBoundaryOrAnywhere : TextEdit.Wrap
+                                            textFormat: segment.part.code ? TextEdit.PlainText : TextEdit.MarkdownText
+                                            text: segment.part.text
+                                            font.family: segment.part.code ? root.codeFamily : Tokens.font.body.large.family
+                                            font.pointSize: segment.part.code ? root.codeSize : Tokens.font.body.large.pointSize
+                                            color: Colours.palette.m3onSurface
+                                            selectionColor: Qt.alpha(Colours.palette.m3primary, 0.3)
+                                            selectedTextColor: Colours.palette.m3onSurface
+                                            onSelectedTextChanged: root.responseSelection = selectedText
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -615,18 +783,105 @@ Item {
                         MenuItem {
                             text: qsTr("Custom")
                             icon: "edit"
+                        },
+                        MenuItem {
+                            text: qsTr("Code")
+                            icon: "code"
                         }
                     ]
                 }
-                StyledTextField {
-                    id: target
+                // With two or more languages installed, Translate picks from
+                // them and runs offline; otherwise it asks the model, which
+                // takes any language name.
+                RowLayout {
+                    id: languages
+
+                    readonly property bool offline: Translator.installed.length >= 2
 
                     visible: root.actionIndex === 2
                     Layout.fillWidth: true
-                    placeholderText: qsTr("Target language")
-                    text: GlobalConfig.ai.translateLanguage
-                    onEditingFinished: if (text !== GlobalConfig.ai.translateLanguage)
-                        GlobalConfig.ai.translateLanguage = text
+                    spacing: Tokens.spacing.small
+
+                    SplitButton {
+                        id: fromLanguage
+
+                        visible: languages.offline
+                        Layout.alignment: Qt.AlignVCenter
+                        type: SplitButton.Tonal
+                        menuOnTop: true
+                        menu.parent: root
+                        menu.attachSideX: Menu.Left
+                        menu.thisSideX: Menu.Left
+                        stateLayer.onClicked: fromLanguage.expanded = !fromLanguage.expanded
+                        menuItems: fromItems.instances
+                        active: fromItems.instances.find(item => item.code === GlobalConfig.ai.translateFrom) ?? null
+                        fallbackText: qsTr("From")
+                        menu.onItemSelected: item => GlobalConfig.ai.translateFrom = item.code
+                    }
+                    MaterialIcon {
+                        visible: languages.offline
+                        text: "arrow_forward"
+                        color: Colours.palette.m3outline
+                    }
+                    SplitButton {
+                        id: toLanguage
+
+                        visible: languages.offline
+                        Layout.alignment: Qt.AlignVCenter
+                        type: SplitButton.Tonal
+                        menuOnTop: true
+                        menu.parent: root
+                        menu.attachSideX: Menu.Left
+                        menu.thisSideX: Menu.Left
+                        stateLayer.onClicked: toLanguage.expanded = !toLanguage.expanded
+                        menuItems: toItems.instances
+                        active: toItems.instances.find(item => item.code === GlobalConfig.ai.translateLanguage) ?? null
+                        fallbackText: qsTr("To")
+                        menu.onItemSelected: item => GlobalConfig.ai.translateLanguage = item.code
+                    }
+                    StyledTextField {
+                        id: target
+
+                        visible: !languages.offline
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("Target language")
+                        text: GlobalConfig.ai.translateLanguage
+                        onEditingFinished: if (text !== GlobalConfig.ai.translateLanguage)
+                            GlobalConfig.ai.translateLanguage = text
+                    }
+                    Item {
+                        visible: languages.offline
+                        Layout.fillWidth: true
+                    }
+                    IconButton {
+                        type: IconButton.Text
+                        icon: "language"
+                        onClicked: root.showSettings = true
+                    }
+                }
+                Variants {
+                    id: fromItems
+
+                    model: Translator.installed
+
+                    MenuItem {
+                        required property string modelData
+                        readonly property string code: modelData
+
+                        text: Translator.name(modelData)
+                    }
+                }
+                Variants {
+                    id: toItems
+
+                    model: Translator.installed
+
+                    MenuItem {
+                        required property string modelData
+                        readonly property string code: modelData
+
+                        text: Translator.name(modelData)
+                    }
                 }
                 StyledTextField {
                     id: custom
@@ -637,7 +892,7 @@ Item {
                 }
                 Item {
                     Layout.fillWidth: true
-                    visible: root.actionIndex < 2
+                    visible: root.actionIndex < 2 || root.actionIndex === 4
                 }
                 IconTextButton {
                     type: IconTextButton.Tonal

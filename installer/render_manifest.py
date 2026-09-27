@@ -1,8 +1,12 @@
 #!/usr/bin/python3
-"""Render manifests/ai.toml into the flat JSON the AI runtime reads.
+"""Render a manifest under manifests/ into the JSON its helper reads.
 
 The TOML file is the source of truth. The JSON is build output: it exists only
-inside a materialised shell tree and is never committed.
+inside a materialised shell tree and is never committed. ai.toml is flattened
+into the keys runtime.py expects; with --whole, any other manifest is written
+as it is, one JSON object per TOML table.
+
+    render_manifest.py <manifest.toml> <dest.json> [--whole]
 """
 
 import json
@@ -26,11 +30,14 @@ KEYS = [
 def main() -> int:
     source, dest = Path(sys.argv[1]), Path(sys.argv[2])
     data = tomllib.loads(source.read_text())
-    try:
-        rendered = {name: data[section][key] for name, section, key in KEYS}
-    except KeyError as missing:
-        print(f"{source}: missing {missing}", file=sys.stderr)
-        return 1
+    if "--whole" in sys.argv[3:]:
+        rendered = data
+    else:
+        try:
+            rendered = {name: data[section][key] for name, section, key in KEYS}
+        except KeyError as missing:
+            print(f"{source}: missing {missing}", file=sys.stderr)
+            return 1
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(json.dumps(rendered, indent=2) + "\n")

@@ -43,11 +43,19 @@ PageBase {
         return Math.round((bytes ?? 0) / 1048576);
     }
 
+    // A typed language name or code, as the index knows it, or "".
+    function languageCode(value: string): string {
+        const wanted = value.trim().toLowerCase();
+        return Translator.available.find(l => l.code === wanted || l.name.toLowerCase() === wanted)?.code ?? "";
+    }
+
     title: qsTr("OCR & AI")
 
     Component.onCompleted: {
         AiRuntime.refresh();
         Ocr.refreshLanguages();
+        Translator.refresh();
+        Speech.refresh();
     }
     Component.onDestruction: root.probe.cancel()
 
@@ -268,6 +276,124 @@ PageBase {
                     font: Tokens.font.body.small
                     color: Colours.palette.m3onSurfaceVariant
                     text: qsTr("The model and its runtime are deleted. Server settings are kept.")
+                }
+            }
+        }
+
+        // Translation
+        SectionHeader {
+            text: qsTr("Translation")
+        }
+
+        InfoRow {
+            first: true
+            icon: "translate"
+            label: qsTr("Installed languages")
+            subtext: Translator.error || Translator.message || qsTr("Translate runs offline between these")
+            value: Translator.working ? qsTr("Working") : Translator.installed.map(code => Translator.name(code)).join(", ") || qsTr("None")
+            iconColour: Translator.error ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
+        }
+
+        TextFieldRow {
+            label: qsTr("Add a language")
+            subtext: qsTr("Name or code, e.g. French. About 160 MB each")
+            placeholderText: qsTr("Language")
+            value: ""
+            onEditingFinished: value => {
+                const code = root.languageCode(value);
+                if (code && !Translator.installed.includes(code))
+                    Translator.install(code);
+            }
+        }
+
+        TextFieldRow {
+            last: true
+            label: qsTr("Remove a language")
+            subtext: qsTr("Its models are deleted; English stays while any other is installed")
+            placeholderText: qsTr("Language")
+            value: ""
+            onEditingFinished: value => {
+                const code = root.languageCode(value);
+                if (code && Translator.installed.includes(code))
+                    Translator.remove(code);
+            }
+        }
+
+        // Voice dictation
+        SectionHeader {
+            text: qsTr("Voice dictation")
+        }
+
+        InfoRow {
+            first: true
+            icon: "mic"
+            label: qsTr("Speech model")
+            subtext: {
+                if (Speech.error)
+                    return Speech.error;
+                if (Speech.message)
+                    return Speech.message;
+                if ((Speech.info.missing ?? []).length > 0)
+                    return qsTr("Install first: %1").arg(Speech.info.missing.join(", "));
+                return qsTr("SUPER + SHIFT + D starts and stops dictation; the text is typed where you are");
+            }
+            value: Speech.working ? qsTr("Working") : Speech.info.installed ? qsTr("Installed") : qsTr("Not installed")
+            iconColour: Speech.error ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
+        }
+
+        TextFieldRow {
+            label: qsTr("Language")
+            subtext: qsTr("A code such as en or de, or auto to detect it")
+            placeholderText: qsTr("auto")
+            value: GlobalConfig.ai.dictationLanguage
+            validate: /^\s*([a-z]{2,3}|auto)?\s*$/
+            errorText: qsTr("Use a two-letter code or auto")
+            onEditingFinished: value => {
+                const code = value.trim() || "auto";
+                if (field.valid && code !== GlobalConfig.ai.dictationLanguage)
+                    GlobalConfig.ai.dictationLanguage = code;
+            }
+        }
+
+        DialogRowButton {
+            visible: !Speech.working && !Speech.info.installed
+            rootParent: root.flickable
+            icon: "download"
+            label: qsTr("Install speech model")
+            header: qsTr("Install the speech model?")
+            acceptLabel: qsTr("Download")
+            acceptAllowed: (Speech.info.freeBytes ?? 0) > (Speech.info.downloadBytes ?? 0)
+            onOpenChanged: {
+                if (open)
+                    Speech.refresh();
+            }
+            onAccepted: Speech.install()
+
+            content: Component {
+                StyledText {
+                    wrapMode: Text.Wrap
+                    font: Tokens.font.body.small
+                    color: Colours.palette.m3onSurfaceVariant
+                    text: qsTr("Downloads the whisper.cpp base model, %1 MiB, into %2. Speech is transcribed on this computer.").arg(root.mib(Speech.info.downloadBytes)).arg(Speech.info.destination ?? "")
+                }
+            }
+        }
+
+        DialogRowButton {
+            visible: !Speech.working && !!Speech.info.installed
+            rootParent: root.flickable
+            icon: "delete"
+            label: qsTr("Remove speech model")
+            header: qsTr("Remove the speech model?")
+            acceptLabel: qsTr("Remove")
+            onAccepted: Speech.remove()
+
+            content: Component {
+                StyledText {
+                    wrapMode: Text.Wrap
+                    font: Tokens.font.body.small
+                    color: Colours.palette.m3onSurfaceVariant
+                    text: qsTr("Dictation stops working until it is installed again.")
                 }
             }
         }

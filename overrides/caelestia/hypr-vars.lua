@@ -33,4 +33,6 @@ return {
     -- Web search has one key: rectangle or circle is chosen in the selector.
     kbOcrScreenshot = "SUPER + SHIFT + T",
     kbRegionSearch = "SUPER + SHIFT + A",
+    -- Press to start dictating, press again to type what was said.
+    kbDictation = "SUPER + SHIFT + D",
 }

@@ -714,6 +714,106 @@ cmp -s "$new/chrome/userChrome.css" "$td/state/caelestia/dots/firefox/userChrome
     no "user.js: $(tr '\n' ' ' < "$new/user.js")"
 rm -rf "$td"
 
+ox_step "Offline translation languages"
+# A local index and model zip stand in for Argos's, so this needs no network
+# and none of the translation packages: it covers what is installed, how, and
+# which pairs a translation can route through.
+td="$(mktemp -d)"
+mkdir -p "$td/assets" "$td/pkg"
+cp "$OX_ROOT/shell/extensions/ai/tree/assets/ai/translate.py" "$td/assets/"
+for pair in en_fr fr_en en_de de_en; do
+    d="$td/pkg/translate-$pair-1_0"
+    mkdir -p "$d/model" "$d/stanza/en"
+    : > "$d/model/model.bin"; : > "$d/sentencepiece.model"; : > "$d/stanza/en/ewt.pt"
+    (cd "$td/pkg" && zip -qr "$pair.zip" "translate-$pair-1_0")
+done
+"$PY" - "$td" <<'PY'
+import json, sys
+td = sys.argv[1]
+names = {"en": "English", "fr": "French", "de": "German"}
+index = [{"from_code": a, "to_code": b, "from_name": names[a], "to_name": names[b], "code": f"translate-{a}_{b}",
+          "links": [f"file://{td}/pkg/{a}_{b}.zip"]} for a, b in (("en","fr"),("fr","en"),("en","de"),("de","en"))]
+json.dump(index, open(f"{td}/index.json", "w"))
+json.dump({"index": {"url": f"file://{td}/index.json", "pivot": "en"},
+           "runtime": {"python": "3.13", "packages": []}, "limits": {"modelBytes": 10000000}},
+          open(f"{td}/assets/translate.json", "w"))
+PY
+tr_run() { XDG_DATA_HOME="$td/data" "$PY" "$td/assets/translate.py" "$@"; }
+if ! ox_have zip; then skipt "no zip to build a test model"
+else
+    tr_run status | grep -q '"code": "fr"' && ok "status lists the languages the index has both ways" ||
+        no "status did not list French"
+    tr_run install fr >/dev/null
+    [ -f "$td/data/0xide/translate/en_fr/model/model.bin" ] && [ -f "$td/data/0xide/translate/fr_en/sentencepiece.model" ] &&
+        [ ! -e "$td/data/0xide/translate/en_fr/stanza" ] &&
+        ok "a language installs both directions through English, without stanza" ||
+        no "installing French did not leave both model directions"
+    tr_run install de >/dev/null
+    err="$(tr_run translate fr es "Bonjour" 2>&1 >/dev/null)"
+    [[ "$err" == *"Install fr and es"* ]] && ok "a pair that is not installed is refused with what to install" ||
+        no "a missing pair gave: $err"
+    "$PY" - "$td" <<'PY' && ok "two installed languages route through English" || no "fr to de did not route through English"
+import importlib.util, os, sys
+td = sys.argv[1]
+os.environ["XDG_DATA_HOME"] = f"{td}/data"
+spec = importlib.util.spec_from_file_location("t", f"{td}/assets/translate.py")
+t = importlib.util.module_from_spec(spec); spec.loader.exec_module(t)
+assert t.route("fr", "de") == [("fr", "en"), ("en", "de")], t.route("fr", "de")
+assert t.route("en", "fr") == [("en", "fr")]
+assert t.SENTENCE.split("One. Two? Three!") == ["One.", "Two?", "Three!"]
+PY
+    tr_run remove fr >/dev/null
+    [ ! -e "$td/data/0xide/translate/en_fr" ] && [ -e "$td/data/0xide/translate/en_de" ] &&
+        ok "removing a language leaves the others" || no "removing French touched German"
+fi
+rm -rf "$td"
+
+ox_step "Voice dictation"
+# Recorder, recogniser and typist are stubs; what is checked is the toggle, the
+# typed text, the clipboard and the notification.
+td="$(mktemp -d)"
+mkdir -p "$td/bin" "$td/run" "$td/data/0xide/speech" "$td/conf/caelestia"
+: > "$td/data/0xide/speech/ggml-base.bin"
+printf '{"ai":{"dictationLanguage":"en"}}\n' > "$td/conf/caelestia/shell.json"
+cat > "$td/bin/pw-record" <<'STUB'
+#!/bin/sh
+for f; do :; done
+printf 'RIFF' > "$f"
+trap 'exit 0' INT TERM
+while :; do sleep 0.1; done
+STUB
+cat > "$td/bin/whisper-cli" <<STUB
+#!/bin/sh
+printf '%s\n' "\$*" > "$td/whisper.args"
+printf ' Hello from the microphone.\n'
+STUB
+for stub in wtype wl-copy notify-send; do
+    printf '#!/bin/sh\n[ "%s" = wl-copy ] && cat > "%s/clipboard"\nprintf "%%s\\n" "$*" >> "%s/%s.log"\n[ "%s" = notify-send ] && case " $* " in *" -p "*) echo 7 ;; esac\nexit 0\n' \
+        "$stub" "$td" "$td" "$stub" "$stub" > "$td/bin/$stub"
+done
+chmod +x "$td/bin/"*
+dictate() {
+    PATH="$td/bin:$PATH" XDG_RUNTIME_DIR="$td/run" XDG_DATA_HOME="$td/data" XDG_CONFIG_HOME="$td/conf" \
+        bash "$OX_ROOT/shell/extensions/ai/tree/assets/dictation/dictate.sh"
+}
+dictate
+[ -f "$td/run/0xide-dictation/recorder.pid" ] && grep -q 'Listening' "$td/notify-send.log" &&
+    ok "the first press starts recording and says so" || no "the first press did not start recording"
+dictate
+grep -qx -- '-- Hello from the microphone.' "$td/wtype.log" &&
+    ok "the second press types what was said into the focused window" ||
+    no "typed: $(cat "$td/wtype.log" 2>/dev/null)"
+[ "$(cat "$td/clipboard" 2>/dev/null)" = "Hello from the microphone." ] &&
+    ok "and leaves it on the clipboard" || no "clipboard: $(cat "$td/clipboard" 2>/dev/null)"
+grep -q -- '-l en' "$td/whisper.args" && ok "the configured language is passed to whisper" ||
+    no "whisper got: $(cat "$td/whisper.args")"
+grep -q -- '-r 7 .*Dictated' "$td/notify-send.log" && [ ! -e "$td/run/0xide-dictation/recording.wav" ] &&
+    ok "the Listening notification is replaced, and the recording deleted" ||
+    no "notifications: $(tr '\n' '|' < "$td/notify-send.log")"
+rm -rf "$td"
+n=$(grep -c '^bind_to("kbDictation"' "$OX_ROOT/overrides/caelestia/hypr-user.lua")
+[ "$n" = 1 ] && ok "hypr-user.lua binds the dictation key once" || no "kbDictation is bound $n times"
+
 ox_step "Cursor fallback in hypr-vars.lua"
 if ! ox_have lua; then skipt "no lua"
 else

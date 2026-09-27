@@ -20,10 +20,11 @@ end
 
 -- Keys upstream already bound, so a binding added here can never shadow one.
 -- hypr/hyprland/keybinds.lua binds every vars.kb* value it knows about; these
--- three are ours and are bound nowhere else.
+-- are ours and are bound nowhere else.
 local ours = {
     kbOcrScreenshot = true,
     kbRegionSearch = true,
+    kbDictation = true,
 }
 
 local taken = {}
@@ -34,7 +35,7 @@ end
 
 -- create_bind in hypr/hyprland/keybinds.lua is a private helper; hl.bind is
 -- what it calls, so binding directly here needs no change to that file.
-local function bind(name, action)
+local function bind_to(name, dispatcher)
     local key = normalise(vars[name])
     if not key or key == "" then return end
     if taken[key] then
@@ -43,8 +44,17 @@ local function bind(name, action)
         return
     end
     taken[key] = name
-    hl.bind(vars[name], hl.dsp.global("caelestia:" .. action))
+    hl.bind(vars[name], dispatcher)
+end
+
+local function bind(name, action)
+    bind_to(name, hl.dsp.global("caelestia:" .. action))
 end
 
 bind("kbOcrScreenshot", "screenshotOcr")
 bind("kbRegionSearch", "regionSearch")
+
+-- Dictation is a script, not a shell shortcut: it records and types from
+-- outside the shell, so it keeps working while the shell restarts.
+local config_home = os.getenv("XDG_CONFIG_HOME") or (os.getenv("HOME") .. "/.config")
+bind_to("kbDictation", hl.dsp.exec_cmd("bash " .. config_home .. "/quickshell/caelestia/assets/dictation/dictate.sh"))

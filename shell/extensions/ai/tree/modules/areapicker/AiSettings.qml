@@ -13,6 +13,7 @@ ColumnLayout {
 
     property bool confirmInstall: false
     property bool confirmRemove: false
+    property string removeLanguage: ""
 
     readonly property var missing: AiRuntime.info.missing ?? []
     readonly property int backendIndex: GlobalConfig.ai.backend === "managed" ? 2 : GlobalConfig.ai.backend === "external" ? 1 : 0
@@ -250,6 +251,97 @@ ColumnLayout {
         font: Tokens.font.label.large
         color: AiRuntime.error ? Colours.palette.m3error : Colours.palette.m3outline
         text: AiRuntime.error || AiRuntime.message
+    }
+
+    // Offline translation: each language is a pair of models through English,
+    // so English appears as soon as any other language is installed.
+    StyledText {
+        Layout.fillWidth: true
+        Layout.topMargin: Tokens.spacing.medium
+        text: qsTr("Translation languages")
+        font: Tokens.font.title.small
+    }
+    StyledText {
+        Layout.fillWidth: true
+        wrapMode: Text.Wrap
+        color: Colours.palette.m3outline
+        font: Tokens.font.label.large
+        text: Translator.installed.length ? qsTr("Translate runs offline between these. Select one to remove it.") : qsTr("None installed. Each language is about 160 MB and translates offline to and from every other installed one.")
+    }
+    Flow {
+        Layout.fillWidth: true
+        visible: Translator.installed.length > 0
+        spacing: Tokens.spacing.extraSmall
+
+        Repeater {
+            model: Translator.installed
+
+            TextButton {
+                required property string modelData
+
+                type: TextButton.Tonal
+                text: Translator.name(modelData)
+                disabled: Translator.working || modelData === "en"
+                onClicked: root.removeLanguage = modelData
+            }
+        }
+    }
+    RowLayout {
+        visible: !!root.removeLanguage
+        spacing: Tokens.spacing.small
+
+        StyledText {
+            font: Tokens.font.label.large
+            text: qsTr("Remove %1?").arg(Translator.name(root.removeLanguage))
+        }
+        TextButton {
+            type: TextButton.Tonal
+            text: qsTr("Remove")
+            onClicked: {
+                Translator.remove(root.removeLanguage);
+                root.removeLanguage = "";
+            }
+        }
+        TextButton {
+            type: TextButton.Text
+            text: qsTr("Keep")
+            onClicked: root.removeLanguage = ""
+        }
+    }
+    StyledTextField {
+        id: languageFilter
+
+        Layout.fillWidth: true
+        placeholderText: qsTr("Add a language, e.g. French")
+    }
+    Flow {
+        Layout.fillWidth: true
+        visible: !!languageFilter.text.trim()
+        spacing: Tokens.spacing.extraSmall
+
+        Repeater {
+            model: Translator.available.filter(l => !Translator.installed.includes(l.code) && l.code !== "en" && l.name.toLowerCase().includes(languageFilter.text.trim().toLowerCase()))
+
+            TextButton {
+                required property var modelData
+
+                type: TextButton.Text
+                text: modelData.name
+                disabled: Translator.working
+                onClicked: {
+                    Translator.install(modelData.code);
+                    languageFilter.text = "";
+                }
+            }
+        }
+    }
+    StyledText {
+        Layout.fillWidth: true
+        visible: !!(Translator.error || Translator.message || Translator.working)
+        wrapMode: Text.Wrap
+        font: Tokens.font.label.large
+        color: Translator.error ? Colours.palette.m3error : Colours.palette.m3outline
+        text: Translator.error || Translator.message || qsTr("Working...")
     }
 
     StyledText {

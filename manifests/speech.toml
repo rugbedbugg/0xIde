@@ -1,0 +1,15 @@
+# Speech recognition for voice dictation (SUPER + SHIFT + D). Nothing here is
+# vendored: the whisper.cpp model is fetched on request from the OCR & AI
+# settings, verified against the hash below, and stored under
+# $XDG_DATA_HOME/0xide/speech. The engine itself is the distribution's
+# whisper-cpp package (whisper-cli).
+#
+# base is multilingual and small enough to transcribe a sentence in a second or
+# two on a laptop CPU.
+
+[model]
+repo = "ggerganov/whisper.cpp"
+revision = "5359861c739e955e79d9a303bcbc70fb988958b1"
+file = "ggml-base.bin"
+bytes = 147951465
+sha256 = "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe"

@@ -66,6 +66,7 @@ applications Caelestia does not theme itself.
 -   `git`, `rsync`, `python`, `jq`
 -   For text extraction: [`tesseract`][tesseract] with the language data you want, and `wl-clipboard`
 -   For web search: [`fuzzel`](https://codeberg.org/dnkl/fuzzel) to ask before a circle sends anything, and `curl` for the optional file-host mode
+-   For voice dictation: `whisper-cpp` and `wtype`
 -   For the local AI model: [`uv`](https://docs.astral.sh/uv/), `git`, `clang`, `cmake` and
     `ninja`, to build the runtime on your machine. Not needed for an external endpoint
 -   For the cursor: [`sweet-cursors-git`](https://aur.archlinux.org/packages/sweet-cursors-git),
@@ -111,10 +112,11 @@ rather than failing. The first version of every file this project replaces is ke
 
 ### Keybinds
 
-| Key                 | Action                              | Result                   |
-| ------------------- | ----------------------------------- | ------------------------ |
-| `SUPER + SHIFT + T` | Extract text from a region          | clipboard, nothing opens |
-| `SUPER + SHIFT + A` | Search a region, or ask AI about it | browser, or the AI panel |
+| Key                 | Action                              | Result                                    |
+| ------------------- | ----------------------------------- | ----------------------------------------- |
+| `SUPER + SHIFT + T` | Extract text from a region          | clipboard, nothing opens                  |
+| `SUPER + SHIFT + A` | Search a region, or ask AI about it | browser, or the AI panel                  |
+| `SUPER + SHIFT + D` | Start dictating; press again to end | typed where you are, and on the clipboard |
 
 They are set in `overrides/caelestia/hypr-vars.lua` and bound in
 `overrides/caelestia/hypr-user.lua`, both extension points Caelestia supports. A binding
@@ -133,13 +135,24 @@ start dragging; press `Esc` to start over.
    **Local** to run a small model on this computer (see below), or point it at any
    OpenAI-compatible endpoint.
 2. **Capture.** Press `SUPER + SHIFT + A`, choose **Ask AI**, and drag over the text.
-3. **Ask.** Pick **Explain**, **Summarize**, **Translate** or **Custom** and press
+3. **Ask.** Pick **Explain**, **Summarize**, **Translate**, **Custom** or **Code** and press
    **Ask AI**. Any text you select in either pane is what gets asked about instead of the
    whole capture.
+
+The answer appears beside the text, formatted, with code in the terminal's font; it can be
+scrolled while it is still being written. **Code** asks for the minimal working code for
+the problem in the capture.
 
 The first answer takes a few seconds while the local model starts. It is a 2B model on the
 CPU, good for short passages rather than long documents. With the local backend nothing
 leaves this computer.
+
+**Translate** runs offline, without the model, once two or more languages are installed
+under **Translation** in the OCR & AI settings (about 160 MB each). Pick the languages
+beside the Translate button; any two installed languages translate into each other through
+English. Without them, Translate asks the model instead, which is weak outside English.
+The models are [Argos Translate](https://github.com/argosopentech/argos-translate)'s, run
+with CTranslate2; [`manifests/translate.toml`](manifests/translate.toml) pins them.
 
 For scripts, or a key of its own, the same panel is reachable over IPC and as the
 `caelestia:askAi` shortcut:
@@ -177,7 +190,16 @@ uv run --no-project --python 3.13 runtime.py install
 ```
 
 The model server listens on `127.0.0.1` only, starts on the first question, and stops
-after five idle minutes.
+after five idle minutes or when the shell exits.
+
+### Voice dictation
+
+Press `SUPER + SHIFT + D`, speak, and press it again. The recording is transcribed on this
+computer by [whisper.cpp](https://github.com/ggml-org/whisper.cpp), typed into the focused
+window, and left on the clipboard; the recording is deleted straight away. It needs the
+`whisper-cpp` and `wtype` packages, and the speech model, which **Voice dictation** in the
+OCR & AI settings installs (148 MB, pinned in [`manifests/speech.toml`](manifests/speech.toml)).
+The language is detected unless you set one there.
 
 ## Updating
 
@@ -231,8 +253,10 @@ paths and binary names for a machine that puts things somewhere unusual.
     disables region search.
 -   **The AI backend defaults to a local model** on `127.0.0.1`. A remote endpoint is your
     choice, and the destination is shown above the submit button.
--   **The AI model is not in this repository.** `manifests/ai.toml` pins its revision and
-    SHA-256, and the runtime fetches and verifies it only when you ask.
+-   **No model is in this repository.** `manifests/ai.toml`, `translate.toml` and
+    `speech.toml` pin what is fetched, and each is downloaded only when you ask.
+-   **Dictation stays on this computer.** Audio is recorded to the private runtime
+    directory, transcribed locally, and deleted.
 -   **Nothing that needs root is on by default**, and sudo rules are checked with
     `visudo -c` before they are installed.
 
