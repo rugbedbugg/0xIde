@@ -48,14 +48,6 @@ if ox_have luac || ox_have lua; then
     done
 else skipt "no lua interpreter"; fi
 
-ox_step "RON"
-if ox_have rmpc; then
-    for f in "$OX_ROOT"/adapters/rmpc/config/themes/*.ron; do
-        # rmpc validates a theme by name from its config dir, so check it there.
-        ok "${f#$OX_ROOT/} (validated at install by rmpc itself)"
-    done
-else skipt "rmpc not installed"; fi
-
 ox_step "Patches apply to the pinned revision"
 SRC="$OX_BUILD/shell-src"
 if [ -d "$SRC/.git" ]; then

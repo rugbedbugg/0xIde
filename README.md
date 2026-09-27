@@ -42,7 +42,6 @@ applications Caelestia does not theme itself.
     -   **Cursor**: Caelestia's Sweet cursor, rebuilt in the scheme's colours. Upstream
         names it `sweet-cursors` while the package installs `Sweet-cursors`, so stock
         Caelestia always shows the default cursor. See [`adapters/cursor`](adapters/cursor/README.md).
-    -   **Yazi** and **rmpc**: nothing to run, their themes name terminal ANSI slots
 -   **Login screen** (optional): an SDDM theme that follows the Caelestia scheme,
     wallpaper and profile picture. See [`system/sddm`](system/sddm/README.md).
 

@@ -33,8 +33,6 @@ report optional hyprcursor-util "adapters/cursor (the scalable hyprcursor theme)
 report optional fuzzel      "shell/extensions/search (asks before any upload)"
 report optional spicetify   "adapters/spotify"
 report optional papirus-folders "adapters/papirus"
-report optional yazi        "adapters/yazi"
-report optional rmpc        "adapters/rmpc"
 report optional dconf       "adapters/kde (GNOME font keys)"
 report optional notify-send "shell extensions (error reporting)"
 
