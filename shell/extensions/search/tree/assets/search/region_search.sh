@@ -22,10 +22,12 @@ trap 'rm -f -- "$image"' EXIT
 # --- configuration -----------------------------------------------------------
 # mode      text        OCR locally, search the extracted text. No image leaves
 #                       this machine. The default for a rectangle.
+#           lens        Send the image to Google Lens itself and open its
+#                       results. Only Google receives it, and no public link is
+#                       made. The default for a circle, and it still asks first.
 #           host-upload Upload the image to a public file host, then hand Google
 #                       Lens the resulting URL. The URL is public and
 #                       unauthenticated for as long as the host retains it.
-#                       The default for a circle, and it still asks first.
 #           off         Disabled.
 # confirm   always      Ask before any transmission (default).
 #           never       Never ask. Only meaningful with an explicit mode.
@@ -34,10 +36,14 @@ trap 'rm -f -- "$image"' EXIT
 # line still turns uploading off everywhere.
 mode="text"
 if [[ "$gesture" == "circle" ]]; then
-    mode="host-upload"
+    mode="lens"
 fi
 confirm="always"
 search_url="https://www.google.com/search?q="
+# Lens takes the image itself and answers with a redirect to its results. It
+# only answers a browser, so it is asked as one.
+lens_upload="https://lens.google.com/v3/upload"
+browser_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36"
 # host|field=value|...|filefield=@   The reply is either the URL itself or
 # JSON containing it. Listed in order; the first that answers with a link wins.
 upload_endpoints=(
@@ -79,8 +85,24 @@ if [[ "$mode" == "text" ]]; then
     text="$(tesseract "$image" - -l "$ocr_languages" 2>/dev/null | tr '\n' ' ' | tr -s ' ')"
     text="${text#"${text%%[![:space:]]*}"}"
     text="${text%"${text##*[![:space:]]}"}"
-    [[ -n "$text" ]] || die "No text was found in the selected region. Switch mode to host-upload in ${conf} to search the image itself."
+    [[ -n "$text" ]] || die "No text was found in the selected region. Draw a circle instead to search the image itself."
     open_search "${search_url}$(printf '%s' "$text" | jq -sRr @uri)"
+fi
+
+# --- mode: lens (image goes to Google Lens only) ------------------------------
+if [[ "$mode" == "lens" ]]; then
+    ask "Send this region to lens.google.com?" ||
+        { notify-send -a 0xide-search "Search cancelled" "Nothing was sent."; exit 0; }
+    # No --location: the redirect is the answer, not something to follow.
+    results="$(curl --silent --show-error --max-time 30 --user-agent "$browser_agent" \
+        --form "encoded_image=@${image};type=image/png" \
+        --output /dev/null --write-out '%{http_code} %{redirect_url}' "$lens_upload" 2>/dev/null || true)"
+    status="${results%% *}"
+    results="${results#* }"
+    [[ "$status" == 30* && "$results" == https://* ]] ||
+        die "Google Lens did not accept the image (HTTP ${status:-no reply}). Set mode=host-upload in ${conf} to go through a file host instead."
+    notify-send -a 0xide-search "Google Lens" "Region sent to Google Lens; results opened in your browser."
+    open_search "$results"
 fi
 
 # --- mode: host-upload (image leaves this machine) ---------------------------

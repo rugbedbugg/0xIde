@@ -241,8 +241,9 @@ if grep -qE '^confirm="always"' "$rs"; then ok "any upload confirms by default"
 else no "region search no longer confirms before uploading"; fi
 if grep -qE '"\$mode" == "off"' "$rs"; then ok "region search can be disabled entirely"
 else no "region search lost its off switch"; fi
-if grep -q 'ask "Upload this region to' "$rs"; then ok "the upload prompt names the destination host"
-else no "the upload prompt no longer names the host"; fi
+if grep -q 'ask "Send this region to lens.google.com?"' "$rs" && grep -q 'ask "Upload this region to' "$rs"
+then ok "every upload prompt names where the image goes"
+else no "an upload prompt no longer names where the image goes"; fi
 
 # No privileged side effect may happen without a prompt.
 # Prose that tells you not to do it is not doing it, so markdown is excluded.
@@ -305,14 +306,39 @@ STUB
         bash "$rs" "$sdir/circle.png" circle >/dev/null 2>&1 || true
     sleep 1
     case "$(cat "$sdir/prompt" 2>/dev/null)" in
-        *uguu*) ok "a circle asks before uploading, naming the host" ;;
-        "") no "a circle did not ask before uploading" ;;
-        *) no "the upload prompt no longer names the host" ;;
+        *lens.google.com*) ok "a circle asks before sending, naming Google Lens" ;;
+        "") no "a circle did not ask before sending" ;;
+        *) no "the circle prompt no longer names Google Lens" ;;
     esac
     [ -s "$sdir/opened" ] && no "declining the prompt still opened a search" ||
         ok "declining the prompt uploads nothing and opens nothing"
     [ -e "$sdir/circle.png" ] && no "the circle capture was not removed" ||
         ok "the circle capture is removed"
+
+    # Accepted, the image goes to Lens alone and its results open. curl is
+    # stubbed to answer as Lens does: a redirect to the results page.
+    cat > "$sdir/bin/fuzzel" <<STUB
+#!/bin/sh
+cat >/dev/null
+printf 'Send the image\n'
+STUB
+    cat > "$sdir/bin/curl" <<STUB
+#!/bin/sh
+printf '%s\n' "\$@" > "$sdir/curl-args"
+printf '303 https://www.google.com/search?vsrid=probe'
+STUB
+    chmod +x "$sdir/bin/fuzzel" "$sdir/bin/curl"
+    rm -f "$sdir/opened"
+    cp "$sdir/probe.png" "$sdir/sent.png"
+    PATH="$sdir/bin:$PATH" XDG_CONFIG_HOME="$sdir/conf" \
+        bash "$rs" "$sdir/sent.png" circle >/dev/null 2>&1 || true
+    sleep 1
+    [ "$(cat "$sdir/opened" 2>/dev/null)" = "https://www.google.com/search?vsrid=probe" ] &&
+        grep -qx 'https://lens.google.com/v3/upload' "$sdir/curl-args" && ! grep -qiE 'uguu|uploadbyurl' "$sdir/curl-args" &&
+        ok "an accepted circle goes to Google Lens alone and opens its results" ||
+        no "an accepted circle did not go straight to Google Lens"
+    rm -f "$sdir/bin/curl"
+    printf '#!/bin/sh\ncat >/dev/null\nprintf "Cancel\\n"\n' > "$sdir/bin/fuzzel"
 
     # One line in the config still overrides the gesture for both.
     rm -f "$sdir/opened"

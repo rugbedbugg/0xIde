@@ -29,7 +29,7 @@ applications Caelestia does not theme itself.
         capture is deleted straight away.
     -   **Web search.** A dragged rectangle is read with local OCR and only the recognised
         text is searched, so no image leaves the machine. A freehand circle searches the
-        picture itself and uploads it, asking first, every time, naming the host.
+        picture itself with Google Lens, asking first, every time.
     -   **Local AI.** A BitNet runtime bound to `127.0.0.1`, or any OpenAI-compatible
         chat-completions endpoint you point it at. It explains, summarises, translates or
         tabulates captured text, and nothing is sent anywhere unless you press Ask AI.
@@ -55,7 +55,7 @@ applications Caelestia does not theme itself.
 -   [`quickshell-git`](https://git.outfoxxed.me/quickshell/quickshell)
 -   `git`, `rsync`, `python`, `jq`
 -   For text extraction: [`tesseract`][tesseract] with the language data you want, and `wl-clipboard`
--   For web search: `curl`, and [`fuzzel`](https://codeberg.org/dnkl/fuzzel) to ask before a circle uploads
+-   For web search: `curl`, and [`fuzzel`](https://codeberg.org/dnkl/fuzzel) to ask before a circle sends anything
 -   For building the shell: `cmake`, `ninja`, `libqalculate` and the Qt 6 development
     packages, the same set upstream needs
 
@@ -166,11 +166,12 @@ paths and binary names for a machine that puts things somewhere unusual.
 -   **Text extraction is local.** The recognised text goes to the clipboard and nowhere
     else, and the capture is deleted whether it succeeded or not.
 -   **Region search stays local.** Only the recognised text is searched.
--   **Circle search uploads, and asks first.** The capture goes to a temporary file host
-    and Google Lens is handed the URL, which is public for as long as the host keeps it.
-    Every upload asks first, naming the host, and a declined, failed or dismissed prompt
-    refuses. `mode="text"` in `region-search.conf` keeps both gestures local, and
-    `mode="off"` disables region search.
+-   **Circle search goes to Google Lens, and asks first.** The capture is sent to Google
+    Lens itself and its results open in your browser: only Google receives it, and no
+    public link is made. Every send asks first, and a declined, failed or dismissed
+    prompt refuses. `mode="host-upload"` in `region-search.conf` routes it through a
+    public file host instead, `mode="text"` keeps both gestures local, and `mode="off"`
+    disables region search.
 -   **The AI backend defaults to a local model** on `127.0.0.1`. A remote endpoint is your
     choice, and the destination is shown above the submit button.
 -   **The AI model is not in this repository.** `manifests/ai.toml` pins its revision and
