@@ -2,7 +2,7 @@
 # 0xIde installer.
 #
 #   ./install                      install every default component
-#   ./install --enable edge        also install a component that is off by default
+#   ./install --enable sddm        also install a component that is off by default
 #   ./install --disable spotify    skip one that is on by default
 #   ./install --only shell         install just these
 #   ./install --status             report what is installed and working

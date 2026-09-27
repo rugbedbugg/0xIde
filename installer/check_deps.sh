@@ -16,7 +16,7 @@ report() {
     fi
 }
 
-report required jq          "adapters/edge, adapters/papirus"
+report required jq          "adapters/papirus"
 report required python3     "adapters/kde, installer"
 report optional caelestia   "everything (caelestia-cli)"
 report optional qs          "shell (quickshell)"

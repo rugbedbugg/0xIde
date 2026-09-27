@@ -606,6 +606,61 @@ PY
     rm -rf "$td"
 fi
 
+ox_step "GTK adapter"
+# A stand-in adw-gtk3 and a dconf stub that remembers gtk-theme, so the real
+# desktop is never touched. Caelestia's templates are the one real dependency.
+if ! "$PY" -c 'import caelestia.utils.theme' >/dev/null 2>&1; then skipt "caelestia-cli is not installed"
+else
+    td="$(mktemp -d)"
+    mkdir -p "$td/conf/gtk-3.0" "$td/data" "$td/state" "$td/bin" "$td/sys/themes/adw-gtk3/gtk-3.0"
+    : > "$td/sys/themes/adw-gtk3/gtk-3.0/gtk.css"
+    printf '[Settings]\ngtk-font-name=Sans 10\ngtk-theme-name=adw-gtk3\n' > "$td/conf/gtk-3.0/settings.ini"
+    printf '@define-color headerbar_bg_color #ff0000;\n' > "$td/conf/gtk-3.0/gtk.css"
+    cat > "$td/bin/dconf" <<STUB
+#!/bin/sh
+if [ "\$1" = read ]; then cat "$td/gtk-theme" 2>/dev/null; exit 0; fi
+printf '%s\n' "\$*" >> "$td/dconf.log"
+[ "\$2" = /org/gnome/desktop/interface/gtk-theme ] && printf '%s\n' "\$3" > "$td/gtk-theme"
+exit 0
+STUB
+    chmod +x "$td/bin/dconf"
+    scheme() { # surfaceDim -> scheme.json
+        printf '{"mode":"light","colours":{"primary":"4d6073","onPrimary":"ffffff","background":"fdfbfc","onBackground":"1b1c1d","surface":"fdfbfc","surfaceDim":"%s","onSurface":"1b1c1d"}}\n' "$1" \
+            > "$td/state/scheme.json"
+    }
+    gtk() {
+        PATH="$td/bin:$PATH" XDG_CONFIG_HOME="$td/conf" XDG_DATA_HOME="$td/data" XDG_DATA_DIRS="$td/sys" \
+            OX_SCHEME="$td/state/scheme.json" "$OX_ROOT/adapters/gtk/apply" >/dev/null 2>&1
+    }
+    theme() { tr -d "'\n" < "$td/gtk-theme" 2>/dev/null; }
+
+    scheme 111111; gtk
+    first="$(theme)"
+    if [ "$first" = 0xide-a ] && grep -q 'headerbar_bg_color #111111' "$td/data/themes/0xide-a/gtk-3.0/gtk.css" &&
+        grep -q 'file://'"$td"'/sys/themes/adw-gtk3/gtk-3.0/gtk.css' "$td/data/themes/0xide-a/gtk-3.0/gtk.css"
+    then ok "the palette is written into a theme built on adw-gtk3, and switched to"
+    else no "no generated theme with the palette (gtk-theme: ${first:-unset})"; fi
+    ! grep -q '@define-color' "$td/conf/gtk-3.0/gtk.css" &&
+        ok "the user stylesheet no longer pins colours that open windows would keep" ||
+        no "the GTK3 user stylesheet still defines colours"
+    grep -qx 'gtk-theme-name=0xide-a' "$td/conf/gtk-3.0/settings.ini" && grep -qx 'gtk-font-name=Sans 10' "$td/conf/gtk-3.0/settings.ini" &&
+        ok "settings.ini names the theme and keeps everything else" ||
+        no "settings.ini: $(tr '\n' ' ' < "$td/conf/gtk-3.0/settings.ini")"
+    grep -q 'headerbar_bg_color #111111' "$td/conf/gtk-4.0/gtk.css" &&
+        ok "GTK4 and libadwaita still get the palette in their own stylesheet" ||
+        no "the GTK4 stylesheet has no palette"
+
+    : > "$td/dconf.log"; gtk
+    [ "$(theme)" = 0xide-a ] && ! grep -q gtk-theme "$td/dconf.log" &&
+        ok "an unchanged palette switches nothing" || no "an unchanged palette switched the theme"
+
+    scheme 222222; gtk
+    [ "$(theme)" = 0xide-b ] && grep -q 'headerbar_bg_color #222222' "$td/data/themes/0xide-b/gtk-3.0/gtk.css" &&
+        ok "a new palette switches to the other theme name, which open windows reload" ||
+        no "a new palette did not switch themes (gtk-theme: $(theme))"
+    rm -rf "$td"
+fi
+
 ox_step "Cursor fallback in hypr-vars.lua"
 if ! ox_have lua; then skipt "no lua"
 else

@@ -6,6 +6,6 @@ set -euo pipefail
 # name from before the rename.
 dest=/etc/sudoers.d/0xide
 old=/etc/sudoers.d/caelestia-mod
-echo "Removing $dest (and $old, if present). The papirus and edge adapters will stop working."
+echo "Removing $dest (and $old, if present). The papirus adapter will stop working."
 sudo rm -f -- "$dest" "$old"
 ox_log "removed $dest"

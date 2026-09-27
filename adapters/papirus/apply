@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Caelestia already maps the scheme's primary colour to a Papirus folder colour
-# and calls papirus-folders itself. It just needs root, and fails silently
-# without it. So this adapter does not re-derive a colour: it reuses Caelestia's
-# own mapping and only exists to make the failure visible and recoverable.
+# Caelestia maps the scheme's primary colour to a Papirus folder colour from its
+# GTK step, which the gtk adapter turns off, so the call is made from here. It
+# needs root and fails silently without it. The colour is not re-derived: this
+# reuses Caelestia's own mapping.
 set -euo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
 

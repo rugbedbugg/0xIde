@@ -1,0 +1,170 @@
+#!/usr/bin/python3
+"""Colour GTK through a generated theme, so running applications follow along.
+
+Caelestia colours GTK by writing its palette into the user stylesheet,
+~/.config/gtk-3.0/gtk.css. GTK reads that file once, when an application
+starts, and never again, so every GTK3 window that is already open (Microsoft
+Edge in its GTK mode, Thunar, file pickers) keeps the old colours until it is
+restarted. GTK does reload the theme when the theme name changes. So this puts
+the same palette, rendered from Caelestia's own templates, into a theme built on
+adw-gtk3, and moves the theme name between two directories on every change:
+each change is a real switch, which open applications pick up at once.
+
+The user stylesheet then has to stop defining colours, because a colour defined
+there overrides the theme's in every application that read it at startup.
+Caelestia's own GTK step is turned off in cli.json ("enableGtk": false) and the
+rest of what it did is repeated here: the stylesheets GTK4 and libadwaita read,
+Thunar's, the colour scheme preference and the icon theme. Papirus folder
+colours are the papirus adapter's.
+"""
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+THEMES = ("0xide-a", "0xide-b")
+BASES = {"light": "adw-gtk3", "dark": "adw-gtk3-dark"}
+
+home = Path.home()
+config_dir = Path(os.getenv("XDG_CONFIG_HOME") or home / ".config")
+data_dir = Path(os.getenv("XDG_DATA_HOME") or home / ".local/share")
+state_dir = Path(os.getenv("XDG_STATE_HOME") or home / ".local/state")
+scheme_path = Path(os.getenv("OX_SCHEME") or state_dir / "caelestia/scheme.json")
+
+USER_CSS = """\
+/* Written by 0xIde's gtk adapter. The scheme's colours live in the
+ * generated 0xide-a / 0xide-b theme instead, because GTK reads this file only
+ * when an application starts; a colour defined here would keep open
+ * applications on the old palette. */
+"""
+
+
+def find_theme(name):
+    dirs = [data_dir / "themes", home / ".themes"]
+    for d in (os.getenv("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":"):
+        if d:
+            dirs.append(Path(d) / "themes")
+    for d in dirs:
+        if (d / name / "gtk-3.0/gtk.css").is_file():
+            return d / name
+    return None
+
+
+def write(path, text):
+    """Only when it changed, and never half-written."""
+    if path.is_file() and path.read_text() == text:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(text)
+    tmp.replace(path)
+    return True
+
+
+def dconf(key, value):
+    subprocess.run(["dconf", "write", f"/org/gnome/desktop/interface/{key}", f"'{value}'"],
+                   capture_output=True, check=False)
+
+
+def current_theme():
+    try:
+        out = subprocess.run(["dconf", "read", "/org/gnome/desktop/interface/gtk-theme"],
+                             capture_output=True, text=True, check=False).stdout
+    except OSError:
+        return ""
+    return out.strip().strip("'")
+
+
+def set_ini(path, key, value):
+    """One key under [Settings], every other line kept."""
+    lines = path.read_text().splitlines() if path.is_file() else ["[Settings]"]
+    section = None
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if s.startswith("["):
+            if section == "[Settings]":
+                lines.insert(i, f"{key}={value}")
+                break
+            section = s
+        elif section == "[Settings]" and s.split("=", 1)[0].strip() == key:
+            lines[i] = f"{key}={value}"
+            break
+    else:
+        if "[Settings]" not in (l.strip() for l in lines):
+            lines.append("[Settings]")
+        lines.append(f"{key}={value}")
+    write(path, "\n".join(lines) + "\n")
+
+
+def main():
+    try:
+        scheme = json.loads(scheme_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return 0
+    mode = scheme.get("mode")
+    colours = scheme.get("colours") or {}
+    if mode not in BASES or not colours:
+        return 0
+
+    base = find_theme(BASES[mode])
+    if base is None:
+        print(f"gtk: {BASES[mode]} is not installed; leaving GTK alone")
+        return 0
+
+    # Caelestia's own templates and icon theme choice, so the colours are
+    # exactly what its GTK step would have produced.
+    from caelestia.utils.theme import gen_replace, get_config, templates_dir
+
+    gtk_css = gen_replace(colours, templates_dir / "gtk.css", hash=True)
+    thunar_css = gen_replace(colours, templates_dir / "thunar.css", hash=True)
+
+    # GTK4 and libadwaita ignore the theme name, so they still read the palette
+    # from the user stylesheet, as they did under Caelestia.
+    write(config_dir / "gtk-4.0/gtk.css", gtk_css)
+    write(config_dir / "gtk-4.0/thunar.css", thunar_css)
+    write(config_dir / "gtk-3.0/thunar.css", thunar_css)
+    write(config_dir / "gtk-3.0/gtk.css", USER_CSS)
+
+    theme_css = {
+        version: f'@import url("file://{base}/{version}/gtk.css");\n\n{gtk_css}'
+        for version in ("gtk-3.0", "gtk-4.0")
+        if (base / version / "gtk.css").is_file()
+    }
+
+    # Nothing to do when the theme in use already has this palette; switching
+    # anyway would redraw every open window for no change.
+    current = current_theme()
+    if current in THEMES and all(
+        (data_dir / "themes" / current / v / "gtk.css").is_file()
+        and (data_dir / "themes" / current / v / "gtk.css").read_text() == css
+        for v, css in theme_css.items()
+    ):
+        target = current
+    else:
+        target = THEMES[1] if current == THEMES[0] else THEMES[0]
+        root = data_dir / "themes" / target
+        write(root / "index.theme",
+              f"[Desktop Entry]\nType=X-GNOME-Metatheme\nName={target}\n"
+              f"Comment=Caelestia scheme on {BASES[mode]}, written by 0xIde\n\n"
+              f"[X-GNOME-Metatheme]\nGtkTheme={target}\n")
+        for version, css in theme_css.items():
+            write(root / version / "gtk.css", css)
+            write(root / version / "thunar.css", thunar_css)
+
+    cfg = get_config().get("theme", {})
+    icon_theme = cfg.get(f"iconTheme{mode.capitalize()}") or cfg.get("iconTheme") or f"Papirus-{mode.capitalize()}"
+
+    # settings.ini for applications that do not use the settings portal, dconf
+    # for those that do: that is the path that reaches open windows.
+    set_ini(config_dir / "gtk-3.0/settings.ini", "gtk-theme-name", target)
+    dconf("color-scheme", f"prefer-{mode}")
+    dconf("icon-theme", icon_theme)
+    if current != target:
+        dconf("gtk-theme", target)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

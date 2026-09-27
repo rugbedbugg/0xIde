@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs the passwordless rules the papirus and edge adapters need.
+# Installs the passwordless rule the papirus adapter needs.
 # Prints the exact file first and refuses to run unattended.
 set -euo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
@@ -35,13 +35,13 @@ sudo install -m 0440 -o root -g root "$staged" "$dest"
 ox_own "$dest"
 ox_log "installed $dest"
 
-# Before the rename from caelestia-mod the rule and the Edge policy it writes
-# were named after Caelestia. The old rule goes; the old policy is renamed so
-# Edge keeps its colour until the next theme change rewrites it.
+# The rule from before the rename from caelestia-mod goes. So do the policy
+# files the removed Edge adapter wrote, under either name: Edge never
+# implemented the theme policies in them, and the gtk adapter colours it now.
 sudo rm -f -- /etc/sudoers.d/caelestia-mod
-old_policy=/etc/opt/edge/policies/managed/caelestia.json
-new_policy=/etc/opt/edge/policies/managed/0xide.json
-if [ -f "$old_policy" ] && [ ! -L "$old_policy" ] && ! pacman -Qqo "$old_policy" >/dev/null 2>&1; then
-    if [ -e "$new_policy" ]; then sudo rm -f -- "$old_policy"; else sudo mv -- "$old_policy" "$new_policy"; fi
-    ox_log "moved the Edge policy to $new_policy"
-fi
+for policy in /etc/opt/edge/policies/managed/0xide.json /etc/opt/edge/policies/managed/caelestia.json; do
+    if [ -f "$policy" ] && [ ! -L "$policy" ] && ! pacman -Qqo "$policy" >/dev/null 2>&1; then
+        sudo rm -f -- "$policy"
+        ox_log "removed the old Edge policy $policy"
+    fi
+done

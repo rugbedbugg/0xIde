@@ -15,7 +15,9 @@ plus dconf, which is what Thunar and the rest of the GTK stack read.
 Widget styles are the one thing caelestia sets once at install and never
 revisits, so a light scheme was being drawn inside dark chrome. The style is
 picked from the scheme's mode here instead, and written through dconf as well
-as settings.ini so GTK applications that are already open follow along.
+as settings.ini so GTK applications that are already open follow along. When
+the gtk adapter is enabled the GTK theme is its to choose, since it generates
+one of its own, so only the Qt style is set here.
 """
 
 import json
@@ -36,6 +38,7 @@ STYLES = {
 }
 
 config_dir = Path(os.getenv("XDG_CONFIG_HOME", Path.home() / ".config"))
+enabled_path = config_dir / "0xide/adapters.enabled"
 src_path = config_dir / "qtengine/caelestia.colors"
 cfg_path = config_dir / "qtengine/config.json"
 dst_path = config_dir / "kdeglobals"
@@ -164,6 +167,13 @@ def have_gtk_theme(name):
     return any((base / name).is_dir() for base in (Path("/usr/share/themes"), Path.home() / ".themes"))
 
 
+def gtk_adapter_enabled():
+    try:
+        return "gtk" in enabled_path.read_text().split()
+    except OSError:
+        return False
+
+
 def have_qt_style(name):
     """Qt style plugins are named after the style, lowercased, plus the major version."""
     for base in (Path("/usr/lib"), Path("/usr/lib64")):
@@ -241,7 +251,7 @@ def main():
         # cannot resolve leaves applications on their fallback, which looks
         # worse than the mismatch this is fixing.
         qt_style = want_qt if have_qt_style(want_qt) else None
-        gtk_theme = want_gtk if have_gtk_theme(want_gtk) else None
+        gtk_theme = want_gtk if have_gtk_theme(want_gtk) and not gtk_adapter_enabled() else None
 
     if cfg_path.is_file():
         try:

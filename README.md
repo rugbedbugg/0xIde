@@ -35,9 +35,11 @@ applications Caelestia does not theme itself.
         tabulates captured text, and nothing is sent anywhere unless you press Ask AI.
     -   **OCR & AI settings** in the shell's own settings app.
 -   Theme adapters, for applications Caelestia does not reach:
+    -   **GTK**: open GTK windows recolour on a scheme change instead of on their next
+        start, including Edge and Chrome in their GTK appearance. See
+        [`adapters/gtk`](adapters/gtk/README.md).
     -   **KDE**: Dolphin and Ark colours via `kdeglobals`, and one font across Qt, GTK and GNOME
     -   **Spotify**: re-applies the spicetify theme after a scheme change
-    -   **Microsoft Edge**: browser theme colour through a managed policy
     -   **Papirus**: folder icons follow the scheme
     -   **Cursor**: Caelestia's Sweet cursor, rebuilt in the scheme's colours. Upstream
         names it `sweet-cursors` while the package installs `Sweet-cursors`, so stock
