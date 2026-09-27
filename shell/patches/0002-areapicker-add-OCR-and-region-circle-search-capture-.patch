@@ -78,7 +78,7 @@ index 76cc1039..b2acd3b1 100644
 +        }
 +        function onErrorChanged(): void {
 +            if (Ocr.error)
-+                Quickshell.execDetached(["notify-send", "-a", "caelestia", "-u", "critical", "OCR failed", Ocr.error]);
++                Quickshell.execDetached(["notify-send", "-a", "0xide", "-i", "edit-copy-symbolic", "-u", "critical", "OCR failed", Ocr.error]);
 +        }
 +
 +        target: Ocr
@@ -337,7 +337,7 @@ index 5e847603..65cea844 100644
 +        }, () => {
 +            // A capture that failed still has to close the selector, and has to
 +            // say so rather than looking like an empty result.
-+            Quickshell.execDetached(["notify-send", "-a", "caelestia", "-u", "critical", "Capture failed", "The selected region could not be captured"]);
++            Quickshell.execDetached(["notify-send", "-a", "0xide", "-i", "applets-screenshooter-symbolic", "-u", "critical", "Capture failed", "The selected region could not be captured"]);
 +            closeAnim.start();
          });
      }

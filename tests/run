@@ -1246,6 +1246,25 @@ fi
 grep -qE '^sddm[[:space:]]*:[[:space:]]*system[[:space:]]*:[[:space:]]*off[[:space:]]*:' "$OX_ROOT/installer/components.conf" &&
     ok "the SDDM theme is not installed by a plain ./install" || no "the SDDM theme is on by default"
 
+ox_step "Notifications"
+# The shell draws every notification in the scheme's colours; what a sender
+# chooses is the app name, the icon and the urgency. Ours read as the shell's
+# own do: the 0xide name, a symbolic icon it tints, and urgency set on purpose.
+bad=""
+while IFS= read -r line; do
+    case "$line" in
+        *'"-a", "0xide'*'"-i", "'*'-symbolic"'*|*'-a 0xide'*'-i '*'-symbolic'*) ;;
+        *) bad="$bad
+        $line" ;;
+    esac
+done < <(git -C "$OX_ROOT" grep -h -E 'notify-send' -- shell/extensions |
+             grep -vE '^\s*#' ; git -C "$OX_ROOT" grep -h -E '^\+.*notify-send' -- shell/patches)
+[ -z "$bad" ] && ok "every notification 0xIde sends has its name and a symbolic icon" ||
+    no "notifications without the 0xide name or a symbolic icon:$bad"
+grep -q 'note -u critical "Search failed"' "$rs" && grep -q 'note -u low "Search cancelled"' "$rs" &&
+    grep -q '"-u", critical ? "critical" : "low"' "$OX_ROOT/shell/extensions/ocr/tree/services/Ocr.qml" &&
+    ok "failures are critical, cancelled or empty results low" || no "notification urgency is no longer set on purpose"
+
 ox_step "Rename from caelestia-mod"
 # 0xIde was caelestia-mod. What it kept under the old names moves on first use,
 # and nothing moves over what is already under the new ones.

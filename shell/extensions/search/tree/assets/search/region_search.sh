@@ -13,8 +13,12 @@ set -euo pipefail
 
 image="${1:-}"
 gesture="${2:-}"
+# As the shell's own notifications read: a symbolic icon the notification view
+# tints with the scheme, and urgency for the colour (failure critical, a
+# cancelled or disabled search low, a search that went ahead normal).
+note() { notify-send -a 0xide-search -i system-search-symbolic "$@"; }
 if [[ -z "$image" || ! -s "$image" ]]; then
-    notify-send -a 0xide-search -u critical "Search failed" "The selected image was not captured"
+    note -u critical "Search failed" "The selected image was not captured"
     exit 1
 fi
 trap 'rm -f -- "$image"' EXIT
@@ -56,12 +60,12 @@ conf="${XDG_CONFIG_HOME:-$HOME/.config}/0xide/region-search.conf"
 [[ -r "$conf" ]] && source "$conf"
 
 if [[ "$mode" == "off" ]]; then
-    notify-send -a 0xide-search "Region search is disabled" "Enable it in ${conf}"
+    note -u low "Region search is disabled" "Enable it in ${conf}"
     exit 0
 fi
 
 # --- helpers -----------------------------------------------------------------
-die() { notify-send -a 0xide-search -u critical "Search failed" "$1"; exit 1; }
+die() { note -u critical "Search failed" "$1"; exit 1; }
 
 open_search() {
     xdg-open "$1" >/dev/null 2>&1 &
@@ -92,7 +96,7 @@ fi
 # --- mode: lens (image goes to Google Lens only) ------------------------------
 if [[ "$mode" == "lens" ]]; then
     ask "Send this region to lens.google.com?" ||
-        { notify-send -a 0xide-search "Search cancelled" "Nothing was sent."; exit 0; }
+        { note -u low "Search cancelled" "Nothing was sent."; exit 0; }
     # No --location: the redirect is the answer, not something to follow.
     results="$(curl --silent --show-error --max-time 30 --user-agent "$browser_agent" \
         --form "encoded_image=@${image};type=image/png" \
@@ -101,7 +105,7 @@ if [[ "$mode" == "lens" ]]; then
     results="${results#* }"
     [[ "$status" == 30* && "$results" == https://* ]] ||
         die "Google Lens did not accept the image (HTTP ${status:-no reply}). Set mode=host-upload in ${conf} to go through a file host instead."
-    notify-send -a 0xide-search "Google Lens" "Region sent to Google Lens; results opened in your browser."
+    note "Google Lens" "Region sent to Google Lens; results opened in your browser."
     open_search "$results"
 fi
 
@@ -114,7 +118,7 @@ host="${upload_endpoints[0]%%|*}"
 host="${host#*://}"
 host="${host%%/*}"
 ask "Upload this region to ${host} and open Google Lens?" ||
-    { notify-send -a 0xide-search "Search cancelled" "Nothing was uploaded."; exit 0; }
+    { note -u low "Search cancelled" "Nothing was uploaded."; exit 0; }
 
 image_url=""
 reason=""
@@ -154,5 +158,5 @@ done
 [[ -n "$image_url" ]] ||
     die "${reason:-No upload host is configured}. Set upload_endpoints in ${conf} to use a different host."
 
-notify-send -a 0xide-search "Google Lens" "Region uploaded to ${host}; search opened in your browser."
+note "Google Lens" "Region uploaded to ${host}; search opened in your browser."
 open_search "https://lens.google.com/uploadbyurl?url=$(printf '%s' "$image_url" | jq -sRr @uri)"

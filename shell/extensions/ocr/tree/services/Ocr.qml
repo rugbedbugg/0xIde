@@ -66,11 +66,11 @@ Scope {
             CUtils.deleteFile(Qt.resolvedUrl(path));
     }
 
+    // As the shell's own notifications read: a symbolic icon, which the
+    // notification view tints with the scheme, and urgency for the colour. A
+    // failure is critical (error colours); nothing found or still busy is low.
     function notify(title: string, body: string, critical: bool): void {
-        const args = ["notify-send", "-a", "caelestia"];
-        if (critical)
-            args.push("-u", "critical");
-        Quickshell.execDetached(args.concat([title, body]));
+        Quickshell.execDetached(["notify-send", "-a", "0xide", "-i", "edit-copy-symbolic", "-u", critical ? "critical" : "low", title, body]);
     }
 
     function publish(text: string, structured: var): void {
