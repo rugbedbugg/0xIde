@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# A pretend Hyprland session with the Caelestia shell, for the desktop profile
+# tests. The profile code runs every desktop command through $OX_DP_RUNNER; the
+# tests point that here, so no command reaches the real compositor or shell.
+#
+# State lives in $DP_SIM:
+#   windows      one window per line, tab-separated: address, workspace id,
+#                monitor, floating (0/1), fullscreen, pinned (0/1), x, y,
+#                width, height, stable id (hex, "-" for none), class, tags
+#   caelestia    present while the shell runs
+#   owner        "pid exe" of the org.freedesktop.Notifications owner
+#   installed    commands `command -v` finds, one per line
+#   fail         behaviours to break, one per line:
+#                  hypr-query            hyprctl -j clients fails
+#                  hypr-<op>             hyprctl eval of float/workspace/move/resize fails
+#                  hypr-<op>-<address>   the same, for one window only
+#                  hypr-ignore-<op>      eval succeeds but changes nothing
+#                  caelestia-start  caelestia-notifications
+#   calls        every command received, one per line; a hyprctl eval is
+#                logged by its first line, which names the action
+#   lua          every hyprctl eval script, in full
+# Tiling a window moves it into a layout slot, as Hyprland would; floating one
+# keeps its geometry.
+set -uo pipefail
+: "${DP_SIM:?}"
+
+broken() { grep -qx "$1" "$DP_SIM/fail" 2>/dev/null; }
+take() { [ -s "$DP_SIM/owner" ] || printf '%s\n' "$1" > "$DP_SIM/owner"; }
+CAEL="100 /usr/bin/quickshell"
+
+if [ "$1 ${2:-}" = "hyprctl eval" ]; then
+    printf 'hyprctl eval %s\n' "$(printf '%s\n' "$3" | head -1)" >> "$DP_SIM/calls"
+    printf '%s\n---\n' "$3" >> "$DP_SIM/lua"
+else
+    printf '%s\n' "$*" >> "$DP_SIM/calls"
+fi
+
+# A Lua string literal of \ddd escapes, decoded.
+lua_bytes() {
+    local out="" n
+    for n in $(grep -oE '[0-9]{3}' <<<"$1"); do out="$out$(printf "\\$(printf '%03o' "$((10#$n))")")"; done
+    printf '%s' "$out"
+}
+
+# Runs an action as the real Lua would: the first line names it
+# (local action = "0xide: <op> <address> <args>"), the window is looked up by
+# that address, and its stable id and class are checked before anything is
+# dispatched to it.
+hypr_eval() {
+    local header op address a b id class line
+    # Real hyprctl reads an argument starting with "-" as an option of its own.
+    case "$1" in -*) echo "usage: hyprctl [flags] <command> [args...|--help]"; return 1 ;; esac
+    header="$(printf '%s\n' "$1" | head -1)"
+    [[ "$header" =~ ^local\ action\ =\ \"0xide:\ ([a-z]+)\ (0x[0-9a-f]+)\ ?([^ \"]*)\ ?([^ \"]*)\"$ ]] ||
+        { echo "Error: not a 0xide action"; return 1; }
+    op="${BASH_REMATCH[1]}" address="${BASH_REMATCH[2]}" a="${BASH_REMATCH[3]}" b="${BASH_REMATCH[4]}"
+    grep -qF "local w = hl.get_window(\"address:$address\")" <<<"$1" &&
+        grep -qE '^hl\.dispatch\(hl\.dsp\.window\.[a-z]+\(\{ .*window = w[ ,].*\}\)\)$' <<<"$1" ||
+        { echo "Error: malformed action"; return 1; }
+    id="$(sed -n 's/^local id = "\(.*\)"$/\1/p' <<<"$1")"
+    class="$(lua_bytes "$(sed -n 's/^if class ~= "\(.*\)" then error.*/\1/p' <<<"$1")")"
+    line="$(awk -F'\t' -v a="$address" '$1 == a' "$DP_SIM/windows")"
+    [ -n "$line" ] || { echo "Error: $header: no such window"; return 1; }
+    [ "$id" = - ] || [ "$(cut -f11 <<<"$line")" = "$id" ] ||
+        { echo "Error: $header: the address now belongs to another window"; return 1; }
+    [ "$(cut -f12 <<<"$line")" = "$class" ] || { echo "Error: $header: the address now belongs to another window"; return 1; }
+    { broken "hypr-$op" || broken "hypr-$op-$address"; } && { echo "Error: $op failed"; return 1; }
+    if broken "hypr-ignore-$op"; then
+        # The Lua checks floating after a float; other actions are not checked.
+        [ "$op" = float ] && { echo "Error: $header: Hyprland did not change it"; return 1; }
+        echo ok; return 0
+    fi
+    awk -F'\t' -v OFS='\t' -v op="$op" -v addr="$address" -v a="$a" -v b="$b" '
+        $1 == addr {
+            if (op == "float" && a == "on")  { $4 = 1 }
+            if (op == "float" && a == "off") { $4 = 0; $7 = 10 * $2; $8 = 20; $9 = 900; $10 = 1000 }
+            if (op == "workspace")           { $2 = a; if ($4 == 0) $7 = 10 * a }
+            if (op == "move")                { $7 = a; $8 = b }
+            if (op == "resize")              { $9 = a; $10 = b }
+        }
+        { print }
+    ' "$DP_SIM/windows" > "$DP_SIM/windows.new" && mv "$DP_SIM/windows.new" "$DP_SIM/windows"
+    echo ok
+}
+
+# The windows as hyprctl -j clients prints them.
+hypr_clients() {
+    jq -R -s '
+        split("\n") | map(select(length > 0) | split("\t")) | map({
+            address: .[0], mapped: true, hidden: false,
+            workspace: { id: (.[1] | tonumber), name: .[1] }, monitor: (.[2] | tonumber),
+            floating: (.[3] == "1"), fullscreen: (.[4] | tonumber), pinned: (.[5] == "1"),
+            at: [(.[6] | tonumber), (.[7] | tonumber)], size: [(.[8] | tonumber), (.[9] | tonumber)],
+            stableId: (if .[10] == "-" then null else .[10] end),
+            class: .[11], title: "", tags: ((.[12] // "") | split(",") | map(select(length > 0)))
+        })' "$DP_SIM/windows"
+}
+
+case "$1 ${2:-}" in
+    "hyprctl eval")
+        hypr_eval "$3"; exit ;;
+    "hyprctl -j")
+        [ "${3:-}" = clients ] || { echo "UNEXPECTED $*" >> "$DP_SIM/calls"; exit 99; }
+        broken hypr-query && exit 1
+        hypr_clients; exit ;;
+esac
+
+case "$*" in
+    "command -v "*)
+        grep -qx "$3" "$DP_SIM/installed" 2>/dev/null ;;
+    "qs -c caelestia list -j")
+        if [ -e "$DP_SIM/caelestia" ]; then echo '[{"pid": 100, "id": "sim"}]'
+        else echo "No running instances for caelestia"; fi ;;
+    "caelestia shell -d")
+        broken caelestia-start && exit 1
+        touch "$DP_SIM/caelestia"
+        broken caelestia-notifications || take "$CAEL" ;;
+    "busctl --user --no-pager status org.freedesktop.Notifications")
+        [ -s "$DP_SIM/owner" ] || exit 1
+        read -r pid exe < "$DP_SIM/owner"
+        printf 'PID=%s\nPPID=1\nComm=%s\nExe=%s\n' "$pid" "$(basename "$exe")" "$exe" ;;
+    "notify-send "*)
+        : ;;
+    *)
+        printf 'UNEXPECTED %s\n' "$*" >> "$DP_SIM/calls"
+        exit 99 ;;
+esac

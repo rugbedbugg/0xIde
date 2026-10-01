@@ -2,13 +2,13 @@
 # Materialises the forked Caelestia shell from upstream + patches + extensions,
 # builds the plugin, and (unless --no-install) installs both.
 #
-#   ./shell/build.sh [--extensions ai,ocr,search] [--no-install] [--no-plugin]
+#   ./shell/build.sh [--extensions ai,ocr,search,desktop-profile] [--no-install] [--no-plugin]
 #
 # Nothing here writes outside $OX_BUILD, $OX_QMLDIR and $OX_SHELLDIR.
 set -euo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../orchestration/lib/common.sh"
 
-EXTENSIONS="ai,ocr,search"
+EXTENSIONS="ai,ocr,search,desktop-profile"
 DO_INSTALL=1
 DO_PLUGIN=1
 while [ $# -gt 0 ]; do
@@ -86,10 +86,16 @@ if [ "$DO_PLUGIN" = 1 ]; then
     cmake --install "$OX_BUILD/plugin" >/dev/null
 fi
 
-# The import path is substituted here rather than committed, so no machine
-# path ever enters the repository.
-sed -i "s|@OXIDE_QML_IMPORT_PATH@|$OX_QMLDIR|" "$SRC/shell.qml"
-grep -q "@OXIDE_QML_IMPORT_PATH@" "$SRC/shell.qml" && ox_die "import path substitution failed"
+# The import path and this checkout's location are substituted here rather
+# than committed, so no machine path ever enters the repository.
+for p in "$OX_QMLDIR" "$OX_ROOT"; do
+    ox_path_substitutable "$p" || ox_die "a path put into QML must not contain a quote, backslash or newline: $p"
+done
+while IFS= read -r f; do
+    ox_render_path @OXIDE_QML_IMPORT_PATH@ "$OX_QMLDIR" < "$f" | ox_render_path @OXIDE_ROOT@ "$OX_ROOT" > "$f.new" &&
+        mv -f "$f.new" "$f"
+done < <(grep -rlF --include='*.qml' -e "@OXIDE_QML_IMPORT_PATH@" -e "@OXIDE_ROOT@" "$SRC" || true)
+grep -rqF --include='*.qml' -e "@OXIDE_QML_IMPORT_PATH@" -e "@OXIDE_ROOT@" "$SRC" && ox_die "path substitution failed"
 
 if [ "$DO_INSTALL" = 0 ]; then
     ox_step "Built, not installed"

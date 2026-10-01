@@ -134,12 +134,10 @@ enable_adapter() {
 }
 
 install_overrides() {
-    for f in hypr-vars.lua hypr-user.lua; do
-        if run ox_install_file "$OX_CAELCONF/$f" 644 < "$OX_ROOT/overrides/caelestia/$f"; then
-            ox_log "$f"
-        fi
-        run ox_own "$OX_CAELCONF/$f"
-    done
+    if run ox_install_file "$OX_CAELCONF/hypr-vars.lua" 644 < "$OX_ROOT/overrides/caelestia/hypr-vars.lua"; then
+        ox_log "hypr-vars.lua"
+    fi
+    run ox_own "$OX_CAELCONF/hypr-vars.lua"
     # shell.json is also written by the shell's settings UI, so only the keys
     # the overlay names are set; everything else in it is the user's.
     "$(ox_python)" "$OX_ROOT/installer/apply_overlay.py" \
@@ -148,12 +146,16 @@ install_overrides() {
         0|1) ;;
         *) ox_warn "shell.json was left as it is; fix it and run ./install --only overrides again" ;;
     esac
-    # cli.json carries this checkout's path, so it is rendered, not copied.
-    if [ "$DRY" = 1 ]; then ox_log "would render cli.json with postHook -> $OX_ROOT"; else
-        sed "s|@OX_ROOT@|$OX_ROOT|" "$OX_ROOT/overrides/caelestia/cli.json" |
-            ox_install_file "$OX_CAELCONF/cli.json" 644 && ox_log "cli.json"
-        ox_own "$OX_CAELCONF/cli.json"
-    fi
+    # cli.json and hypr-user.lua carry this checkout's path, so they are
+    # rendered, not copied.
+    ox_path_substitutable "$OX_ROOT" ||
+        ox_die "the checkout path must not contain a quote, backslash or newline: $OX_ROOT"
+    for f in cli.json hypr-user.lua; do
+        if [ "$DRY" = 1 ]; then ox_log "would render $f with this checkout's path"; continue; fi
+        ox_render_path @OX_ROOT@ "$OX_ROOT" < "$OX_ROOT/overrides/caelestia/$f" |
+            ox_install_file "$OX_CAELCONF/$f" 644 && ox_log "$f"
+        ox_own "$OX_CAELCONF/$f"
+    done
     if run ox_install_file "$OX_CAELCONF/user-config.fish" 644 < "$OX_ROOT/overrides/fish/user-config.fish"; then
         ox_log "user-config.fish"
     fi

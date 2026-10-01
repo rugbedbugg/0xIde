@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# 0xIde's runtime command line: switching the desktop profile of the running
+# Hyprland session. Installing is ./install's job, not this one's.
+set -uo pipefail
+
+# shellcheck source=orchestration/desktop-profile-manager.sh
+. "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd)/orchestration/desktop-profile-manager.sh"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  0xide profile list [--tsv]         the desktop profiles; * marks the active one
+  0xide profile get                  the active profile
+  0xide profile plan <id>            what switching to <id> would do
+  0xide profile set <id> [--dry-run] switch to <id>, or with --dry-run show the plan
+  0xide profile status               the active profile, and whether it is really in effect
+  0xide profile resume               give new windows the active profile's policy (run at login)
+
+set exits 0 when switched, 1 when it failed and the previous desktop was
+restored (or nothing had changed), 2 when that restore failed as well.
+Progress and failures are logged to $XDG_STATE_HOME/0xide/desktop-profile.log.
+EOF
+}
+
+profile() {
+    case "${1:-}" in
+        list)   dpm_list "${2:-}" ;;
+        get)    dpm_get ;;
+        plan)   [ -n "${2:-}" ] || { usage >&2; return 64; }
+                dpm_show_plan "$2" ;;
+        set)    [ -n "${2:-}" ] || { usage >&2; return 64; }
+                case "${3:-}" in
+                    "")        dpm_execute_plan "$2" 0 ;;
+                    --dry-run) dpm_execute_plan "$2" 1 ;;
+                    *)         usage >&2; return 64 ;;
+                esac ;;
+        status) dpm_status ;;
+        resume) dpm_resume ;;
+        *)      usage >&2; return 64 ;;
+    esac
+}
+
+case "${1:-}" in
+    profile)      shift; profile "$@" ;;
+    -h|--help|"") usage ;;
+    *)            printf 'unknown command: %s\n' "$1" >&2; usage >&2; exit 64 ;;
+esac

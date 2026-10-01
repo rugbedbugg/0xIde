@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Oxide 1-6 <yes.par781@gmail.com>
+Date: Tue, 29 Sep 2026 09:00:00 +0530
+Subject: [PATCH] nexus: register the Theme settings page
+
+Upstream has no runtime page-registration hook, so a new settings page has
+to be added to both registries by hand. It follows OCR & AI at the end of the
+Shell group, before About, since the two registries are matched by position
+and the navigation groups consecutive pages of one category.
+---
+ modules/nexus/PageCompRegistry.qml | 8 ++++++++
+ modules/nexus/PageRegistry.qml     | 6 ++++++
+ 2 files changed, 14 insertions(+)
+
+diff --git a/modules/nexus/PageCompRegistry.qml b/modules/nexus/PageCompRegistry.qml
+index ea21603e..36f2b494 100644
+--- a/modules/nexus/PageCompRegistry.qml
++++ b/modules/nexus/PageCompRegistry.qml
+@@ -182,6 +182,14 @@ QtObject {
+                 }
+             }
+         },
++        Component {
++            // Theme
++            StackPage {
++                Component {
++                    ThemePage {}
++                }
++            }
++        },
+
+         // About
+         Component {
+diff --git a/modules/nexus/PageRegistry.qml b/modules/nexus/PageRegistry.qml
+index 365ece21..0bdd4b86 100644
+--- a/modules/nexus/PageRegistry.qml
++++ b/modules/nexus/PageRegistry.qml
+@@ -87,6 +87,12 @@ QtObject {
+             description: qsTr("OCR, AI backend, local model"),
+             category: "shell"
+         },
++        {
++            label: qsTr("Theme"),
++            icon: "desktop_windows",
++            description: qsTr("Desktop profile: Caelestia or another desktop"),
++            category: "shell"
++        },
+
+         // About
+         {

@@ -50,6 +50,23 @@ ox_python() {
 # Reads a "key = value" pin/conf file without sourcing it.
 ox_pin() { sed -n "s/^[[:space:]]*$2[[:space:]]*=[[:space:]]*//p" "$1" | head -1; }
 
+# A path substituted for a placeholder lands inside double-quoted QML, Lua and
+# JSON strings and a single-quoted shell word, so one with a quote, backslash
+# or newline is refused rather than escaped for each language. Spaces are fine.
+ox_path_substitutable() {
+    case "$1" in
+        *[\"\'\\]*|*$'\n'*) return 1 ;;
+    esac
+}
+
+# Replaces every <placeholder> in stdin with <path>, whatever sed would make of
+# the path's &, | or \. Check the path with ox_path_substitutable first.
+ox_render_path() {
+    local repl
+    repl="$(printf '%s' "$2" | sed 's/[\\&|]/\\&/g')"
+    sed "s|$1|$repl|g"
+}
+
 # Writes stdin to $1 only if the content differs, so repeated installs are
 # no-ops and nothing downstream sees a spurious mtime change.
 ox_install_file() {

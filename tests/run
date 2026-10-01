@@ -1738,6 +1738,505 @@ spotify_case "PID exited before ps saw it"       skip  "101"     ""
 spotify_case "one PID seen by both detectors"    apply "101"     "101"     101=Sl
 rm -rf "$sp"
 
+# ---------------------------------------------------------------- desktop profiles
+# Every switch below runs the real CLI, provider and WM layer against
+# tests/desktop-sim, a pretend Hyprland session with the Caelestia shell, in a
+# throwaway XDG tree. PATH starts with traps named after every desktop command,
+# so a command that bypassed the runner would be caught rather than reach this
+# machine's compositor or shell.
+DPT="$(mktemp -d)"
+mkdir -p "$DPT/trap"
+for cmd in hyprctl qs caelestia quickshell systemctl busctl notify-send \
+           xplasma plasmashell kquitapp6 kwin_wayland kwin_x11 startplasma-wayland kwriteconfig6 setsid pgrep pkill; do
+    printf '#!/bin/sh\necho "%s $*" >> "%s/leaks"\nexit 97\n' "$cmd" "$DPT" > "$DPT/trap/$cmd"
+    chmod +x "$DPT/trap/$cmd"
+done
+
+dpx() {
+    env XDG_CONFIG_HOME="$DPT/case/c" XDG_STATE_HOME="$DPT/case/s" XDG_DATA_HOME="$DPT/case/d" \
+        XDG_CACHE_HOME="$DPT/case/k" DP_SIM="$DPT/case/sim" OX_DP_RUNNER="$OX_ROOT/tests/desktop-sim" \
+        OX_DP_NO_SLEEP=1 DP_WAIT_TRIES=3 PATH="$DPT/trap:$PATH" "$@"
+}
+# Runs bash with the profile manager sourced.
+dplib() { dpx bash -c '. "$1/orchestration/desktop-profile-manager.sh"; eval "$2"' _ "$OX_ROOT" "$1"; }
+# Caelestia running and owning notifications, over four windows: two tiled on
+# workspace 1, one floating on workspace 2, one on a special workspace.
+dp_reset() {
+    rm -rf "$DPT/case"
+    mkdir -p "$DPT/case/sim" "$DPT/case/c" "$DPT/case/s"
+    printf '%s\n' caelestia qs hyprctl > "$DPT/case/sim/installed"
+    touch "$DPT/case/sim/caelestia"
+    echo "100 /usr/bin/quickshell" > "$DPT/case/sim/owner"
+    printf '%s\n' \
+        $'0xa1\t1\t0\t0\t0\t0\t10\t20\t900\t1000\ta10\tfoot\t' \
+        $'0xb2\t1\t0\t0\t0\t0\t920\t20\t900\t1000\tb20\tfirefox\t' \
+        $'0xc3\t2\t0\t1\t0\t0\t300\t200\t640\t480\tc30\tthunar\t' \
+        $'0xd4\t-98\t0\t0\t0\t0\t0\t0\t500\t500\td40\tdiscord\t' > "$DPT/case/sim/windows"
+}
+dp_active() { dpx "$OX_ROOT/0xide" profile get; }
+dp_set() { dpx "$OX_ROOT/0xide" profile set "$@"; }
+dp_calls() { cat "$DPT/case/sim/calls" 2>/dev/null; }
+dp_fail() { printf '%s\n' "$@" >> "$DPT/case/sim/fail"; }
+dp_owner() { cat "$DPT/case/sim/owner"; }
+dp_line() { dp_calls | grep -nxF -- "$1" | head -1 | cut -d: -f1; }
+# One window's field (2 workspace, 4 floating, 7 x, 8 y, 9 width, 10 height).
+dp_win() { awk -F'\t' -v a="$1" -v f="$2" '$1 == a { print $f }' "$DPT/case/sim/windows"; }
+dp_winline() { awk -F'\t' -v a="$1" '$1 == a' "$DPT/case/sim/windows"; }
+dp_policy() { head -1 "$DPT/case/s/0xide/wm-policy" 2>/dev/null; }
+dp_ledger() { sort "$DPT/case/s/0xide/wm-floated" 2>/dev/null | tr '\t\n' ': '; }
+dp_evals() { dp_calls | grep -c '^hyprctl eval'; }
+# A window opened in the running session.
+dp_open() { printf '%s\n' "$1" >> "$DPT/case/sim/windows"; }
+# A user profile using the hybrid policy, as a future GEOINT profile would.
+dp_geoint() {
+    mkdir -p "$DPT/case/c/0xide/profiles/geoint"
+    printf 'id = geoint\nname = GEOINT\nprovider = native-caelestia\nwm_policy = hybrid\nwm_float_classes = qgis, gimp\nwm_float_tags = map\n' > "$DPT/case/c/0xide/profiles/geoint/profile.conf"
+}
+
+ox_step "Desktop profiles: registry"
+dp_reset
+out="$(dpx "$OX_ROOT/0xide" profile list --tsv)"
+[ "$out" = "$(printf 'caelestia\tCaelestia\t1\tThe Caelestia shell over tiled windows\nwindows-xp\tWindows XP\t0\tFloating, overlapping windows, as on Windows XP')" ] &&
+    ok "list --tsv: Caelestia and Windows XP, with id, name, active, description" || no "list --tsv: $out"
+for p in caelestia windows-xp; do
+    [ "$(dplib "dp_get_provider $p")" = native-caelestia ] && ok "$p runs on the native Caelestia provider" ||
+        no "$p provider: $(dplib "dp_get_provider $p")"
+done
+[ "$(dplib 'dp_get_policy caelestia')" = tiling ] && ok "Caelestia declares the tiling policy" || no "caelestia policy: $(dplib 'dp_get_policy caelestia')"
+[ "$(dplib 'dp_get_policy windows-xp')" = stacking ] && ok "Windows XP declares the stacking policy" || no "windows-xp policy: $(dplib 'dp_get_policy windows-xp')"
+[ ! -e "$OX_ROOT/providers/xplasma" ] && [ "$(ls "$OX_ROOT/providers")" = native-caelestia ] &&
+    ok "native-caelestia is the only provider; no XPlasma provider remains" || no "providers: $(ls "$OX_ROOT/providers" | tr '\n' ' ')"
+out="$(grep -rlE '^provider *= *(xplasma|plasma|kde)' "$OX_ROOT/profiles" || true)"
+[ -z "$out" ] && ok "no profile names a Plasma provider" || no "Plasma profiles: $out"
+[ "$(dp_active)" = caelestia ] && ok "no state file: Caelestia is active" || no "no state file: $(dp_active)"
+mkdir -p "$DPT/case/s/0xide"
+for bad in "" "   " "windows-7" "../etc" "Windows-XP" "xplasma"; do
+    printf '%s\n' "$bad" > "$DPT/case/s/0xide/active-profile"
+    [ "$(dp_active)" = caelestia ] && ok "state '$bad' falls back to Caelestia" || no "state '$bad' gave $(dp_active)"
+done
+printf 'windows-xp\n' > "$DPT/case/s/0xide/active-profile"
+[ "$(dp_active)" = windows-xp ] && ok "a committed profile is read back" || no "committed windows-xp read as $(dp_active)"
+# A user profile shadows a shipped one; malformed ones are ignored.
+dp_reset
+for d in caelestia wrongdir pipe nopolicy badpolicy badclass; do mkdir -p "$DPT/case/c/0xide/profiles/$d"; done
+printf 'id = caelestia\nname = My Caelestia\nprovider = native-caelestia\nwm_policy = tiling\n' > "$DPT/case/c/0xide/profiles/caelestia/profile.conf"
+printf 'id = other\nname = Other\nprovider = native-caelestia\nwm_policy = tiling\n' > "$DPT/case/c/0xide/profiles/wrongdir/profile.conf"
+printf 'id = pipe\nname = A|B\nprovider = native-caelestia\nwm_policy = tiling\n' > "$DPT/case/c/0xide/profiles/pipe/profile.conf"
+printf 'id = nopolicy\nname = No policy\nprovider = native-caelestia\n' > "$DPT/case/c/0xide/profiles/nopolicy/profile.conf"
+printf 'id = badpolicy\nname = Bad policy\nprovider = native-caelestia\nwm_policy = ../../etc/x\n' > "$DPT/case/c/0xide/profiles/badpolicy/profile.conf"
+printf 'id = badclass\nname = Bad class\nprovider = native-caelestia\nwm_policy = hybrid\nwm_float_classes = a"b\n' > "$DPT/case/c/0xide/profiles/badclass/profile.conf"
+out="$(dpx "$OX_ROOT/0xide" profile list --tsv | cut -f1,2 | tr '\t\n' ':,')"
+[ "$out" = "caelestia:My Caelestia,windows-xp:Windows XP," ] &&
+    ok "user profile shadows the shipped one; bad id, name, policy or float list is ignored" || no "user profiles: $out"
+dp_reset; dp_geoint
+[ "$(dplib 'dp_get_policy geoint')" = hybrid ] && ok "a hybrid profile is accepted" || no "geoint: $(dplib 'dp_get_policy geoint')"
+out="$(dplib 'wm_load hybrid; for w in "qgis:" "gimp:" "foot:" "foot:map" "foot:map*" "foot:x,map" "QGIS:" "foot:mapx"; do
+    DP_PROFILE=geoint hybrid_floats "${w%%:*}" "${w#*:}" && printf 1 || printf 0; done')"
+[ "$out" = 11011100 ] && ok "hybrid floats listed classes and tags exactly (a rule's trailing * ignored)" || no "hybrid matches: $out"
+out="$(dplib 'DP_PROFILE=geoint wm_call hybrid rules' | tr '\n' ';')"
+[ "$out" = "float_class qgis;float_class gimp;float_tag map;" ] && ok "hybrid hands its lists to the new-window handler" || no "hybrid rules: $out"
+out="$(grep -rhoE 'Windows XP|windows-xp|"Caelestia"' "$OX_ROOT/shell/extensions/desktop-profile/tree" || true)"
+[ -z "$out" ] && ok "the QML frontends name no profile; the list comes from 0xide" || no "QML hardcodes profiles: $out"
+grep -qF '@OXIDE_ROOT@/0xide' "$OX_ROOT/shell/extensions/desktop-profile/tree/services/DesktopProfiles.qml" &&
+    grep -qF 'profile", "list", "--tsv' "$OX_ROOT/shell/extensions/desktop-profile/tree/services/DesktopProfiles.qml" &&
+    ok ">Theme and the Theme page read the registry through 0xide profile list --tsv" || no "DesktopProfiles.qml no longer lists through 0xide"
+grep -q 'DesktopProfiles.profiles' "$OX_ROOT/shell/extensions/desktop-profile/tree/modules/launcher/services/Themes.qml" &&
+    ok ">Theme searches the registry's profiles" || no "Themes.qml does not use DesktopProfiles.profiles"
+
+ox_step "Desktop profiles: plans"
+dp_reset
+out="$(dpx "$OX_ROOT/0xide" profile plan windows-xp)"
+stages="$(printf '%s\n' "$out" | grep -oE '^[A-Z_]+' | tr '\n' ' ')"
+[ "$stages" = "PREFLIGHT SNAPSHOT LEAVE WM_LEAVE WM_ENTER RESTORE ENTER VERIFY COMMIT " ] &&
+    ok "the plan has the WM stages, in order, with COMMIT last" || no "plan stages: $stages"
+case "$out" in *"float every tiled window where it already is"*) ok "the plan says what the stacking policy does" ;; *) no "plan does not describe stacking: $out" ;; esac
+case "$out" in *"windows-xp presentation (not built yet"*) ok "the plan says the XP presentation is not built yet" ;; *) no "plan presentation: $out" ;; esac
+[ -z "$(dp_calls | grep -vE '^(command -v |hyprctl -j clients$)')" ] &&
+    ok "planning only checks commands and lists windows" || no "plan ran: $(dp_calls | tr '\n' ';')"
+: > "$DPT/case/sim/calls"
+dp_set windows-xp --dry-run >/dev/null && [ "$(dp_active)" = caelestia ] && [ ! -e "$DPT/case/s/0xide/wm-policy" ] &&
+    [ "$(dp_evals)" = 0 ] && ok "--dry-run changes nothing" || no "--dry-run changed: $(dp_calls | tr '\n' ';')"
+out="$(dpx "$OX_ROOT/0xide" profile plan caelestia)"
+[ "$out" = "caelestia is already the active profile; nothing to do" ] && ok "planning the active profile is a no-op" || no "plan active: $out"
+dpx "$OX_ROOT/0xide" profile plan xplasma >/dev/null 2>&1 && no "an unknown profile was planned" || ok "an unknown profile is refused"
+grep -vx hyprctl "$DPT/case/sim/installed" > "$DPT/case/sim/i" && mv "$DPT/case/sim/i" "$DPT/case/sim/installed"
+err="$(dp_set windows-xp 2>&1)"; rc=$?
+[ "$rc" = 1 ] && [ "$(dp_active)" = caelestia ] && [ "$(dp_evals)" = 0 ] &&
+    ok "no hyprctl: refused at preflight, nothing changed" || no "no hyprctl: rc=$rc $err"
+dp_reset; dp_fail hypr-query
+dp_set windows-xp >/dev/null 2>&1; rc=$?
+[ "$rc" = 1 ] && [ "$(dp_active)" = caelestia ] && [ "$(dp_evals)" = 0 ] &&
+    ok "Hyprland not answering: refused at preflight" || no "hypr-query: rc=$rc"
+
+ox_step "Desktop profiles: Caelestia -> Windows XP -> Caelestia"
+dp_reset
+dp_set windows-xp >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(dp_active)" = windows-xp ] && ok "switched to Windows XP and committed it" || no "to XP: rc=$rc active=$(dp_active)"
+[ "$(dp_policy)" = "policy stacking" ] && grep -qx float_all "$DPT/case/s/0xide/wm-policy" &&
+    ok "the stacking policy is written for new windows" || no "policy file: $(cat "$DPT/case/s/0xide/wm-policy" 2>/dev/null)"
+snap="$DPT/case/s/0xide/desktop-profile/layout/caelestia.tsv"
+[ "$(cut -f1,2,4 "$snap" | tr '\t\n' ':,')" = "0xa1:1:0,0xb2:1:0,0xc3:2:1,0xd4:-98:0," ] &&
+    ok "the Caelestia layout was snapshotted: workspace, floating" || no "snapshot: $(cat "$snap")"
+[ "$(stat -c %a "$DPT/case/s/0xide/desktop-profile")" = 700 ] && ok "snapshots are readable by this user only" || no "snapshot dir mode"
+[ "$(dp_win 0xa1 4)$(dp_win 0xb2 4)" = 11 ] && ok "tiled windows are floated" || no "XP floating: $(dp_win 0xa1 4)$(dp_win 0xb2 4)"
+[ "$(dp_win 0xa1 7) $(dp_win 0xa1 8) $(dp_win 0xa1 9) $(dp_win 0xa1 10)" = "10 20 900 1000" ] &&
+    [ "$(dp_win 0xb2 7) $(dp_win 0xb2 9)" = "920 900" ] &&
+    ok "floated windows keep their position and size" || no "XP geometry: $(dp_winline 0xa1)"
+[ "$(dp_ledger)" = "0xa1:a10 0xb2:b20 " ] && ok "only windows the policy floated are recorded in the ledger, with their stable ids" || no "ledger: $(dp_ledger)"
+[ "$(dp_winline 0xd4)" = $'0xd4\t-98\t0\t0\t0\t0\t0\t0\t500\t500\td40\tdiscord\t' ] &&
+    ! dp_calls | grep -qE '0x(c3|d4)' && ok "special-workspace and already-floating windows are not touched" || no "touched: $(dp_calls | grep -E '0x(c3|d4)')"
+[ -n "$(dp_line "hyprctl eval local action = \"0xide: float 0xa1 on\"")" ] && tail -1 "$DPT/case/s/0xide/desktop-profile.log" | grep -q 'windows-xp is now the active profile' &&
+    ok "the switch logged its commit last" || no "log: $(tail -3 "$DPT/case/s/0xide/desktop-profile.log")"
+dpx "$OX_ROOT/0xide" profile status | grep -qx 'windows-xp: in effect' && ok "status: Windows XP is in effect" || no "status: $(dpx "$OX_ROOT/0xide" profile status)"
+: > "$DPT/case/sim/calls"
+dp_set windows-xp >/dev/null 2>&1 && [ -z "$(dp_calls)" ] &&
+    ok "switching to the active profile again does nothing" || no "repeat switch ran: $(dp_calls | tr '\n' ';')"
+# In XP: foot is moved to workspace 3 and dragged, gimp opens (the handler
+# floats it and records it), and mpv is floated by its own rule.
+awk -F'\t' -v OFS='\t' '$1 == "0xa1" { $2 = 3; $7 = 400; $8 = 300 } 1' "$DPT/case/sim/windows" > "$DPT/case/sim/w" &&
+    mv "$DPT/case/sim/w" "$DPT/case/sim/windows"
+dp_open $'0xe5\t3\t0\t1\t0\t0\t50\t60\t400\t300\te50\tgimp\t'; printf '0xe5\te50\n' >> "$DPT/case/s/0xide/wm-floated"
+dp_open $'0xf6\t3\t0\t1\t0\t0\t70\t80\t640\t360\tf60\tmpv\t'
+: > "$DPT/case/sim/calls"
+dp_set caelestia >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(dp_active)" = caelestia ] && ok "switched back to Caelestia and committed it" || no "back: rc=$rc active=$(dp_active)"
+[ "$(dp_policy)" = "policy tiling" ] && ok "the tiling policy is back for new windows" || no "policy: $(dp_policy)"
+[ "$(dp_win 0xa1 4) $(dp_win 0xa1 2)" = "0 1" ] && ok "a window moved during XP is tiled again on its old workspace" || no "foot: $(dp_winline 0xa1)"
+[ "$(dp_win 0xb2 4) $(dp_win 0xb2 2)" = "0 1" ] && ok "a window left alone during XP is tiled again" || no "firefox: $(dp_winline 0xb2)"
+[ "$(dp_winline 0xc3)" = $'0xc3\t2\t0\t1\t0\t0\t300\t200\t640\t480\tc30\tthunar\t' ] &&
+    ok "a window that floated before XP still floats where it was" || no "thunar: $(dp_winline 0xc3)"
+[ "$(dp_win 0xe5 4) $(dp_win 0xe5 2)" = "0 3" ] && ok "a window XP floated as it opened is tiled again" || no "gimp: $(dp_winline 0xe5)"
+[ "$(dp_win 0xf6 4)" = 1 ] && ! dp_calls | grep -q 0xf6 && ok "a window floated by its own rule is left alone" || no "mpv: $(dp_winline 0xf6)"
+[ -z "$(dp_ledger)" ] && ok "the ledger is empty again" || no "ledger: $(dp_ledger)"
+dpx "$OX_ROOT/0xide" profile status | grep -qx 'caelestia: in effect' && ok "status: Caelestia is in effect" || no "status: $(dpx "$OX_ROOT/0xide" profile status)"
+# And back to XP: its own snapshot puts foot where XP left it.
+dp_set windows-xp >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(dp_win 0xa1 2) $(dp_win 0xa1 4) $(dp_win 0xa1 7) $(dp_win 0xa1 8)" = "3 1 400 300" ] &&
+    ok "returning to XP restores its floating layout: workspace, position" || no "XP again: rc=$rc $(dp_winline 0xa1)"
+dp_calls | grep -q '^UNEXPECTED' && no "unexpected commands: $(dp_calls | grep UNEXPECTED)" || ok "every command was one the simulator knows"
+dp_calls | grep -qE '^caelestia shell' && no "the running shell was restarted" || ok "the running Caelestia shell is never restarted"
+out="$(dp_calls | grep -E '^hyprctl' | grep -vE '^hyprctl (-j clients|eval local action = "0xide: (float|workspace|move|resize) 0x[0-9a-f]+( -?[0-9]+| on| off){1,2}")$' || true)"
+[ -z "$out" ] && ok "Hyprland is only queried, and changed only through the four window actions" || no "other hyprctl calls: $out"
+if ox_have luac; then
+    bad=0; n=0
+    while IFS= read -r -d '' chunk; do
+        [ -n "${chunk//[$'\n']/}" ] || continue
+        n=$((n+1)); printf '%s\n' "$chunk" > "$DPT/chunk.lua"
+        luac -p -o /dev/null "$DPT/chunk.lua" 2>/dev/null || bad=$((bad+1))
+    done < <(sed 's/^---$/\x0/' "$DPT/case/sim/lua")
+    [ "$n" -gt 0 ] && [ "$bad" = 0 ] && ok "every generated hyprctl eval is valid Lua ($n scripts)" || no "$bad of $n generated scripts are not valid Lua"
+else skipt "no luac"; fi
+out="$(dplib 'hypr_action "0xa1\"); os.execute(\"x" a10 foot float on' 2>&1)"; rc=$?
+[ "$rc" != 0 ] && ! grep -q 'os.execute' "$DPT/case/sim/lua" && ok "a malformed window address never reaches the Lua" || no "bad address accepted"
+dplib 'hypr_action 0xa1 a10 foot move "1); os.exit(" 2' >/dev/null 2>&1 && no "a non-number geometry was accepted" || ok "geometry must be integers"
+
+ox_step "Desktop profiles: window identity"
+# Hyprland hands a closed window's address to the next window it allocates, so
+# only address, stable id and class together name the same window.
+dp_swap() { # dp_swap <address> <new line or nothing>
+    awk -F'\t' -v a="$1" '$1 != a' "$DPT/case/sim/windows" > "$DPT/case/sim/w" && mv "$DPT/case/sim/w" "$DPT/case/sim/windows"
+    [ -z "${2:-}" ] || dp_open "$2"
+}
+dp_reset
+dp_set windows-xp >/dev/null 2>&1
+# In XP, foot 0xa1 closes and a new foot window gets its address and a new
+# stable id, floated by its own rule on workspace 4 (so not in the ledger).
+reused=$'0xa1\t4\t0\t1\t0\t0\t111\t222\t333\t444\ta99\tfoot\t'
+dp_swap 0xa1 "$reused"
+: > "$DPT/case/sim/calls"
+dp_set caelestia >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(dp_winline 0xa1)" = "$reused" ] && ! dp_calls | grep -q '0xa1' &&
+    ok "a reused address with a new stable id is skipped completely by restore" || no "reused address touched: rc=$rc $(dp_winline 0xa1); $(dp_calls | grep 0xa1 | tr '\n' ';')"
+[ "$(dp_win 0xb2 4) $(dp_win 0xb2 2)" = "0 1" ] && ok "and the other windows are still restored" || no "firefox: $(dp_winline 0xb2)"
+dp_reset
+dp_set windows-xp >/dev/null 2>&1
+# The ledger names 0xb2 with stable id b20; a different window now has 0xb2.
+dp_swap 0xb2 $'0xb2\t1\t0\t1\t0\t0\t5\t6\t700\t500\tb99\tfirefox\t'
+: > "$DPT/case/sim/calls"
+dp_set caelestia >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(dp_win 0xb2 4)" = 1 ] && ! dp_calls | grep -q '0xb2' &&
+    ok "a reused address is not re-tiled from the ledger either" || no "ledger reuse: rc=$rc $(dp_winline 0xb2)"
+dp_reset
+dp_set windows-xp >/dev/null 2>&1
+dp_swap 0xa1
+dp_set caelestia >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(dp_active)" = caelestia ] && [ "$(dp_win 0xb2 4)" = 0 ] &&
+    ok "a window that closed during XP does not break the return" || no "closed window: rc=$rc active=$(dp_active)"
+dp_reset
+# A window Hyprland gives no stable id cannot be told apart from a reuse.
+awk -F'\t' -v OFS='\t' '$1 == "0xa1" { $11 = "-" } 1' "$DPT/case/sim/windows" > "$DPT/case/sim/w" && mv "$DPT/case/sim/w" "$DPT/case/sim/windows"
+dp_set windows-xp >/dev/null 2>&1
+awk -F'\t' -v OFS='\t' '$1 == "0xa1" { $2 = 3 } 1' "$DPT/case/sim/windows" > "$DPT/case/sim/w" && mv "$DPT/case/sim/w" "$DPT/case/sim/windows"
+: > "$DPT/case/sim/calls"
+dp_set caelestia >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(dp_win 0xa1 2) $(dp_win 0xa1 4)" = "3 1" ] && ! dp_calls | grep -q '0xa1' &&
+    ok "a window without a stable id is left alone rather than guessed" || no "unknown id: rc=$rc $(dp_winline 0xa1)"
+[ "$(dplib 'hypr_clients' | awk -F'\t' '$1 == "0xa1" { print NF ":" $11 ":" $12 }')" = "13:-:foot" ] &&
+    ok "an unknown stable id is written as '-', keeping every later field in place" || no "fields: $(dplib hypr_clients | head -1)"
+
+ox_step "Desktop profiles: checkout path substitution"
+weird='/tmp/my 0xIde & co|x/src'
+out="$(bash -c '. "$1/orchestration/lib/common.sh"; printf "%s\n" "a \"@OX_ROOT@/0xide\" b @OX_ROOT@" | ox_render_path @OX_ROOT@ "$2"' _ "$OX_ROOT" "$weird")"
+[ "$out" = "a \"$weird/0xide\" b $weird" ] && ok "a path with spaces, & and | is substituted literally" || no "rendered: $out"
+for bad in '/tmp/a"b' "/tmp/a'b" '/tmp/a\b' $'/tmp/a\nb'; do
+    bash -c '. "$1/orchestration/lib/common.sh"; ox_path_substitutable "$2"' _ "$OX_ROOT" "$bad" &&
+        no "unsafe path accepted: $bad" || ok "a path with a quote, backslash or newline is refused: ${bad//$'\n'/\\n}"
+done
+bash -c '. "$1/orchestration/lib/common.sh"; ox_render_path @OX_ROOT@ "$2" < "$1/overrides/caelestia/hypr-user.lua"' _ "$OX_ROOT" "$weird" > "$DPT/hypr-user.lua"
+grep -qF "hl.exec_cmd(\"'$weird/0xide' profile resume\")" "$DPT/hypr-user.lua" && ! grep -q '@OX_ROOT@' "$DPT/hypr-user.lua" &&
+    ok "hypr-user.lua renders with that path" || no "hypr-user.lua render: $(grep exec_cmd "$DPT/hypr-user.lua")"
+if ox_have luac; then check luac -p "$DPT/hypr-user.lua" && ok "and is still valid Lua" || no "rendered hypr-user.lua is not valid Lua"; else skipt "no luac"; fi
+bash -c '. "$1/orchestration/lib/common.sh"; ox_render_path @OX_ROOT@ "$2" < "$1/overrides/caelestia/cli.json"' _ "$OX_ROOT" "$weird" |
+    jq -e --arg w "$weird" 'tostring | contains($w)' >/dev/null && ok "cli.json renders to valid JSON holding that path" || no "cli.json render"
+qml="$OX_ROOT/shell/extensions/desktop-profile/tree/services/DesktopProfiles.qml"
+bash -c '. "$1/orchestration/lib/common.sh"; ox_render_path @OXIDE_ROOT@ "$2" < "$3"' _ "$OX_ROOT" "$weird" "$qml" |
+    grep -qxF "    readonly property string cli: \"$weird/0xide\"" && ok "the QML string holds that path intact" || no "QML render"
+# Files git tracks or would track; ignored caches such as __pycache__ are not source.
+grep -rqF '@OXIDE_ROOT@' "$OX_ROOT/shell/extensions/desktop-profile" &&
+    ! git -C "$OX_ROOT" ls-files -z -co --exclude-standard -- shell/extensions overrides install shell/build.sh |
+        xargs -0 -r grep -lF "$OX_ROOT" -- 2>/dev/null | grep -q . &&
+    ok "tracked files hold the placeholder, never this checkout's path" || no "a machine path is committed"
+
+ox_step "Desktop profiles: Hyprland adapter"
+# Every action the adapter sends, run as Lua against a stand-in hl that
+# records what is dispatched and to which window.
+printf '#!/bin/sh\nprintf "%%s" "$3" > "%s/script.lua"\necho ok\n' "$DPT" > "$DPT/capture"
+chmod +x "$DPT/capture"
+# gen <address> <stable id> <class> <op> [args]: the script hypr_action sends.
+gen() {
+    rm -f "$DPT/script.lua"
+    dpx env OX_DP_RUNNER="$DPT/capture" bash -c '. "$1/orchestration/desktop-profile-manager.sh"; shift; hypr_action "$@"' _ "$OX_ROOT" "$@"
+}
+cat > "$DPT/harness.lua" <<'LUA'
+-- lua harness.lua <script> <address> <stable id, -1 for none> <class> <floating 0/1> [ignore]
+local script, address, sid, class = arg[1], arg[2], tonumber(arg[3]), arg[4]
+local win = { address = address, class = class, floating = arg[5] == "1" }
+if sid >= 0 then win.stable_id = sid end
+local sent = {}
+local function target(t, name)
+    return function()
+        if t.window ~= win then error("dispatched to another window") end
+        sent[#sent + 1] = name
+        if name == "float" and arg[6] ~= "ignore" then
+            if t.action == "on" then win.floating = true
+            elseif t.action == "off" then win.floating = false
+            else error("action " .. tostring(t.action) .. " would toggle") end
+        end
+    end
+end
+hl = {
+    get_window = function(selector) if selector == "address:" .. address then return win end end,
+    dispatch = function(d) d() end,
+    dsp = { window = {
+        float = function(t) return target(t, "float") end,
+        move = function(t) return target(t, "move") end,
+        resize = function(t) return target(t, "resize") end,
+    } },
+}
+local chunk = assert(loadfile(script))
+local ok, err = pcall(chunk)
+local result = ok and "ok" or ("error " .. tostring(err))
+io.write(result, "|", table.concat(sent, ","), "|", tostring(win.floating))
+LUA
+# run <address> <stable id> <class> <floating> [ignore]: the captured script, run.
+run() { lua "$DPT/harness.lua" "$DPT/script.lua" "$@" 2>&1; }
+if ox_have lua && ox_have luac; then
+    gen 0xa1 a10 foot float on
+    [ "$(head -c1 "$DPT/script.lua")" != - ] && ! grep -qE '^-- 0xide|\(float [^)]* on\)' "$DPT/script.lua" &&
+        ok "the script does not start with '-', which hyprctl takes for an option" || no "script starts: $(head -1 "$DPT/script.lua")"
+    grep -qxF 'local w = hl.get_window("address:0xa1")' "$DPT/script.lua" &&
+        grep -qxF 'hl.dispatch(hl.dsp.window.float({ action = "on", window = w }))' "$DPT/script.lua" &&
+        ok "it selects that one window by address and dispatches float on to it" || no "script: $(tr '\n' ';' < "$DPT/script.lua")"
+    check luac -p "$DPT/script.lua" && ok "it is valid Lua" || no "the float script is not valid Lua"
+    [ "$(run 0xa1 2576 foot 0)" = "ok|float|true" ] && ok "float on floats exactly that window" || no "float on: $(run 0xa1 2576 foot 0)"
+    gen 0xa1 a10 foot float off
+    grep -qF 'action = "off"' "$DPT/script.lua" && [ "$(run 0xa1 2576 foot 1)" = "ok|float|false" ] &&
+        ok "float off tiles that same window again" || no "float off: $(run 0xa1 2576 foot 1)"
+    ! grep -qE 'action = "(set|unset|toggle)"' "$DPT/script.lua" &&
+        ok "never set/unset/toggle, which Hyprland 0.56 reads as toggle" || no "a toggling action is sent"
+    gen 0xa1 a10 foot float on
+    case "$(run 0xb2 2576 foot 0)" in "error"*"no such window||false") ok "a missing window is an error, and nothing is dispatched" ;;
+        *) no "missing: $(run 0xb2 2576 foot 0)" ;; esac
+    case "$(run 0xa1 2713 foot 0)" in "error"*"another window||false") ok "the address with another stable id is an error, and nothing is dispatched" ;;
+        *) no "reuse: $(run 0xa1 2713 foot 0)" ;; esac
+    case "$(run 0xa1 2576 kitty 0)" in "error"*"another window||false") ok "the address with another class is an error, and nothing is dispatched" ;;
+        *) no "class: $(run 0xa1 2576 kitty 0)" ;; esac
+    case "$(run 0xa1 2576 foot 0 ignore)" in "error"*"did not change it|float|false") ok "a float Hyprland ignores is an error" ;;
+        *) no "ignored: $(run 0xa1 2576 foot 0 ignore)" ;; esac
+    gen 0xa1 - foot float on
+    [ "$(run 0xa1 -1 foot 0)" = "ok|float|true" ] && ok "without a stable id, address and class still select the window" || no "no stable id: $(run 0xa1 -1 foot 0)"
+    [ "$(run 0xa1 -1 kitty 0)" != "ok|float|true" ] && ok "and another class at that address is still refused" || no "no stable id, other class accepted"
+    gen 0xa1 a10 - float on
+    [ "$(run 0xa1 2576 "" 0)" = "ok|float|true" ] && ok "a window without a class matches the '-' hypr_clients writes" || no "no class: $(run 0xa1 2576 "" 0)"
+    for hostile in 'a"); os.exit(3) --' "a]]..os.exit(3)--[[" "\$(touch $DPT/pwned)\`touch $DPT/pwned\`" 'a\" .. os.exit(3) .. \"' "a'b; ÿ√"; do
+        gen 0xa1 a10 "$hostile" float on
+        if grep -qF 'os.exit' "$DPT/script.lua"; then
+            no "a class reached the Lua as code: $hostile"
+        elif check luac -p "$DPT/script.lua" && [ "$(run 0xa1 2576 "$hostile" 0)" = "ok|float|true" ] &&
+             [ "$(run 0xa1 2576 a 0 | cut -d'|' -f2)" = "" ] && [ ! -e "$DPT/pwned" ]; then
+            ok "class $(printf '%q' "$hostile") is compared as data, never run"
+        else
+            no "hostile class $(printf '%q' "$hostile"): $(run 0xa1 2576 "$hostile" 0)"
+        fi
+    done
+    gen 0xa1 a10 foot move 10 -20
+    [ "$(run 0xa1 2576 foot 1)" = "ok|move|true" ] && ok "move goes to that window" || no "move: $(run 0xa1 2576 foot 1)"
+    gen 0xa1 a10 foot resize 800 600
+    [ "$(run 0xa1 2576 foot 1)" = "ok|resize|true" ] && ok "resize goes to that window" || no "resize: $(run 0xa1 2576 foot 1)"
+    gen 0xa1 a10 foot workspace 3
+    [ "$(run 0xa1 2576 foot 0)" = "ok|move|false" ] && ok "a workspace move goes to that window" || no "workspace: $(run 0xa1 2576 foot 0)"
+    for bad in "0xA1 a10 foot float on" "0xa1 A10 foot float on" "0xa1 a1-0 foot float on" "0xa1 a10 foot float set" \
+               "0xa1 a10 foot float toggle" "0xa1 a10 foot workspace 0" "0xa1 a10 foot workspace x" "0xa1 a10 foot move 1.5 2"; do
+        # shellcheck disable=SC2086
+        if gen $bad >/dev/null 2>&1; then no "accepted: $bad"
+        elif [ -e "$DPT/script.lua" ]; then no "sent: $bad"
+        else ok "refused before any Lua is sent: $bad"; fi
+    done
+else skipt "no lua interpreter"; fi
+# The simulator refuses what real hyprctl refuses, so the old bug cannot pass.
+dp_reset
+out="$(dpx "$OX_ROOT/tests/desktop-sim" hyprctl eval $'-- 0xide: float 0xa1 on\nreturn 1')"; rc=$?
+[ "$rc" != 0 ] && [ "${out%%$'\n'*}" = "usage: hyprctl [flags] <command> [args...|--help]" ] &&
+    ok "the simulator, like hyprctl, prints its usage for a script starting with '-'" || no "the simulator accepts a leading '-'"
+
+ox_step "Desktop profiles: startup"
+[ ! -e "$OX_ROOT/orchestration/caelestia-start-gate.sh" ] && [ ! -e "$OX_ROOT/shell/extensions/desktop-profile/tree/services/ProfileGate.qml" ] &&
+    ok "no shell start gate remains" || no "a start gate is still shipped"
+out="$(grep -lE 'ProfileGate|OXIDE_PROFILE_START' "$OX_ROOT"/shell/patches/*.patch "$OX_ROOT"/shell/plugin/patches/*.patch 2>/dev/null || true)"
+[ -z "$out" ] && ok "shell.qml is not gated: every profile runs the Caelestia shell" || no "gated by: $out"
+dp_reset
+for case in "caelestia:tiling" "windows-xp:stacking" ":tiling" "garbage/..:tiling" "removed-profile:tiling"; do
+    mkdir -p "$DPT/case/s/0xide"; rm -f "$DPT/case/s/0xide/wm-policy"
+    if [ -n "${case%%:*}" ]; then printf '%s\n' "${case%%:*}" > "$DPT/case/s/0xide/active-profile"; else rm -f "$DPT/case/s/0xide/active-profile"; fi
+    : > "$DPT/case/sim/calls"
+    dpx "$OX_ROOT/0xide" profile resume >/dev/null 2>&1
+    [ "$(dp_policy)" = "policy ${case#*:}" ] && [ "$(dp_evals)" = 0 ] &&
+        ok "resume with state '${case%%:*}' gives new windows the ${case#*:} policy, touching none" || no "resume '${case%%:*}': $(dp_policy)"
+done
+printf 'policy stacking\nfloat_all\n' > "$DPT/case/s/0xide/wm-policy"; printf 'caelestia\n' > "$DPT/case/s/0xide/active-profile"
+dpx "$OX_ROOT/0xide" profile resume >/dev/null 2>&1
+[ "$(cat "$DPT/case/s/0xide/wm-policy")" = "policy tiling" ] && ok "a stale policy file is replaced at login" || no "stale policy kept"
+grep -qF "hl.exec_cmd(\"'@OX_ROOT@/0xide' profile resume\")" "$OX_ROOT/overrides/caelestia/hypr-user.lua" &&
+    grep -qF 'ox_render_path @OX_ROOT@ "$OX_ROOT"' "$OX_ROOT/install" &&
+    ok "Hyprland runs profile resume at start, with the path ./install fills in" || no "resume is not wired to hyprland.start"
+grep -qF 'ox_render_path @OXIDE_ROOT@ "$OX_ROOT"' "$OX_ROOT/shell/build.sh" &&
+    ok "build.sh substitutes the checkout path into the QML" || no "build.sh does not substitute @OXIDE_ROOT@"
+
+ox_step "Desktop profiles: new windows under each policy"
+# hypr-user.lua's window.open handler, run against a stand-in hl.
+if ox_have lua; then
+    mkdir -p "$DPT/lua/0xide"
+    cat > "$DPT/lua/run.lua" <<'EOF'
+local handlers, floated = {}, {}
+package.preload.variables = function() return {} end
+local function stub() return function() return {} end end
+hl = setmetatable({
+    config = function() end, bind = function() end, exec_cmd = function() end,
+    on = function(event, fn) handlers[event] = fn end,
+    dispatch = function(d) if d.float then floated[#floated + 1] = d.window.address end end,
+    dsp = setmetatable({ window = { float = function(a) return { float = a.action, window = a.window } end } },
+        { __index = function() return stub() end }),
+}, { __index = function() return stub() end })
+dofile(arg[1])
+local w = function(address, ws, extra)
+    local win = { address = address, stable_id = tonumber(address), class = "foot", tags = {},
+                  floating = false, pinned = false, fullscreen = 0, workspace = { id = ws } }
+    for k, v in pairs(extra or {}) do win[k] = v end
+    return win
+end
+handlers["window.open"](w("0x1", 1))
+handlers["window.open"](w("0x2", -98))
+handlers["window.open"](w("0x3", 1, { fullscreen = 1 }))
+handlers["window.open"](w("0x4", 1, { pinned = true }))
+handlers["window.open"](w("0x5", 1, { floating = true }))
+handlers["window.open"](w("0x6", 2, { class = "qgis" }))
+handlers["window.open"](w("0x7", 2, { tags = { "map*" }, stable_id = false }))
+-- Malformed data is ignored, never an error.
+handlers["window.open"](nil)
+handlers["window.open"](w("0x8", 1, { address = false }))
+handlers["window.open"](w("0x9", 1, { workspace = { id = "1" } }))
+handlers["window.open"](w("0xa", 1, { floating = "yes" }))
+handlers["window.open"](w("0xb", 2, { class = 5, tags = "map" }))
+io.write(table.concat(floated, " "))
+EOF
+    luacase() {
+        rm -f "$DPT/lua/0xide/wm-floated" "$DPT/lua/0xide/wm-policy"
+        [ -n "$2" ] && printf '%b' "$2" > "$DPT/lua/0xide/wm-policy"
+        out="$(XDG_STATE_HOME="$DPT/lua" lua "$DPT/lua/run.lua" "$OX_ROOT/overrides/caelestia/hypr-user.lua" 2>&1)"
+        ledger="$(cat "$DPT/lua/0xide/wm-floated" 2>/dev/null | tr '\t\n' ': ')"
+        [ "$out|$ledger" = "$3" ] && ok "$1" || no "$1: floated '$out', ledger '$ledger'"
+    }
+    luacase "stacking floats ordinary new windows and records them with their stable ids; skips special, fullscreen, pinned, floating, malformed" \
+        'policy stacking\nfloat_all\n' "0x1 0x6 0x7 0xb|0x1:1 0x6:6 0x7:- 0xb:b "
+    luacase "tiling floats nothing" 'policy tiling\n' "|"
+    luacase "no policy file floats nothing" "" "|"
+    luacase "hybrid floats only the listed classes and tags" \
+        'policy hybrid\nfloat_class qgis\nfloat_tag map\n' "0x6 0x7|0x6:6 0x7:- "
+    luacase "an unknown policy floats nothing" 'policy something-else\nfloat_all\n' "|"
+else skipt "no lua interpreter"; fi
+
+ox_step "Desktop profiles: failures roll back and commit nothing"
+dp_ok_caelestia() {
+    [ "$(dp_active)" = caelestia ] && [ "$(dp_policy)" = "policy tiling" ] &&
+        [ "$(dp_win 0xa1 4)$(dp_win 0xb2 4)$(dp_win 0xc3 4)" = 001 ] && [ "$(dp_win 0xa1 2)$(dp_win 0xb2 2)" = 11 ]
+}
+dp_reset
+# The snapshot cannot be written: its directory is taken by a file.
+mkdir -p "$DPT/case/s/0xide/desktop-profile"; touch "$DPT/case/s/0xide/desktop-profile/layout"
+dp_set windows-xp >/dev/null 2>&1; rc=$?
+[ "$rc" = 1 ] && [ "$(dp_active)" = caelestia ] && [ "$(dp_evals)" = 0 ] &&
+    ok "snapshot fails: nothing changed, exit 1" || no "snapshot failure: rc=$rc evals=$(dp_evals)"
+for op in float move resize; do
+    dp_reset; dp_fail "hypr-$op-0xb2"
+    dp_set windows-xp >/dev/null 2>&1; rc=$?
+    [ "$rc" = 1 ] && dp_ok_caelestia && ok "WM_ENTER $op fails: rolled back to tiled Caelestia, exit 1, not committed" ||
+        no "$op failure: rc=$rc active=$(dp_active) $(dp_winline 0xa1)"
+done
+dp_calls | grep -q '^notify-send .*-u critical Desktop not switched Could not switch to Windows XP (failed at WM_ENTER), so Caelestia was restored' &&
+    ok "and says so in a notification" || no "no failure notification: $(dp_calls | grep notify)"
+dp_reset; dp_fail hypr-ignore-float
+dp_set windows-xp >/dev/null 2>&1; rc=$?
+[ "$rc" = 1 ] && [ "$(dp_active)" = caelestia ] && [ "$(dp_policy)" = "policy tiling" ] &&
+    ok "a window Hyprland does not float fails the action: rolled back, not committed" || no "ignored float: rc=$rc active=$(dp_active)"
+# Restore failure on the way back.
+dp_reset
+dp_set windows-xp >/dev/null 2>&1
+awk -F'\t' -v OFS='\t' '$1 == "0xa1" { $2 = 3 } 1' "$DPT/case/sim/windows" > "$DPT/case/sim/w" && mv "$DPT/case/sim/w" "$DPT/case/sim/windows"
+dp_fail hypr-workspace; : > "$DPT/case/sim/calls"
+dp_set caelestia >/dev/null 2>&1; rc=$?
+[ "$rc" = 1 ] && [ "$(dp_active)" = windows-xp ] && [ "$(dp_policy)" = "policy stacking" ] &&
+    [ "$(dp_win 0xa1 4)$(dp_win 0xb2 4)" = 11 ] &&
+    ok "RESTORE fails: XP rolled back, windows floating again, not committed" || no "restore failure: rc=$rc active=$(dp_active) $(dp_policy)"
+grep -q 'rolling back to windows-xp' "$DPT/case/s/0xide/desktop-profile.log" && ok "the rollback is logged" || no "no rollback in the log"
+dp_reset; dp_fail caelestia-notifications; rm -f "$DPT/case/sim/caelestia" "$DPT/case/sim/owner"
+echo "300 /usr/bin/dunst" > "$DPT/case/sim/owner"
+dp_set windows-xp >/dev/null 2>&1; rc=$?
+[ "$rc" = 2 ] && [ "$(dp_active)" = caelestia ] &&
+    ok "shell cannot own notifications and rollback cannot verify: exit 2, nothing committed" || no "double failure: rc=$rc active=$(dp_active)"
+dpx "$OX_ROOT/0xide" profile status >/dev/null 2>&1 && no "status called a broken desktop in effect" ||
+    ok "status reports the recorded profile is not in effect"
+dp_reset
+mkdir -p "$DPT/case/s/0xide"
+( flock 9; sleep 3 ) 9>"$DPT/case/s/0xide/desktop-profile.lock" &
+sleep 0.3
+err="$(dp_set windows-xp 2>&1)"; rc=$?
+wait
+[ "$rc" = 1 ] && [ "$(dp_active)" = caelestia ] && [ "$(dp_evals)" = 0 ] &&
+    ok "a second switch while one runs is refused" || no "concurrent switch: rc=$rc $err"
+
+ox_step "Desktop profiles: single runtime"
+out="$(grep -rniE 'xplasma|plasmashell|kwin' "$OX_ROOT/0xide" "$OX_ROOT/orchestration" "$OX_ROOT/providers" "$OX_ROOT/profiles" \
+    "$OX_ROOT/shell/extensions/desktop-profile" "$OX_ROOT/shell/patches" "$OX_ROOT/overrides" "$OX_ROOT/install" || true)"
+[ -z "$out" ] && ok "no runtime code names XPlasma, plasmashell or KWin" || no "Plasma in runtime code: $out"
+
+ox_step "Desktop profiles: isolation"
+[ ! -s "$DPT/leaks" ] && ok "no test reached a real desktop command" || no "reached: $(sort -u "$DPT/leaks" | tr '\n' ';')"
+rm -rf "$DPT"
+
+ox_step "Patch series order"
+dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"
+[ -z "$dups" ] && ok "every shell patch has its own number, so glob order is the series order" || no "duplicate patch numbers: $dups"
+
 ox_step "Dependencies"
 "$OX_ROOT/installer/check_deps.sh" || true
 

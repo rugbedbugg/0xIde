@@ -34,6 +34,10 @@ applications Caelestia does not theme itself.
         chat-completions endpoint you point it at. It explains, summarises, translates or
         tabulates captured text, and nothing is sent anywhere unless you press Ask AI.
     -   **OCR & AI settings** in the shell's own settings app.
+    -   **Desktop profiles**: personalities of the same Hyprland and Caelestia session,
+        such as tiled Caelestia or floating Windows XP. `>theme` in the launcher, or
+        **Theme** in settings, switches through one CLI that verifies each switch and
+        rolls back a failed one. See [Desktop profiles](#desktop-profiles).
 -   Theme adapters, for applications Caelestia does not reach:
     -   **GTK**: open GTK windows recolour on a scheme change instead of on their next
         start, including Edge and Chrome in their GTK appearance. See
@@ -206,6 +210,58 @@ microphone is refused rather than recorded as silence. It needs the `whisper-cpp
 installs (148 MB, pinned in [`manifests/speech.toml`](manifests/speech.toml)). It listens
 for English unless you set another language there, or `auto` to detect it.
 
+### Desktop profiles
+
+One Hyprland/Caelestia runtime. Multiple desktop personalities.
+
+Every profile runs on the same Hyprland session with the same Caelestia shell. What a
+profile changes is how windows are managed, and later how the shell looks:
+
+| Profile      | Window policy                                | Presentation                    |
+| ------------ | -------------------------------------------- | ------------------------------- |
+| `caelestia`  | `tiling`: Hyprland's tiling, as always       | Caelestia                       |
+| `windows-xp` | `stacking`: every window floats and overlaps | not built yet; Caelestia's look |
+
+A third policy, `hybrid`, tiles windows except the classes and tags a profile lists in
+`wm_float_classes` and `wm_float_tags`. Policies are in
+[`orchestration/wm-policies/`](orchestration/wm-policies).
+
+Type `>theme` in the launcher and pick a desktop, or use **Theme** in the settings app.
+The same switch from a terminal:
+
+```sh
+./0xide profile list                  # * marks the active one
+./0xide profile plan windows-xp       # what switching would do; changes nothing
+./0xide profile set windows-xp        # switch
+./0xide profile set caelestia         # and back
+./0xide profile status                # is the recorded profile really in effect?
+```
+
+A switch records the window layout of the profile it leaves, applies the new policy to
+open windows and to windows as they open, puts back the windows the new profile's own
+snapshot knows, and checks that the shell runs, owns notifications, and the windows are
+as asked. Only then is the profile recorded as active. If any step fails, the previous
+profile's policy and window layout are put back and nothing is recorded; the details are
+in `$XDG_STATE_HOME/0xide/desktop-profile.log`. `set` exits 0 on success, 1 when it failed
+and the previous desktop was restored, 2 when that restore failed too.
+
+Returning to Caelestia tiles again every window a policy floated, puts windows that
+existed before the switch back on their workspaces, and leaves windows that were already
+floating alone. The order of tiled windows within a workspace is not restored. Windows
+on special workspaces, fullscreen and pinned windows are never touched. A window is
+matched by its address, Hyprland's stable id and its class together, since Hyprland can
+give a closed window's address to a new one; a window that was closed and reopened is
+treated as new, and one without a stable id is left as it is.
+
+At login, Hyprland runs `./0xide profile resume`, which gives new windows the recorded
+profile's policy. A missing or damaged record means Caelestia.
+
+> [!NOTE]
+> The Windows XP profile changes window management only. Its Luna look, Start menu and
+> taskbar are not built yet, so the Caelestia shell keeps its own look. XPlasma, which
+> restyles a KDE Plasma session, was studied as reference material for that look; it is
+> not used at runtime, and 0xIde never starts Plasma.
+
 ## Updating
 
 ```sh
@@ -240,6 +296,7 @@ it by hand in `build/shell-src` with `git apply --3way`, then write it back as a
 | `overrides/zed/overlay.jsonc`                                    | the theme key merged into Zed's `settings.json`                       |
 | `$XDG_CONFIG_HOME/0xide/region-search.conf`                      | region search mode and confirmation                                   |
 | `$XDG_CONFIG_HOME/0xide/adapters.enabled`                        | which adapters the theme hook runs                                    |
+| `profiles/<id>/profile.conf`, `$XDG_CONFIG_HOME/0xide/profiles/` | desktop profiles: provider, window policy, presentation               |
 
 `ai.ocrLanguages` in `shell.json` picks the Tesseract languages; empty, the default, uses
 every installed one. `config.local` at the repository root, never committed, overrides
@@ -287,6 +344,8 @@ under `adapters/`, never editing the hook.
 | `shell/extensions/<name>/tree/` | new files, overlaid onto the upstream tree                             |
 | `adapters/<name>/`              | one application: `adapter.conf`, `apply`, optional `install`, `status` |
 | `system/<name>/`                | anything privileged; it prints the change and asks                     |
+| `profiles/`, `providers/`       | desktop profiles, and the provider that shows and verifies each one    |
+| `orchestration/wm-policies/`    | window-management policies a profile can name                          |
 
 Prefer an overlay to a patch: a patch is only for a line that must change inside a file
 upstream maintains, and each one costs something at the next update.

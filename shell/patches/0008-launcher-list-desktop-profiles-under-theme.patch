@@ -1,0 +1,76 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Oxide 1-6 <yes.par781@gmail.com>
+Date: Tue, 29 Sep 2026 09:05:00 +0530
+Subject: [PATCH] launcher: list desktop profiles under >theme
+
+A Theme action autocompletes to ">theme ", like Scheme and Variant, and that
+state lists the desktop profiles from the Themes searcher with the launcher's
+own action item. The profiles are refreshed each time the state is entered,
+so the current one is marked correctly after a switch.
+---
+ modules/launcher/AppList.qml                   | 13 ++++++++++++-
+ plugin/src/Caelestia/Config/launcherconfig.hpp |  6 ++++++
+ 2 files changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/modules/launcher/AppList.qml b/modules/launcher/AppList.qml
+index 185a6064..053c9976 100644
+--- a/modules/launcher/AppList.qml
++++ b/modules/launcher/AppList.qml
+@@ -29,7 +29,7 @@ StyledListView {
+     function stateForText(text: string): string {
+         const prefix = GlobalConfig.launcher.actionPrefix;
+         if (text.startsWith(prefix)) {
+-            for (const action of ["calc", "scheme", "variant"])
++            for (const action of ["calc", "scheme", "variant", "theme"])
+                 if (text.startsWith(`${prefix}${action} `))
+                     return action;
+
+@@ -49,6 +49,8 @@ StyledListView {
+             return Schemes.query(text);
+         case "variant":
+             return M3Variants.query(text);
++        case "theme":
++            return Themes.query(text);
+         default:
+             return Apps.search(text);
+         }
+@@ -87,6 +89,8 @@ StyledListView {
+     onStateChanged: {
+         if (state === "scheme" || state === "variant")
+             Schemes.reload();
++        else if (state === "theme")
++            DesktopProfiles.refresh();
+     }
+
+     Component.onCompleted: displayText = search.text
+@@ -126,6 +130,13 @@ StyledListView {
+             PropertyChanges {
+                 root.delegate: variantItem
+             }
++        },
++        State {
++            name: "theme"
++
++            PropertyChanges {
++                root.delegate: actionItem
++            }
+         }
+     ]
+
+diff --git a/plugin/src/Caelestia/Config/launcherconfig.hpp b/plugin/src/Caelestia/Config/launcherconfig.hpp
+index fc018d35..efb5cd62 100644
+--- a/plugin/src/Caelestia/Config/launcherconfig.hpp
++++ b/plugin/src/Caelestia/Config/launcherconfig.hpp
+@@ -63,6 +63,12 @@ class LauncherConfig : public settings::ObjectNode {
+                 { u"description"_s, u"Change the current scheme variant"_s },
+                 { u"command"_s, QStringList{ u"autocomplete"_s, u"variant"_s } },
+             }),
++            vmap({
++                { u"name"_s, u"Theme"_s },
++                { u"icon"_s, u"desktop_windows"_s },
++                { u"description"_s, u"Change the desktop profile"_s },
++                { u"command"_s, QStringList{ u"autocomplete"_s, u"theme"_s } },
++            }),
+             vmap({
+                 { u"name"_s, u"Random"_s },
+                 { u"icon"_s, u"casino"_s },
