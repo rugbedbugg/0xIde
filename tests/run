@@ -2233,6 +2233,60 @@ ox_step "Desktop profiles: isolation"
 [ ! -s "$DPT/leaks" ] && ok "no test reached a real desktop command" || no "reached: $(sort -u "$DPT/leaks" | tr '\n' ';')"
 rm -rf "$DPT"
 
+ox_step "Wallpaper info overlay"
+# The picker's right-click overlay reads a wallpaper's pixel size from its
+# header: decoding it would cost the very memory the overlay reports.
+WI="$OX_ROOT/shell/extensions/wallpaper-info/tree"
+info="$WI/assets/wallpaper/imageinfo.py"
+wt="$(mktemp -d)"
+size_of() { "$PY" "$info" "$1" | jq -r 'if .error then "error" else "\(.width)x\(.height)" end'; }
+if ox_have magick; then
+    magick -size 321x123 xc:red "$wt/a.png"
+    magick -size 640x480 xc:blue "$wt/b.jpg"
+    magick -size 800x600 xc:green -interlace Plane "$wt/c-progressive.jpg"
+    magick -size 77x55 xc:white "$wt/d.gif"
+    magick -size 300x200 xc:gray -define webp:lossless=false "$wt/e-lossy.webp"
+    magick -size 301x201 xc:gray -define webp:lossless=true "$wt/f-lossless.webp"
+    magick -size 302x202 xc:'rgba(0,0,0,0.5)' "$wt/g-alpha.webp"
+    magick -size 99x66 xc:black "$wt/h.bmp"
+    # A JPEG whose frame header comes after a 60 KB comment, past any fixed-size read.
+    magick -size 1000x700 xc:orange -set comment "$(head -c 60000 /dev/zero | tr '\0' x)" "$wt/i-late-frame.jpg"
+    for f in a.png:321x123 b.jpg:640x480 c-progressive.jpg:800x600 d.gif:77x55 e-lossy.webp:300x200 \
+             f-lossless.webp:301x201 g-alpha.webp:302x202 h.bmp:99x66 i-late-frame.jpg:1000x700; do
+        got="$(size_of "$wt/${f%%:*}")"
+        [ "$got" = "${f#*:}" ] && ok "imageinfo.py reads ${f%%:*} as ${f#*:}" || no "${f%%:*}: got $got, wanted ${f#*:}"
+    done
+else skipt "no ImageMagick to make fixture images"; fi
+# The PNG header alone, with no pixel data: a decoder would fail, a header reader does not.
+printf '\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR\x00\x00\x16\x80\x00\x00\x0c\xa8\x08\x06\x00\x00\x00' > "$wt/header-only.png"
+[ "$(size_of "$wt/header-only.png")" = "5760x3240" ] && ok "only the header is read; the pixels are never decoded" ||
+    no "header-only PNG: $(size_of "$wt/header-only.png")"
+echo "not an image" > "$wt/text.png"
+out="$("$PY" "$info" "$wt/text.png")"; rc=$?
+[ "$rc" = 1 ] && [ "$(jq -r .error <<<"$out")" != null ] && ok "a file that is not an image is an error, not a size" || no "text file: rc=$rc $out"
+out="$("$PY" "$info" "$wt/missing.png")"; rc=$?
+[ "$rc" = 1 ] && [ "$(jq -r .path <<<"$out")" = "$wt/missing.png" ] && ok "a missing file is an error that names its path" || no "missing: rc=$rc $out"
+rm -rf "$wt"
+svc="$WI/services/WallpaperInfo.qml"
+grep -qF 'command: ["gio", "trash", "--", target]' "$svc" &&
+    ok "delete moves the file to the Trash with gio, the path one argument after --" || no "WallpaperInfo.qml no longer trashes with gio trash --"
+! grep -qE '"(rm|unlink)"|--force|sh", "-c' "$svc" && ok "nothing deletes permanently or runs a shell" || no "WallpaperInfo.qml deletes some other way"
+ov="$WI/components/WallpaperInfoOverlay.qml"
+grep -qF 'readonly property bool inUse: path === Wallpapers.actualCurrent' "$ov" && grep -qF 'disabled: root.inUse || WallpaperInfo.trashing' "$ov" &&
+    ok "the wallpaper in use cannot be deleted" || no "the overlay no longer guards the current wallpaper"
+grep -qF 'if (root.confirming)' "$ov" && grep -qF 'root.confirming = true;' "$ov" && grep -qF 'onOpenChanged: confirming = false' "$ov" &&
+    ok "delete takes a second, confirming click, reset whenever the overlay closes" || no "the overlay lost its confirmation step"
+grep -qF 'readonly property bool open: path !== "" && WallpaperInfo.openPath === path' "$ov" &&
+    ok "one overlay is open at a time, across both pickers" || no "overlays are no longer exclusive"
+p9="$(ls "$OX_ROOT"/shell/patches/*-launcher-show-a-wallpaper-s-size-and-a-delete-button.patch 2>/dev/null)"
+p10="$(ls "$OX_ROOT"/shell/patches/*-nexus-show-a-wallpaper-s-size-and-a-delete-button-on.patch 2>/dev/null)"
+[ -n "$p9" ] && grep -q '^+        acceptedButtons: Qt.LeftButton | Qt.RightButton' "$p9" && grep -q '^+        WallpaperInfoOverlay {' "$p9" &&
+    ok "the launcher's wallpapers open the overlay on right-click" || no "launcher patch missing or changed"
+[ -n "$p10" ] && grep -qF '+                    infoPath: modelData && modelData.parentDir === Paths.wallsdir ? modelData.path : ""' "$p10" &&
+    ok "settings: single wallpapers get the overlay, a category's folder preview does not" || no "settings patch missing or changed"
+grep -qE '^EXTENSIONS="[^"]*\bwallpaper-info\b' "$OX_ROOT/shell/build.sh" && ok "build.sh deploys the wallpaper-info extension" ||
+    no "wallpaper-info is not in build.sh's default extensions"
+
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"
 [ -z "$dups" ] && ok "every shell patch has its own number, so glob order is the series order" || no "duplicate patch numbers: $dups"

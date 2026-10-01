@@ -38,6 +38,11 @@ applications Caelestia does not theme itself.
         such as tiled Caelestia or floating Windows XP. `>theme` in the launcher, or
         **Theme** in settings, switches through one CLI that verifies each switch and
         rolls back a failed one. See [Desktop profiles](#desktop-profiles).
+    -   **Wallpaper info**: right-click a wallpaper in the launcher's `>wallpaper` or the
+        **Wallpapers** settings page to see its size in pixels, on disk and in memory once
+        shown, and to move it to the Trash (`gio`, after a confirming second click; the
+        wallpaper in use cannot be deleted). The size is read from the file's header, so
+        checking a huge image costs nothing.
 -   Theme adapters, for applications Caelestia does not reach:
     -   **GTK**: open GTK windows recolour on a scheme change instead of on their next
         start, including Edge and Chrome in their GTK appearance. See

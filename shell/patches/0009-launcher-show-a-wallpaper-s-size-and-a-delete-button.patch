@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Oxide 1-6 <yes.par781@gmail.com>
+Date: Thu, 1 Oct 2026 18:30:00 +0530
+Subject: [PATCH] launcher: show a wallpaper's size and a delete button on
+ right-click
+
+Right-clicking a wallpaper in the launcher makes it the current one and lays
+WallpaperInfoOverlay over its preview: the size in pixels, on disk and in
+memory, and a button that moves it to the Trash. Moving to another wallpaper
+closes it.
+---
+ modules/launcher/items/WallpaperItem.qml | 23 ++++++++++++++++++++++-
+ 1 file changed, 22 insertions(+), 1 deletion(-)
+
+diff --git a/modules/launcher/items/WallpaperItem.qml b/modules/launcher/items/WallpaperItem.qml
+index 66f6df33..3ff545bd 100644
+--- a/modules/launcher/items/WallpaperItem.qml
++++ b/modules/launcher/items/WallpaperItem.qml
+@@ -12,11 +12,19 @@ Item {
+
+     required property FileSystemEntry modelData
+     required property ScreenState screenState
++    required property int index
++
++    readonly property bool isCurrent: PathView.isCurrentItem // qmllint disable missing-property
+
+     scale: 0.5
+     opacity: 0
+     z: PathView.z ?? 0 // qmllint disable missing-property
+
++    onIsCurrentChanged: {
++        if (!isCurrent && WallpaperInfo.openPath === modelData.path)
++            WallpaperInfo.hide();
++    }
++
+     Component.onCompleted: {
+         scale = Qt.binding(() => PathView.isCurrentItem ? 1 : PathView.onPath ? 0.8 : 0);
+         opacity = Qt.binding(() => PathView.onPath ? 1 : 0);
+@@ -27,7 +35,14 @@ Item {
+
+     StateLayer {
+         radius: Tokens.rounding.large
+-        onClicked: {
++        acceptedButtons: Qt.LeftButton | Qt.RightButton
++        onClicked: mouse => {
++            // Right-click shows the image's size and a delete button over it.
++            if (mouse.button === Qt.RightButton) {
++                root.PathView.view.currentIndex = root.index; // qmllint disable missing-property
++                WallpaperInfo.toggle(root.modelData.path);
++                return;
++            }
+             Wallpapers.setWallpaper(root.modelData.path);
+             root.screenState.launcher = false;
+         }
+@@ -73,6 +88,12 @@ Item {
+                 return Qt.size(image.implicitWidth * dpr, image.implicitHeight * dpr);
+             }
+         }
++
++        WallpaperInfoOverlay {
++            anchors.fill: parent
++            path: root.modelData.path
++            fileSize: root.modelData.size
++        }
+     }
+
+     StyledText {

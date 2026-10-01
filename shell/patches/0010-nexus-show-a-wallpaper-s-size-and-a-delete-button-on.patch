@@ -1,0 +1,87 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Oxide 1-6 <yes.par781@gmail.com>
+Date: Thu, 1 Oct 2026 18:35:00 +0530
+Subject: [PATCH] nexus: show a wallpaper's size and a delete button on
+ right-click
+
+The Wallpapers settings page and its category pages get the same overlay as
+the launcher. WallItem takes the file to describe; a category's preview stands
+for a folder, so it has none and right-click does nothing there.
+---
+ modules/nexus/common/WallItem.qml             | 28 ++++++++++++++++++-
+ .../pages/wallandstyle/WallpaperCategory.qml  |  2 ++
+ .../pages/wallandstyle/WallpaperSelect.qml    |  3 ++
+ 3 files changed, 32 insertions(+), 1 deletion(-)
+
+diff --git a/modules/nexus/common/WallItem.qml b/modules/nexus/common/WallItem.qml
+index 39dd22e3..810b6b5f 100644
+--- a/modules/nexus/common/WallItem.qml
++++ b/modules/nexus/common/WallItem.qml
+@@ -16,6 +16,11 @@ Item {
+     property alias radius: imgWrapper.radius
+     property alias imgHeight: imgWrapper.implicitHeight
+     property bool fillLabel: true
++    // The image file right-click shows the size of and offers to delete;
++    // empty for previews that are not a single wallpaper file.
++    property string infoPath
++    // That file's size on disk, in bytes.
++    property real infoSize: -1
+
+     signal clicked
+
+@@ -100,6 +105,27 @@ Item {
+
+     StateLayer {
+         anchors.bottomMargin: root.fillLabel ? 0 : layout.implicitHeight - imgWrapper.implicitHeight
+-        onClicked: root.clicked()
++        acceptedButtons: root.infoPath ? Qt.LeftButton | Qt.RightButton : Qt.LeftButton
++        onClicked: mouse => {
++            if (mouse.button === Qt.RightButton)
++                WallpaperInfo.toggle(root.infoPath);
++            else
++                root.clicked();
++        }
++    }
++
++    // Above the state layer, so its button takes clicks; only loaded while open.
++    Loader {
++        x: imgWrapper.x
++        y: imgWrapper.y
++        width: imgWrapper.width
++        height: imgWrapper.height
++        active: root.infoPath !== "" && WallpaperInfo.openPath === root.infoPath
++
++        sourceComponent: WallpaperInfoOverlay {
++            path: root.infoPath
++            fileSize: root.infoSize
++            radius: imgWrapper.radius
++        }
+     }
+ }
+diff --git a/modules/nexus/pages/wallandstyle/WallpaperCategory.qml b/modules/nexus/pages/wallandstyle/WallpaperCategory.qml
+index 7b35fb3a..44d35660 100644
+--- a/modules/nexus/pages/wallandstyle/WallpaperCategory.qml
++++ b/modules/nexus/pages/wallandstyle/WallpaperCategory.qml
+@@ -41,6 +41,8 @@ PageBase {
+                 enabled: modelData
+
+                 source: String(modelData?.path ?? "")
++                infoPath: modelData?.path ?? ""
++                infoSize: modelData?.size ?? -1
+                 text: modelData?.name ?? ""
+                 onClicked: {
+                     Wallpapers.setWallpaper(modelData.path);
+diff --git a/modules/nexus/pages/wallandstyle/WallpaperSelect.qml b/modules/nexus/pages/wallandstyle/WallpaperSelect.qml
+index 03b29505..c117ab93 100644
+--- a/modules/nexus/pages/wallandstyle/WallpaperSelect.qml
++++ b/modules/nexus/pages/wallandstyle/WallpaperSelect.qml
+@@ -127,6 +127,9 @@ PageBase {
+                     enabled: modelData
+
+                     source: String(modelData?.path ?? "")
++                    // A category's preview stands for a folder, not one file.
++                    infoPath: modelData && modelData.parentDir === Paths.wallsdir ? modelData.path : ""
++                    infoSize: modelData?.size ?? -1
+                     text: {
+                         if (!modelData)
+                             return "";
