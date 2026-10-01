@@ -134,12 +134,20 @@ enable_adapter() {
 }
 
 install_overrides() {
-    for f in hypr-vars.lua hypr-user.lua shell.json; do
+    for f in hypr-vars.lua hypr-user.lua; do
         if run ox_install_file "$OX_CAELCONF/$f" 644 < "$OX_ROOT/overrides/caelestia/$f"; then
             ox_log "$f"
         fi
         run ox_own "$OX_CAELCONF/$f"
     done
+    # shell.json is also written by the shell's settings UI, so only the keys
+    # the overlay names are set; everything else in it is the user's.
+    "$(ox_python)" "$OX_ROOT/installer/apply_overlay.py" \
+        "$OX_ROOT/overrides/caelestia/shell.json" "$OX_CAELCONF/shell.json" --json $CHECK
+    case $? in
+        0|1) ;;
+        *) ox_warn "shell.json was left as it is; fix it and run ./install --only overrides again" ;;
+    esac
     # cli.json carries this checkout's path, so it is rendered, not copied.
     if [ "$DRY" = 1 ]; then ox_log "would render cli.json with postHook -> $OX_ROOT"; else
         sed "s|@OX_ROOT@|$OX_ROOT|" "$OX_ROOT/overrides/caelestia/cli.json" |

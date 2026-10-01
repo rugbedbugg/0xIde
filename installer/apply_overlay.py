@@ -9,10 +9,17 @@ The overlay names sections and keys; every other line of the target is left
 exactly as it is, so an upstream change to an untouched setting survives. A key
 already at the wanted value is not rewritten, so repeated runs are no-ops.
 
-    apply_overlay.py <overlay> <target> [--ini|--toml|--jsonc] [--check]
+    apply_overlay.py <overlay> <target> [--ini|--toml|--jsonc|--json] [--check]
 
 For JSONC (JSON with comments and trailing commas, as Zed writes it) only
 top-level keys are supported, and each overlay value is a JSON value.
+
+For JSON (--json) the overlay is itself a JSON object, merged recursively into
+the target: objects are merged key by key, and any other value the overlay
+names (a string, number, list...) replaces the target's. Keys only the target
+has, at any depth, are kept, since the target is also written by the
+application's own settings UI. An invalid target is never rewritten, and a
+missing one is created from the overlay.
 """
 
 import json
@@ -175,6 +182,67 @@ def apply_jsonc(target: str, wanted: dict) -> tuple[str, list[str]]:
     return target, changes
 
 
+def merge_json(target, overlay, path: str = "") -> list[str]:
+    """Merges overlay into target in place; returns the key paths it changed."""
+    changes: list[str] = []
+    for key, value in overlay.items():
+        where = f"{path}.{key}" if path else key
+        if isinstance(value, dict) and isinstance(target.get(key), dict):
+            changes.extend(merge_json(target[key], value, where))
+        elif key not in target:
+            target[key] = value
+            changes.append(f"{where} = {json.dumps(value)} (added)")
+        elif target[key] != value:
+            target[key] = value
+            changes.append(f"{where} = {json.dumps(value)}")
+    return changes
+
+
+def apply_json(overlay: Path, target: Path, check: bool) -> int:
+    try:
+        wanted = json.loads(overlay.read_text())
+    except (OSError, json.JSONDecodeError) as err:
+        print(f"{overlay}: not valid JSON ({err}); nothing changed", file=sys.stderr)
+        return 2
+    if not isinstance(wanted, dict):
+        print(f"{overlay}: the overlay must be a JSON object", file=sys.stderr)
+        return 2
+
+    if target.exists():
+        try:
+            current = json.loads(target.read_text())
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as err:
+            print(f"{target}: not valid JSON ({err}); left untouched", file=sys.stderr)
+            return 2
+        if not isinstance(current, dict):
+            print(f"{target}: not a JSON object; left untouched", file=sys.stderr)
+            return 2
+        changes = merge_json(current, wanted)
+    else:
+        current = wanted
+        changes = ["(created from the overlay)"]
+
+    if not changes:
+        print(f"{target.name}: already current")
+        return 0
+    if check:
+        for change in changes:
+            print(f"{target.name}: would set {change}")
+        return 1
+
+    # Written beside the target and renamed over it, so a reader never sees
+    # half a file, keeping the target's permissions.
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(f".{target.name}.overlay")
+    tmp.write_text(json.dumps(current, indent=4, ensure_ascii=False) + "\n")
+    if target.exists():
+        tmp.chmod(target.stat().st_mode & 0o7777)
+    tmp.replace(target)
+    for change in changes:
+        print(f"{target.name}: set {change}")
+    return 0
+
+
 def _loads_loose(value: str):
     """A value as JSON, or None when it holds comments or trailing commas."""
     try:
@@ -187,6 +255,8 @@ def main() -> int:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     flags = {a for a in sys.argv[1:] if a.startswith("--")}
     overlay, target = Path(args[0]), Path(args[1])
+    if "--json" in flags:
+        return apply_json(overlay, target, "--check" in flags)
     style = "toml" if "--toml" in flags else "jsonc" if "--jsonc" in flags else "ini"
 
     if not target.exists():

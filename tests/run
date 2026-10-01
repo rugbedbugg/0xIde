@@ -690,6 +690,65 @@ expected="$(sed '5,9c\  "theme": "Caelestia",' "$td/before.json")"
     ok "a second run changes nothing" || no "a second run would change the settings again"
 rm -rf "$td"
 
+ox_step "Caelestia shell.json overlay"
+# The shell's settings UI writes shell.json too, so install merges the overlay
+# into it: only the keys the overlay names change, at any depth.
+td="$(mktemp -d)"
+ovl="$OX_ROOT/overrides/caelestia/shell.json"
+merge() { "$PY" "$OX_ROOT/installer/apply_overlay.py" "$ovl" "$td/shell.json" --json "$@"; }
+cat > "$td/shell.json" <<'JSON'
+{
+    "ai": {
+        "backend": "managed",
+        "tableMode": true,
+        "translateLanguage": "hi",
+        "future": { "nested": { "setting": [1, 2] } }
+    },
+    "appearance": { "transparency": { "enabled": false, "base": 0.85 }, "rounding": 2 },
+    "somethingNew": { "a": 1 }
+}
+JSON
+chmod 600 "$td/shell.json"
+cp "$td/shell.json" "$td/before.json"
+out="$(merge --check)"; rc=$?
+[ "$rc" = 1 ] && [ "$(cmp "$td/shell.json" "$td/before.json" && echo same)" = same ] &&
+    ok "--check reports and writes nothing" || no "--check: rc=$rc"
+case "$out" in *"would set ai.tableMode = false"*"would set appearance.transparency.enabled = true"*)
+    ok "--check names each key path it would change" ;; *) no "--check output: $out" ;; esac
+case "$out" in *translateLanguage*|*backend*|*future*|*somethingNew*|*rounding*|*base*)
+    no "--check would touch a key the overlay does not own: $out" ;; *) ok "--check lists only overlay-owned keys" ;; esac
+merge >/dev/null
+live() { jq -c "$1" "$td/shell.json"; }
+[ "$(live .ai.translateLanguage)" = '"hi"' ] && [ "$(live .ai.backend)" = '"managed"' ] &&
+    ok "live ai.translateLanguage = hi and ai.backend survive" || no "ai: $(live .ai)"
+[ "$(live .ai.tableMode)" = false ] && ok "the overlay-owned ai.tableMode is updated" || no "ai.tableMode: $(live .ai.tableMode)"
+[ "$(live .ai.future)" = '{"nested":{"setting":[1,2]}}' ] && [ "$(live .somethingNew)" = '{"a":1}' ] &&
+    ok "unknown nested and top-level settings survive" || no "unknown settings: $(live .ai.future) $(live .somethingNew)"
+[ "$(live .appearance)" = '{"transparency":{"enabled":true,"base":0.85},"rounding":2}' ] &&
+    ok "nested objects merge key by key" || no "appearance: $(live .appearance)"
+[ "$(live .launcher.favouriteApps)" = "$(jq -c .launcher.favouriteApps "$ovl")" ] &&
+    ok "keys the live file lacked are added" || no "launcher: $(live .launcher)"
+[ "$(stat -c %a "$td/shell.json")" = 600 ] && ok "the file keeps its permissions" || no "mode: $(stat -c %a "$td/shell.json")"
+cp "$td/shell.json" "$td/once.json"
+merge --check >/dev/null && merge >/dev/null && cmp -s "$td/shell.json" "$td/once.json" &&
+    ok "a second run changes nothing" || no "the merge is not idempotent"
+printf '{ "ai": { "translateLanguage": "hi", }\n' > "$td/shell.json"; cp "$td/shell.json" "$td/before.json"
+merge >/dev/null 2>&1; rc=$?
+[ "$rc" = 2 ] && cmp -s "$td/shell.json" "$td/before.json" &&
+    ok "invalid JSON fails and is left untouched" || no "invalid JSON: rc=$rc $(cat "$td/shell.json")"
+echo '[1, 2]' > "$td/shell.json"
+merge >/dev/null 2>&1; rc=$?
+[ "$rc" = 2 ] && [ "$(cat "$td/shell.json")" = "[1, 2]" ] && ok "a non-object file is left untouched" || no "array target: rc=$rc"
+rm -f "$td/shell.json"
+merge >/dev/null && [ "$(jq -S . "$td/shell.json")" = "$(jq -S . "$ovl")" ] &&
+    ok "a missing file is created from the overlay" || no "missing target not created"
+grep -qE 'apply_overlay\.py.*\\$' "$OX_ROOT/install" && grep -q 'shell.json" --json \$CHECK' "$OX_ROOT/install" &&
+    ! grep -qE 'for f in [^;]*shell\.json' "$OX_ROOT/install" &&
+    ok "install merges shell.json and never copies it whole" || no "install still overwrites shell.json"
+out="$(jq -c '.ai' "$ovl")"
+[ "$out" = '{"tableMode":false}' ] && ok "the repository's overlay holds no personal AI settings" || no "overlay ai: $out"
+rm -rf "$td"
+
 ox_step "Firefox layout"
 # Caelestia's dots deploy to ~/.mozilla only; a profile under
 # $XDG_CONFIG_HOME/mozilla must get the files too, and the user's own user.js
