@@ -1,0 +1,74 @@
+#!/usr/bin/env -S uv run --no-project --python 3.13 python
+"""Opt-in Wayland UI verification. Only this harness's children receive signals."""
+
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import time
+
+repo = Path(__file__).resolve().parent.parent
+source = repo / "build/shell-src"
+plugin = repo / "build/plugin-install/lib/qt6/qml"
+if not os.environ.get("WAYLAND_DISPLAY") or not plugin.is_dir():
+    raise SystemExit("Needs a Wayland session and shell/build.sh --no-install")
+
+output = Path(tempfile.mkdtemp(prefix="unnova-live-"))
+print(f"Live verification artifacts: {output}", flush=True)
+shutil.copytree(source, output / "shell", ignore=shutil.ignore_patterns(".git", "plugin", "__pycache__"))
+qml = (repo / "tests/unnova_live.qml").read_text().replace("@PLUGIN_QML@", str(plugin))
+(output / "shell/shell.qml").write_text(qml)
+env = os.environ.copy()
+for key, name in [("XDG_CONFIG_HOME", "config"), ("XDG_STATE_HOME", "state"),
+                  ("XDG_DATA_HOME", "data"), ("XDG_CACHE_HOME", "cache")]:
+    env[key] = str(output / "xdg" / name)
+    Path(env[key]).mkdir(parents=True)
+# Use the existing colours as read-only input; all test state stays isolated.
+scheme = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "caelestia/scheme.json"
+if scheme.is_file():
+    target = Path(env["XDG_STATE_HOME"]) / "caelestia/scheme.json"
+    target.parent.mkdir(parents=True)
+    shutil.copyfile(scheme, target)
+env.update(QT_QPA_PLATFORM="wayland", NO_COLOR="1", UNNOVA_TEST_OUTPUT=str(output))
+
+phases = {}
+results = {}
+costs = []
+warnings = []
+with (output / "log").open("w") as log:
+    process = subprocess.Popen(["qs", "-p", str(output / "shell")], stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT, text=True, env=env)
+    for line in process.stdout:
+        log.write(line)
+        log.flush()
+        if "PHASE " in line:
+            event = json.loads(line.split("PHASE ", 1)[1])
+            pid = event["pid"]
+            fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+            status = Path(f"/proc/{pid}/status").read_text().splitlines()
+            event.update(time=time.monotonic(), ticks=int(fields[11]) + int(fields[12]),
+                         rss_kib=int(next(x for x in status if x.startswith("VmRSS:")).split()[1]))
+            phases[event["name"]] = event
+        if "RESULTS " in line:
+            results = json.loads(line.split("RESULTS ", 1)[1])
+        if "COSTS " in line:
+            costs = json.loads(line.split("COSTS ", 1)[1])
+        if "FAIL " in line or " ERROR" in line or " WARN" in line:
+            warnings.append(line.strip())
+            print(line.strip(), flush=True)
+    rc = process.wait()
+
+measurements = []
+for phase in ("visible", "hidden"):
+    a, b = phases.get(phase + "-start"), phases.get(phase + "-end")
+    if a and b:
+        measurements.append(dict(phase=phase,
+            cpu_percent=100 * (b["ticks"] - a["ticks"]) / os.sysconf("SC_CLK_TCK") / (b["time"] - a["time"]),
+            rss_start_kib=a["rss_kib"], rss_end_kib=b["rss_kib"],
+            samples=b["samples"] - a["samples"], processes=b["count"]))
+report = dict(results=results, measurements=measurements, sample_ms=costs, warnings=warnings)
+(output / "results.json").write_text(json.dumps(report, indent=2))
+print(json.dumps(report, indent=2))
+raise SystemExit(0 if rc == 0 and results and all(results.values()) and not warnings else 1)

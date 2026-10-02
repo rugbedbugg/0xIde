@@ -1,10 +1,21 @@
 # shell/plugin
 
-Two C++ types the packaged Caelestia plugin does not provide, without which the
-`ai` and `ocr` extensions will not load: `AiConfig`, a config node, and
-`AiRequest`, a streaming client for OpenAI-compatible chat completions.
+C++ the packaged Caelestia plugin does not provide:
 
-## These files are a reimplementation, not recovered source
+- `AiConfig`, a config node, and `AiRequest`, a streaming client for
+  OpenAI-compatible chat completions. The `ai` and `ocr` extensions will not
+  load without them. These are reimplementations; see below.
+- `Processes`, UnNova's process service, in `Caelestia.Services`
+  (`processes.*`), over a Qt-free `/proc` reader (`procfs.*`). This is new code
+  written for 0xIde, registered by `patches/0002-*`. It is a `Service` like
+  `Cpu` and `Memory`, so it samples only while a `ServiceRef` holds it, and
+  signals a process only after pinning it with a pidfd and checking its start
+  time. `tests/run` compiles `procfs.cpp` on its own and drives `Processes` in a
+  windowless `qs`.
+
+## AiConfig and AiRequest
+
+### These files are a reimplementation, not recovered source
 
 The plugin these types came from existed only as a locally built binary. Its
 source tree was gone: not on disk, not in any package, not pushed anywhere.
@@ -31,7 +42,7 @@ the original implementation looked like this.**
 The old binary is not distributed and is not needed: it was evidence, not a
 dependency.
 
-## What is inferred rather than recovered
+### What is inferred rather than recovered
 
 This is the part to check first if behaviour differs from before.
 
@@ -57,7 +68,7 @@ This is the part to check first if behaviour differs from before.
 ```
 
 Needs `cmake`, `ninja`, `git`, Qt 6 development packages and `libqalculate`:
-the same set upstream needs, because this builds the upstream plugin with two
+the same set upstream needs, because this builds the upstream plugin with these
 files added. Output goes to `$XDG_DATA_HOME/0xide/qml`, which
 `shell.qml` points at through `QML_IMPORT_PATH`.
 

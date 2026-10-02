@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Lightweight validation. Everything here is static analysis of the repository
-# itself: nothing installs, starts, or contacts anything.
+# Repository validation with isolated fixtures and disposable test processes.
+# Nothing installs; desktop clipboard checks run only when Wayland is available.
 set -uo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../orchestration/lib/common.sh"
 
@@ -31,6 +31,7 @@ ox_step "Python syntax"
 while IFS= read -r f; do
     if "$PY" -m py_compile "$f" 2>/dev/null; then ok "${f#$OX_ROOT/}"; else no "${f#$OX_ROOT/}"; fi
 done < <(find "$OX_ROOT" -path "$OX_ROOT/build" -prune -o -path "$OX_ROOT/.work" -prune -o -name '*.py' -print
+         printf '%s\n' "$OX_ROOT/tests/unnova-live"
          find "$OX_ROOT/adapters" -name apply -exec grep -l '^#!/usr/bin/python3' {} +)
 
 ox_step "JSON and TOML"
@@ -57,6 +58,10 @@ if [ -d "$SRC/.git" ]; then
     install -Dm644 "$OX_ROOT/shell/plugin/src/aiconfig.hpp"  "$tmp/plugin/src/Caelestia/Config/aiconfig.hpp"
     install -Dm644 "$OX_ROOT/shell/plugin/src/airequest.hpp" "$tmp/plugin/src/Caelestia/airequest.hpp"
     install -Dm644 "$OX_ROOT/shell/plugin/src/airequest.cpp" "$tmp/plugin/src/Caelestia/airequest.cpp"
+    install -Dm644 "$OX_ROOT/shell/plugin/src/procfs.hpp" "$tmp/plugin/src/Caelestia/Services/procfs.hpp"
+    install -Dm644 "$OX_ROOT/shell/plugin/src/procfs.cpp" "$tmp/plugin/src/Caelestia/Services/procfs.cpp"
+    install -Dm644 "$OX_ROOT/shell/plugin/src/processes.hpp" "$tmp/plugin/src/Caelestia/Services/processes.hpp"
+    install -Dm644 "$OX_ROOT/shell/plugin/src/processes.cpp" "$tmp/plugin/src/Caelestia/Services/processes.cpp"
     for p in "$OX_ROOT"/shell/plugin/patches/*.patch "$OX_ROOT"/shell/patches/*.patch; do
         if git -C "$tmp" apply --check "$p" 2>/dev/null && git -C "$tmp" apply "$p" 2>/dev/null
         then ok "$(basename "$p")"; else no "$(basename "$p") does not apply to ${rev:0:9}"; fi
@@ -163,7 +168,8 @@ done
 
 ox_step "Shell layer is complete"
 for f in shell/upstream.pin shell/build.sh \
-         shell/plugin/src/aiconfig.hpp shell/plugin/src/airequest.hpp shell/plugin/src/airequest.cpp; do
+         shell/plugin/src/aiconfig.hpp shell/plugin/src/airequest.hpp shell/plugin/src/airequest.cpp \
+         shell/plugin/src/procfs.hpp shell/plugin/src/procfs.cpp shell/plugin/src/processes.hpp shell/plugin/src/processes.cpp; do
     if [ -s "$OX_ROOT/$f" ]; then ok "$f"; else no "$f is missing or empty"; fi
 done
 n=$(ls "$OX_ROOT"/shell/patches/*.patch 2>/dev/null | wc -l)
@@ -2286,6 +2292,454 @@ p10="$(ls "$OX_ROOT"/shell/patches/*-nexus-show-a-wallpaper-s-size-and-a-delete-
     ok "settings: single wallpapers get the overlay, a category's folder preview does not" || no "settings patch missing or changed"
 grep -qE '^EXTENSIONS="[^"]*\bwallpaper-info\b' "$OX_ROOT/shell/build.sh" && ok "build.sh deploys the wallpaper-info extension" ||
     no "wallpaper-info is not in build.sh's default extensions"
+
+ox_step "UnNova: process core"
+# The /proc reader, identities, signals and views, compiled on their own with
+# no Qt. Signals go only to the test program's own children.
+UN="$OX_ROOT/shell/extensions/unnova/tree/modules/unnova"
+if ox_have c++; then
+    ut="$(mktemp -d)"
+    if c++ -std=c++20 -O1 -Wall -Wextra -Werror "$OX_ROOT/tests/procfs_test.cpp" "$OX_ROOT/shell/plugin/src/procfs.cpp" \
+        -o "$ut/procfs_test" 2>"$ut/cc.log"; then
+        ok "the process core compiles warning-free without Qt"
+        "$ut/procfs_test" > "$ut/out" 2>&1; rc=$?
+        while IFS= read -r line; do
+            case "$line" in
+                "ok "*) ok "${line#ok }" ;;
+                "FAIL "*) no "${line#FAIL }" ;;
+            esac
+        done < "$ut/out"
+        [ "$rc" = 0 ] || grep -q '^FAIL ' "$ut/out" || no "procfs_test stopped early (rc=$rc): $(tail -3 "$ut/out")"
+    else
+        no "procfs_test does not compile: $(head -5 "$ut/cc.log")"
+    fi
+    rm -rf "$ut"
+else skipt "no C++ compiler for the process core"; fi
+
+ox_step "UnNova: wording and states"
+if ! ox_have qml6; then skipt "no qml6 runtime for UnNova's helpers"
+else
+    jx="$(mktemp -d)"
+    cp "$UN/unnova.js" "$jx/"
+    cat > "$jx/harness.qml" <<'EOF'
+import QtQuick
+import "unnova.js" as U
+
+Item {
+    Component.onCompleted: {
+        const ai = (o) => Object.assign({ installing: false, operation: "install", installed: true, serving: false, stopping: false, endpoint: "" }, o);
+        const r = {
+            bytes: [U.formatBytes(0), U.formatBytes(1536), U.formatBytes(720 * 1048576), U.formatBytes(1.7 * 1073741824), U.formatBytes(123.4 * 1048576)],
+            percent: [U.formatPercent(0), U.formatPercent(8.14), U.formatPercent(12.43)],
+            duration: [U.formatDuration(5), U.formatDuration(125), U.formatDuration(3700), U.formatDuration(90000)],
+            states: [U.stateText("T"), U.stateText("Z").split(":")[0], U.stateText("?")],
+            end: U.action("end").signal + "|" + /exit normally/.test(U.action("end").explanation) + "|" + /kill|force/i.test(U.action("end").explanation),
+            force: U.action("force").signal + "|" + U.action("force").destructive + "|" + /cannot perform normal cleanup/.test(U.action("force").explanation) + "|" + /Unsaved work may be lost/.test(U.action("force").explanation),
+            menu: ["pause", "resume", "hangup", "interrupt"].map(a => U.action(a).signal).join(","),
+            other: U.signalAction("USR1").signal + "|" + U.signalAction("KILL").id,
+            init: /system's init process/.test(U.context({ pid: 1 }, 99)),
+            kernel: /kernel thread/.test(U.context({ pid: 7, kernelThread: true }, 99)),
+            shell: /Caelestia shell/.test(U.context({ pid: 99, uid: 1000 }, 99)),
+            hyprland: /compositor/.test(U.context({ pid: 50, uid: 1000, exeReadable: true, exe: "/usr/bin/Hyprland" }, 99)),
+            namedOnly: U.context({ pid: 51, uid: 1000, comm: "Hyprland", exeReadable: false }, 99),
+            rootNetwork: /networking/.test(U.context({ pid: 52, uid: 0, comm: "NetworkManager", exeReadable: false }, 99)),
+            audio: /audio/.test(U.context({ pid: 53, uid: 1000, exeReadable: true, exe: "/usr/bin/wireplumber" }, 99)),
+            userSystemd: /user service manager/.test(U.context({ pid: 54, uid: 1000, exeReadable: true, exe: "/usr/lib/systemd/systemd" }, 99)),
+            ordinary: U.context({ pid: 55, uid: 1000, exeReadable: true, exe: "/usr/lib/firefox/firefox" }, 99),
+            ownRoot: /Owned by root/.test(U.ownership({ uid: 0, user: "root" }, 1000)),
+            ownMine: U.ownership({ uid: 1000, user: "me" }, 1000),
+            ai: [U.aiState(ai({})), U.aiState(ai({ serving: true })), U.aiState(ai({ serving: true, endpoint: "http://x" })), U.aiState(ai({ serving: true, stopping: true })), U.aiState(ai({ installing: true })), U.aiState(ai({ installing: true, operation: "uninstall" })), U.aiState(ai({ installed: false }))],
+            aiCan: [ai({}), ai({ serving: true }), ai({ serving: true, endpoint: "http://x" }), ai({ serving: true, endpoint: "http://x", stopping: true }), ai({ serving: true, endpoint: "http://x", installing: true })].map(x => { const c = U.aiCan(x); return `${c.unload}/${c.restart}`; }),
+            listener: [U.isListener("/usr/bin/python3 /x/assets/dictation/speech.py listen --language en"), U.isListener("/usr/bin/python3 /x/speech.py status"), U.isListener("vim speech.py listen.txt"), U.isListener("python3 notspeech.py listen")],
+            pidFile: [U.pidFromFile("1234\n"), U.pidFromFile("12a"), U.pidFromFile(""), U.pidFromFile("-5")],
+            whisper: U.whisperModel("ggml-base.bin"),
+            dictation: [U.dictationState({ installed: true }, false), U.dictationState({ installed: true }, true), U.dictationState({ installed: false }, false), U.dictationState({ working: true, operation: "install" }, false), U.dictationState({}, false)],
+            translation: [U.translationState({}), U.translationState({ translating: true }), U.translationState({ working: true, operation: "install", languageName: "Hindi" })],
+            languages: [U.translationLanguages(["Hindi", "French"]), U.translationLanguages([])],
+            profile: [U.profileState({ name: "Caelestia" }), U.profileState(null)]
+        };
+        console.log("RESULTS " + JSON.stringify(r));
+        Qt.quit();
+    }
+}
+EOF
+    res="$(QT_FORCE_STDERR_LOGGING=1 QT_QPA_PLATFORM=offscreen XDG_CACHE_HOME="$jx/.cache" timeout 20 qml6 "$jx/harness.qml" 2>&1 | sed -n 's/^qml: RESULTS //p')"
+    if [ -z "$res" ]; then
+        no "the UnNova helper harness did not run"
+    else
+        "$PY" - "$res" <<'CHK'
+import json, sys
+r = json.loads(sys.argv[1])
+want = {
+    "bytes": (["0 B", "1.5 KiB", "720 MiB", "1.7 GiB", "123 MiB"], "sizes are binary units, one decimal under 100"),
+    "percent": (["0.0%", "8.1%", "12%"], "percentages keep a decimal only while small"),
+    "duration": (["5 s", "2 min 5 s", "1 h 1 min", "1 d 1 h"], "durations read as the two largest units"),
+    "states": (["Paused", "Zombie", "Unknown (?)"], "process states are words, not letters"),
+    "end": ("TERM|true|false", "End task is SIGTERM, explained as a request to exit, never as a kill"),
+    "force": ("KILL|true|true|true", "Force stop is SIGKILL, marked destructive, and says cleanup is impossible and work may be lost"),
+    "menu": ("STOP,CONT,HUP,INT", "Pause, Resume, Hang up and Interrupt send STOP, CONT, HUP and INT"),
+    "other": ("USR1|force", "a signal from the full list is sent by its name; KILL from there is still Force stop"),
+    "init": (True, "PID 1 is explained as the init process"),
+    "kernel": (True, "a kernel thread is explained as part of the kernel"),
+    "shell": (True, "the shell running UnNova is recognised by its own PID"),
+    "hyprland": (True, "Hyprland is recognised by its executable"),
+    "namedOnly": ("", "a user's process merely named Hyprland is not trusted to be it"),
+    "rootNetwork": (True, "a root-owned network service is recognised by name, which a user cannot fake"),
+    "audio": (True, "PipeWire's parts are explained as the audio system"),
+    "userSystemd": (True, "the user's own systemd is the user service manager, not init"),
+    "ordinary": ("", "an ordinary application gets no warning"),
+    "ownRoot": (True, "a root-owned process says permission will probably be refused"),
+    "ownMine": ("", "the user's own process says nothing about permission"),
+    "ai": (["Stopped", "Starting", "Ready", "Stopping", "Installing", "Removing", "Not installed"], "local AI states follow the runtime: stopped, starting, ready, stopping, busy"),
+    "aiCan": (["false/false", "true/false", "true/true", "false/false", "false/false"], "Unload needs a running server; Restart a ready one; neither while stopping or installing"),
+    "listener": ([True, False, False, False], "only speech.py's listener counts as dictation listening"),
+    "pidFile": ([1234, 0, 0, 0], "a PID file is believed only when it holds a plain number"),
+    "whisper": ("Whisper base", "the dictation model is named from its file"),
+    "dictation": (["Off", "Listening", "Model not installed", "Installing model", "Checking"], "dictation states come from the model and the listener"),
+    "translation": (["Idle", "Translating", "Installing Hindi"], "translation states come from the translator"),
+    "languages": (["Installed: Hindi, French, each to and from English", "No languages installed"], "installed translation languages are listed"),
+    "profile": (["Caelestia", "Unknown"], "the active desktop profile is shown by name"),
+}
+bad = 0
+for k, (v, what) in want.items():
+    if r.get(k) == v:
+        print(f"  \033[32mok\033[0m    {what}")
+    else:
+        print(f"  \033[31mFAIL\033[0m  {what} (got {r.get(k)!r})")
+        bad += 1
+sys.exit(bad)
+CHK
+        n=$?
+        pass=$((pass + 28 - n)); fail=$((fail + n))
+    fi
+    rm -rf "$jx"
+fi
+
+# The service itself, from the plugin as built, in a Quickshell with no window
+# and private XDG directories. It needs a built plugin and qs, so it runs where
+# the shell is built and is skipped elsewhere.
+ox_step "UnNova: process service"
+PLUGIN_QML="$OX_BUILD/plugin-install/lib/qt6/qml"
+if ox_have pkg-config && pkg-config --exists Qt6Test Qt6Qml && [ -f "$PLUGIN_QML/Caelestia/lib/libcaelestia-services.so" ]; then
+    mx="$(mktemp -d)"
+    read -r -a qt_flags <<< "$(pkg-config --cflags --libs Qt6Test Qt6Qml)"
+    if c++ -std=c++20 -O1 -fPIC -Wall -Wextra -Werror "$OX_ROOT/tests/processmodel_test.cpp" \
+        -I"$OX_BUILD/shell-src/plugin/src/Caelestia/Services" -I"$OX_BUILD/plugin/plugin/src/Caelestia/include" \
+        "${qt_flags[@]}" -L"$PLUGIN_QML/Caelestia/lib" -lcaelestia-services \
+        -Wl,-rpath,"$PLUGIN_QML/Caelestia/lib" -o "$mx/test" >"$mx/log" 2>&1 && \
+        timeout 60 "$mx/test" >>"$mx/log" 2>&1; then
+        ok "400 changing snapshots obey Qt's model contract without resets"
+    else
+        no "Qt model contract test failed: $(tail -8 "$mx/log")"
+    fi
+    rm -rf "$mx"
+else
+    skipt "no Qt Test or built plugin for the model contract test"
+fi
+if ! ox_have qs || [ ! -d "$PLUGIN_QML/Caelestia/Services" ] || ! grep -q 'Caelestia.Services/Processes' "$PLUGIN_QML/Caelestia/Services/caelestia-services.qmltypes" 2>/dev/null; then
+    skipt "no qs or no built plugin with the process service (shell/build.sh --no-install)"
+else
+    sx="$(mktemp -d)"
+    mkdir -p "$sx/cfg" "$sx/xdg/config" "$sx/xdg/state" "$sx/xdg/cache" "$sx/xdg/data" "$sx/xdg/run"
+    chmod 700 "$sx/xdg/run"
+    cat > "$sx/cfg/shell.qml" <<EOF
+//@ pragma Env QML_IMPORT_PATH=$PLUGIN_QML
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import Caelestia.Services
+
+ShellRoot {
+    id: h
+    property var r: ({})
+    property var ref: null
+    property string key
+    property int childPid: 0
+    property int at: 0
+    Component { id: refComp; ServiceRef { service: Processes } }
+    Process { id: child; command: ["sleep", "3017"]; running: true }
+    Process { id: unicodeChild; command: ["bash", "-c", "exec -a UnNova-ÄÖÜ-日本 sleep 3018"]; running: true }
+    Component.onCompleted: {
+        r.idle = !Processes.active && Processes.samples === 0;
+        step.start();
+    }
+    function rowNames() {
+        const out = [];
+        for (let i = 0; i < Processes.model.rowCount(); i++)
+            out.push(Processes.model.data(Processes.model.index(i, 0), 257));
+        return out;
+    }
+    Timer {
+        id: step
+        interval: 400
+        repeat: true
+        property int n: 0
+        onTriggered: {
+            n++;
+            if (n === 1) {
+                ref = refComp.createObject(h);
+                r.refStarts = Processes.active && Processes.samples === 1 && Processes.count > 1;
+            } else if (n === 5) {
+                r.ticks = Processes.samples >= 3;
+                const u = Processes.usage(child.processId);
+                key = u.key;
+                childPid = child.processId;
+                r.usage = u.found === true && u.name === "sleep" && u.processes === 1;
+                Processes.selectedKey = key;
+                r.selected = Processes.selectedAlive && Processes.selected.pid === child.processId && /sleep 3017\$/.test(Processes.selected.command);
+                Processes.query = "sleep 3017";
+                r.search = rowNames().join(",") === key;
+                Processes.query = "SLEEP 3017";
+                r.searchCase = rowNames().join(",") === key;
+                Processes.query = String(child.processId);
+                r.searchPid = rowNames().includes(key);
+                Processes.query = "unnova-äöü-日本";
+                r.searchUnicode = rowNames().includes(Processes.usage(unicodeChild.processId).key);
+                Processes.query = "";
+                r.listAll = Processes.model.rowCount() === Processes.count;
+                Processes.treeMode = true;
+                const tree = rowNames();
+                const parentKey = Processes.selected.parentKey;
+                r.treeParent = tree.indexOf(parentKey) >= 0 && tree.indexOf(parentKey) < tree.indexOf(key);
+                Processes.toggleExpanded(parentKey);
+                r.collapse = !rowNames().includes(key) && rowNames().includes(parentKey) && Processes.selectedKey === key;
+                Processes.toggleExpanded(parentKey);
+                r.expand = rowNames().includes(key);
+                Processes.toggleExpanded(parentKey);
+                r.stale = Processes.sendSignal(child.processId + ":1", "KILL").result;
+                r.badSignal = Processes.sendSignal(key, "TERM;ls").result;
+                r.badKey = Processes.sendSignal("0:0", "TERM").result;
+                r.aliveAfterRefusals = Processes.isAlive(key);
+                at = Processes.samples;
+            } else if (n === 7) {
+                // The 400 ms harness timer can run between 1 Hz samples.
+                // Exercise a refresh explicitly rather than assuming timer alignment.
+                Processes.refresh();
+                r.selectionSurvives = Processes.samples > at && Processes.selectedKey === key && Processes.selectedAlive;
+                r.expansionSurvives = !rowNames().includes(key);
+                Processes.toggleExpanded(Processes.selected.parentKey);
+                Processes.treeMode = false;
+                r.term = Processes.sendSignal(key, "TERM").result;
+            } else if (n === 10) {
+                r.exited = Processes.selectedKey === key && !Processes.selectedAlive && Processes.selected.alive === false && !rowNames().includes(key);
+                r.notMoved = Processes.selected.pid === childPid && Processes.selected.key === key;
+                r.gone = Processes.sendSignal(key, "TERM").result;
+                ref.destroy();
+            } else if (n === 11) {
+                at = Processes.samples;
+                r.unrefStops = !Processes.active && Processes.model.rowCount() === 0 && Processes.selectedKey === "";
+            } else if (n === 15) {
+                r.quietWhenClosed = Processes.samples === at;
+                ref = refComp.createObject(h);
+                r.reopen = Processes.active && Processes.samples === at + 1 && Processes.count > 1;
+            } else if (n === 19) {
+                console.log("RESULTS " + JSON.stringify(r));
+                Qt.quit();
+            }
+        }
+    }
+}
+EOF
+    res="$(cd "$sx" && XDG_CONFIG_HOME="$sx/xdg/config" XDG_STATE_HOME="$sx/xdg/state" XDG_CACHE_HOME="$sx/xdg/cache" \
+        XDG_DATA_HOME="$sx/xdg/data" XDG_RUNTIME_DIR="$sx/xdg/run" WAYLAND_DISPLAY='' QT_QPA_PLATFORM=offscreen \
+        timeout 40 qs -p "$sx/cfg" 2>&1 | sed -n 's/.*qml.*RESULTS //p')"
+    if [ -z "$res" ]; then
+        no "the process service harness did not run"
+    else
+        "$PY" - "$res" <<'CHK'
+import json, sys
+r = json.loads(sys.argv[1])
+want = {
+    "idle": (True, "nothing is sampled before anything holds the service"),
+    "refStarts": (True, "a ServiceRef starts it with an immediate sample"),
+    "ticks": (True, "it samples about once a second while held"),
+    "usage": (True, "a PID and what it started are found together, for the 0xIde tab"),
+    "selected": (True, "the selected process is described by its own PID and command line"),
+    "search": (True, "search finds a process by its command line"),
+    "searchCase": (True, "search ignores case"),
+    "searchPid": (True, "search finds a process by PID"),
+    "searchUnicode": (True, "search folds Unicode case while preserving non-Latin text"),
+    "listAll": (True, "with no search, the list holds every process"),
+    "treeParent": (True, "the tree places a process under its real parent"),
+    "collapse": (True, "folding a parent hides its children and leaves the selection alone"),
+    "expand": (True, "unfolding shows them again"),
+    "stale": ("stale", "an old identity for a reused PID is refused"),
+    "badSignal": ("invalid-signal", "a signal outside the table is refused"),
+    "badKey": ("invalid-identity", "an identity of PID 0 is refused"),
+    "aliveAfterRefusals": (True, "refusals send nothing"),
+    "selectionSurvives": (True, "the selection survives refreshes"),
+    "expansionSurvives": (True, "tree expansion survives refreshes"),
+    "term": ("sent", "End task sends SIGTERM to the selected process"),
+    "exited": (True, "an exited selection is shown as exited and leaves the list"),
+    "notMoved": (True, "the selection is not moved to another process"),
+    "gone": ("exited", "acting on an exited process says it has exited"),
+    "unrefStops": (True, "dropping the last ServiceRef stops sampling and clears the list and selection"),
+    "quietWhenClosed": (True, "no samples are taken while nothing holds the service"),
+    "reopen": (True, "reopening samples immediately"),
+}
+bad = 0
+for k, (v, what) in want.items():
+    if r.get(k) == v:
+        print(f"  \033[32mok\033[0m    {what}")
+    else:
+        print(f"  \033[31mFAIL\033[0m  {what} (got {r.get(k)!r})")
+        bad += 1
+sys.exit(bad)
+CHK
+        n=$?
+        pass=$((pass + 26 - n)); fail=$((fail + n))
+    fi
+    rm -rf "$sx"
+fi
+
+# AiRuntime's own lifecycle, with uv replaced by a stand-in server that is ready
+# at once and exits on SIGTERM as runtime.py does. Nothing real is started.
+ox_step "UnNova: local AI lifecycle"
+if ! ox_have qs; then skipt "no qs for the local AI lifecycle"
+else
+    ax="$(mktemp -d)"
+    mkdir -p "$ax/cfg/services" "$ax/bin" "$ax/xdg/run"
+    chmod 700 "$ax/xdg/run"
+    cp "$OX_ROOT/shell/extensions/ai/tree/services/AiRuntime.qml" "$ax/cfg/services/"
+    cat > "$ax/bin/uv" <<EOF
+#!/usr/bin/env bash
+case " \$* " in
+    *" status "*) echo '{"installed": true, "model": "test/model"}' ;;
+    *" serve "*)
+        echo serve >> "$ax/serves"
+        trap 'exit 130' TERM
+        echo '{"stage": "ready", "endpoint": "http://127.0.0.1:9/v1/chat/completions"}'
+        while :; do sleep 0.1; done ;;
+esac
+EOF
+    chmod +x "$ax/bin/uv"
+    cat > "$ax/cfg/shell.qml" <<'EOF'
+import QtQuick
+import Quickshell
+import qs.services
+
+ShellRoot {
+    property var r: ({})
+    property int first: 0
+    Timer {
+        interval: 300
+        repeat: true
+        running: true
+        property int n: 0
+        onTriggered: {
+            n++;
+            if (n === 2) {
+                r.notStartedByLooking = !AiRuntime.serving;
+                AiRuntime.restart();
+                r.restartNeedsServer = !AiRuntime.serving;
+                AiRuntime.start();
+            } else if (n === 5) {
+                r.ready = AiRuntime.serving && AiRuntime.endpoint !== "" && AiRuntime.serverPid > 0;
+                first = AiRuntime.serverPid;
+                AiRuntime.restart();
+                r.stopping = AiRuntime.stopping && AiRuntime.endpoint === "" && AiRuntime.serving;
+                AiRuntime.restart();
+            } else if (n === 10) {
+                r.restarted = AiRuntime.serving && !AiRuntime.stopping && AiRuntime.endpoint !== "" && AiRuntime.serverPid > 0 && AiRuntime.serverPid !== first;
+                r.noError = AiRuntime.error === "";
+                AiRuntime.stop();
+            } else if (n === 14) {
+                r.unloaded = !AiRuntime.serving && !AiRuntime.stopping && AiRuntime.endpoint === "";
+                AiRuntime.start();
+            } else if (n === 18) {
+                AiRuntime.restart();
+                AiRuntime.stop();
+            } else if (n === 22) {
+                r.cancelRestart = !AiRuntime.serving && !AiRuntime.restartAfterStop && AiRuntime.endpoint === "";
+                console.log("RESULTS " + JSON.stringify(r));
+                Qt.quit();
+            }
+        }
+    }
+}
+EOF
+    res="$(cd "$ax" && PATH="$ax/bin:$PATH" XDG_RUNTIME_DIR="$ax/xdg/run" XDG_CONFIG_HOME="$ax/xdg" XDG_STATE_HOME="$ax/xdg" \
+        XDG_CACHE_HOME="$ax/xdg" XDG_DATA_HOME="$ax/xdg" WAYLAND_DISPLAY='' QT_QPA_PLATFORM=offscreen \
+        timeout 30 qs -p "$ax/cfg" 2>&1 | sed -n 's/.*qml.*RESULTS //p')"
+    serves="$(wc -l < "$ax/serves" 2>/dev/null || echo 0)"
+    if [ -z "$res" ]; then
+        no "the local AI lifecycle harness did not run"
+    else
+        "$PY" - "$res" "$serves" <<'CHK'
+import json, sys
+r = json.loads(sys.argv[1])
+r["serves"] = int(sys.argv[2])
+want = {
+    "notStartedByLooking": (True, "the local AI is not started by being looked at"),
+    "restartNeedsServer": (True, "Restart does nothing when no server runs"),
+    "ready": (True, "a started server is ready with an endpoint and a PID"),
+    "stopping": (True, "Restart first stops it, through the existing stop()"),
+    "restarted": (True, "then starts a new server once the old one has exited"),
+    "noError": (True, "a restart is not reported as a failure"),
+    "unloaded": (True, "Unload stops the server and leaves it stopped"),
+    "cancelRestart": (True, "Unload cancels a pending Restart"),
+    "serves": (3, "repeated Restart is ignored and a cancelled Restart launches no server"),
+}
+bad = 0
+for k, (v, what) in want.items():
+    if r.get(k) == v:
+        print(f"  \033[32mok\033[0m    {what}")
+    else:
+        print(f"  \033[31mFAIL\033[0m  {what} (got {r.get(k)!r})")
+        bad += 1
+sys.exit(bad)
+CHK
+        n=$?
+        pass=$((pass + 9 - n)); fail=$((fail + n))
+    fi
+    rm -rf "$ax"
+fi
+
+ox_step "UnNova: surface and safety"
+PLUGSRC="$OX_ROOT/shell/plugin/src"
+! grep -nE '\b(system|popen|execv?[lpe]*|fork|posix_spawn)\(|QProcess' "$PLUGSRC/procfs.cpp" "$PLUGSRC/processes.cpp" >/dev/null &&
+    ok "the process service starts no process and runs no shell" || no "procfs/processes start a process"
+grep -q 'SignalResult sendSignal(const Reader& reader, const Identity& id, std::string_view signalName, Sender sender) {' "$PLUGSRC/procfs.cpp" &&
+    awk '/^SignalResult sendSignal\(const Reader& reader, const Identity& id, std::string_view signalName, Sender sender\)/{f=1} f' "$PLUGSRC/procfs.cpp" |
+    awk '/pidfd_open/&&!o{o=NR} /startTime\(id.pid\)/&&!v{v=NR} /sender\(fd/&&!s{s=NR} END{exit !(o && v && s && o < v && v < s)}' &&
+    ok "a process is pinned with a pidfd, then its start time checked, then signalled" || no "sendSignal no longer pins, checks, then signals"
+grep -q 'class Processes : public Service' "$PLUGSRC/processes.hpp" &&
+    ok "sampling belongs to a refcounted Service, as Cpu and Memory are" || no "Processes is no longer a Service"
+p2="$(ls "$OX_ROOT"/shell/plugin/patches/*-plugin-register-UnNova-s-process-service.patch 2>/dev/null)"
+[ -n "$p2" ] && grep -q '^+        procfs.cpp' "$p2" && grep -q '^+        processes.cpp' "$p2" &&
+    ok "the plugin patch builds the process service into Caelestia.Services" || no "the process service is not registered"
+grep -qE '^EXTENSIONS="[^"]*\bunnova\b' "$OX_ROOT/shell/build.sh" && ok "build.sh deploys the unnova extension" ||
+    no "unnova is not in build.sh's default extensions"
+f="$UN/UnNova.qml"
+[ "$(grep -c 'createObject' "$f")" = 1 ] && awk '/function open\(\)/{f=1} f&&/if \(window\)/{g=1} f&&/createObject/{exit !g}' "$f" &&
+    ok "there is one UnNova window at most: opening it again brings the open one forward" || no "UnNova.open() can create a second window"
+awk '/FloatingWindow \{/{f=1} f&&/ServiceRef \{/{g=1} f&&/service: Processes/{if(g){found=1;exit}} END{exit !found}' "$f" &&
+    ok "processes are sampled only while the window exists, through its own ServiceRef" || no "UnNova's sampling is not tied to its window"
+row="$UN/ProcessRow.qml"
+awk '/id: select/{f=1} f&&/onClicked:/{print; exit}' "$row" | grep -qx '        onClicked: Processes.selectedKey = root.key' &&
+    awk '/id: chevron/{f=1} f&&/onClicked:/{print; exit}' "$row" | grep -qx '                onClicked: Processes.toggleExpanded(root.key)' &&
+    ok "clicking a row selects it; its chevron only folds or unfolds" || no "row selection and expansion are no longer separate"
+info="$UN/ProcessInfo.qml"
+awk '/id: stuckCheck/{f=1} f&&/onTriggered/{g=1} g{print} g&&/^        }/{exit}' "$info" | grep -q 'sendSignal\|send(' &&
+    no "UnNova escalates by itself after End task" || ok "End task never escalates by itself: Force stop is always the user's click"
+grep -c 'U.action("force")' "$info" | grep -qx 2 &&
+    ok "Force stop is offered in the Actions menu and after an End task that did not work, nowhere else" || no "Force stop appears elsewhere"
+! grep -nE 'execDetached|Process \{|"kill"|"sh"' "$UN"/*.qml >/dev/null &&
+    ok "UnNova's interface runs no command; signals go by name to the service" || no "UnNova's QML runs a command"
+! grep -nE 'AiRuntime\.(start|install|uninstall|release)\(' "$UN"/*.qml >/dev/null &&
+    grep -q 'onClicked: AiRuntime.stop()' "$UN/OxideTab.qml" && grep -q 'onClicked: AiRuntime.restart()' "$UN/OxideTab.qml" &&
+    ok "the 0xIde tab only unloads and restarts the local AI, with the runtime's own calls" || no "the 0xIde tab drives the local AI some other way"
+! grep -nE '(Speech|Translator|Ocr|DesktopProfiles)\.(install|remove|run|translate|cancel|capture|captureForPanel|activate|refreshLanguages)\(' "$UN"/*.qml >/dev/null &&
+    ok "dictation, translation, OCR and the desktop profile are shown, not driven" || no "the 0xIde tab drives another service"
+p11="$(ls "$OX_ROOT"/shell/patches/*-session-open-UnNova-from-the-power-panel-s-character.patch 2>/dev/null)"
+if [ -n "$p11" ]; then
+    ! grep -qE '^-[^-]' "$p11" && ok "the power panel patch only adds: its buttons and the artwork are untouched" || no "the power panel patch changes existing lines"
+    grep -qF '+                UnNova.open();' "$p11" && grep -qF '+                root.screenState.session = false;' "$p11" &&
+        ok "the character closes the panel and opens UnNova" || no "the character no longer opens UnNova"
+    grep -qF '+            text: qsTr("System monitor")' "$p11" && ok "the character says what it opens when hovered" || no "the character lost its tooltip"
+else
+    no "the power panel patch is missing"
+fi
 
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"

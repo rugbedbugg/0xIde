@@ -14,7 +14,12 @@ Scope {
     property string endpoint: ""
     property string operation: "install"
     property bool removeAfterStop: false
+    property bool restartAfterStop: false
+    // Asked to stop and not yet gone, so neither starting nor ready.
+    property bool stopping: false
     readonly property bool installing: worker.running
+    readonly property bool serving: server.running
+    readonly property int serverPid: server.processId ?? 0
     readonly property string helper: Qt.resolvedUrl("../assets/ai/runtime.py").toString().replace("file://", "")
 
     signal ready
@@ -49,12 +54,24 @@ Scope {
             idle.restart();
     }
     function stop(): void {
+        restartAfterStop = false;
         idle.stop();
         endpoint = "";
-        if (server.running)
+        if (server.running) {
+            stopping = true;
             server.signal(15);
+        }
+    }
+    // Stops the running server and starts it again once it has exited, as
+    // uninstall() waits for it before removing.
+    function restart(): void {
+        if (worker.running || !server.running || stopping)
+            return;
+        stop();
+        restartAfterStop = true;
     }
     function uninstall(): void {
+        restartAfterStop = false;
         if (worker.running)
             return;
         if (server.running) {
@@ -163,7 +180,7 @@ Scope {
             onRead: line => {
                 try {
                     const data = JSON.parse(line);
-                    if (data.stage === "ready") {
+                    if (data.stage === "ready" && !root.stopping) {
                         root.endpoint = data.endpoint;
                         root.ready();
                         root.release();
@@ -176,13 +193,15 @@ Scope {
             }
         }
         onRunningChanged: {
-            if (running)
+            if (running) {
                 didExit = false;
-            else
+            } else {
+                root.stopping = false;
                 Qt.callLater(() => {
                     if (!server.didExit)
                         root.error = qsTr("Could not start local AI. Install uv first.");
                 });
+            }
         }
         onExited: code => { // qmllint disable signal-handler-parameters
             didExit = true;
@@ -192,6 +211,14 @@ Scope {
             if (root.removeAfterStop) {
                 root.removeAfterStop = false;
                 root.uninstall();
+            } else if (root.restartAfterStop) {
+                // After running has settled to false, or start() sees it still running.
+                Qt.callLater(() => {
+                    if (root.restartAfterStop) {
+                        root.restartAfterStop = false;
+                        root.start();
+                    }
+                });
             }
         }
     }

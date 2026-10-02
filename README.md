@@ -43,6 +43,8 @@ applications Caelestia does not theme itself.
         shown, and to move it to the Trash (`gio`, after a confirming second click; the
         wallpaper in use cannot be deleted). The size is read from the file's header, so
         checking a huge image costs nothing.
+    -   **UnNova**, a system monitor and process manager in the shell's own look: click
+        the character in the power panel. See [UnNova](#unnova).
 -   Theme adapters, for applications Caelestia does not reach:
     -   **GTK**: open GTK windows recolour on a scheme change instead of on their next
         start, including Edge and Chrome in their GTK appearance. See
@@ -267,6 +269,57 @@ profile's policy. A missing or damaged record means Caelestia.
 > restyles a KDE Plasma session, was studied as reference material for that look; it is
 > not used at runtime, and 0xIde never starts Plasma.
 
+### UnNova
+
+Click the animated character in the power panel (or run
+`qs -c caelestia ipc call unnova open`). There is only ever one UnNova window; opening it
+again brings the open one forward. It has two tabs.
+
+**0xIde** shows what 0xIde itself runs, by what it is rather than by process ID:
+
+| Component        | Shown                                                    | Actions             |
+| ---------------- | -------------------------------------------------------- | ------------------- |
+| Local AI         | stopped, starting, ready or stopping; its memory and CPU | Unload, Restart     |
+| Dictation        | the speech model, and whether dictation is listening     | none                |
+| Translation      | installed languages, and whether it is translating       | none                |
+| Text recognition | languages, and whether it is reading a capture           | none                |
+| Desktop          | the active desktop profile                               | none (Theme does)   |
+
+Only the local AI keeps a server running, so only it has something to unload or restart;
+those use the runtime's own stop and start. The others start a helper for each use and
+leave nothing behind to manage. Opening UnNova never starts the local AI.
+
+**Processes** lists every process you can see, calmer than a task manager's table: name,
+CPU and memory, with PID and user underneath. Search matches the name, PID, command line
+or user. **List** sorts by memory, CPU, name or PID, and values that barely differ keep
+their places instead of reshuffling every second. **Tree** shows each process under its
+real parent; clicking a row selects it, and only its chevron folds it. The selected
+process fills the left pane: identity, CPU and memory with a minute of history, threads,
+how long it has run, state, parent, executable and command line.
+
+**End task** sends SIGTERM, which asks the process to exit and lets it clean up. If it is
+still running a few seconds later, UnNova says so and offers **Keep waiting** or **Force
+stop** (SIGKILL); it never escalates by itself. **Actions…** also offers Force stop,
+Pause (SIGSTOP), Resume (SIGCONT), Hang up (SIGHUP), Interrupt (SIGINT) and any other
+signal by name, each explained before it is sent. Processes such as init, Hyprland, the
+shell itself, PipeWire and networking say what ending them would break. Nothing is
+elevated: a process you are not allowed to signal says so.
+
+A process is identified by its PID together with its start time, because Linux reuses
+PIDs. On supported kernels, before any signal UnNova pins the process with a pidfd and
+checks the start time again. This prevents a reused PID from redirecting a signal to
+another process. Exactly the selected process is signalled, never its children or
+others with the same name. An identity mismatch always refuses the action.
+
+UnNova reads `/proc` directly, once a second, and only while its window is open. It starts
+no processes to do it.
+
+CPU percentages are a share of total machine capacity. Memory in the list is resident
+memory minus shared pages; the details also show full resident memory. These are `/proc`
+estimates, not proportional-set-size accounting. Command lines are capped at 64 KiB.
+On kernels without pidfds, signalling falls back to rechecking PID and start time before
+`kill(2)`; that fallback cannot eliminate the narrow exit/reuse race between those calls.
+
 ## Updating
 
 ```sh
@@ -345,7 +398,7 @@ under `adapters/`, never editing the hook.
 | Where                           | What goes there                                                        |
 | ------------------------------- | ---------------------------------------------------------------------- |
 | `shell/patches/`                | changes to files upstream owns, as a `git format-patch` series         |
-| `shell/plugin/`                 | C++ types the packaged plugin lacks, with their registration patch     |
+| `shell/plugin/`                 | C++ the packaged plugin lacks, with its registration patches           |
 | `shell/extensions/<name>/tree/` | new files, overlaid onto the upstream tree                             |
 | `adapters/<name>/`              | one application: `adapter.conf`, `apply`, optional `install`, `status` |
 | `system/<name>/`                | anything privileged; it prints the change and asks                     |
@@ -366,6 +419,19 @@ checkout of the pin, and drives the installers, adapters and privileged helpers 
 their side effects stubbed. It fails if generated state (the built plugin, the upstream
 checkout, the AI model, Caelestia runtime state) ever becomes tracked. [CI][ci] runs it
 on Arch Linux, with `shellcheck`, on every push and pull request.
+
+UnNova's process core is compiled on its own with `c++` and signals only children the test
+starts. Its service and the local AI lifecycle are driven in a windowless `qs`; those two
+parts need `qs` and a plugin built with `./shell/build.sh --no-install`, and are skipped
+without them.
+
+CI compiles the process core; the full plugin and Quickshell checks require the local
+build environment described above. Qt's model-contract test covers repeated row
+insertions, removals and moves. For the opt-in rendered check, run `./tests/unnova-live`
+in a Wayland session after building. It opens an isolated UnNova with private settings,
+signals only its own disposable children,
+and records screenshots, logs, sampling times, CPU use and RSS in a temporary directory.
+It neither installs the build nor restarts the running shell.
 
 ## FAQ
 
