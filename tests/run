@@ -2320,15 +2320,21 @@ ox_step "UnNova: wording and states"
 if ! ox_have qml6; then skipt "no qml6 runtime for UnNova's helpers"
 else
     jx="$(mktemp -d)"
-    cp "$UN/unnova.js" "$jx/"
+    cp "$UN/unnova.js" "$UN/windowGeometry.js" "$jx/"
     cat > "$jx/harness.qml" <<'EOF'
 import QtQuick
 import "unnova.js" as U
+import "windowGeometry.js" as Geometry
 
 Item {
     Component.onCompleted: {
         const ai = (o) => Object.assign({ installing: false, operation: "install", installed: true, serving: false, stopping: false, endpoint: "" }, o);
+        const sizes = [[1920, 1080, [60, 10, 10, 10]], [1366, 768, [60, 10, 10, 10]],
+                       [1280, 720, [60, 10, 10, 10]], [3840, 2160, []], [800, 600, [0, 30, 0, 0]],
+                       [1080, 1920, [10, 20, 30, 40]]].map(a => Geometry.sizing(...a));
         const r = {
+            geometry: sizes.map(s => [s.width.minimum, s.width.preferred, s.width.maximum, s.height.minimum, s.height.preferred, s.height.maximum]),
+            bounded: sizes.every(s => [s.width, s.height].every(d => d.minimum <= d.preferred && d.preferred <= d.maximum)),
             bytes: [U.formatBytes(0), U.formatBytes(1536), U.formatBytes(720 * 1048576), U.formatBytes(1.7 * 1073741824), U.formatBytes(123.4 * 1048576)],
             percent: [U.formatPercent(0), U.formatPercent(8.14), U.formatPercent(12.43)],
             duration: [U.formatDuration(5), U.formatDuration(125), U.formatDuration(3700), U.formatDuration(90000)],
@@ -2371,6 +2377,11 @@ EOF
 import json, sys
 r = json.loads(sys.argv[1])
 want = {
+    "geometry": ([[960, 1320, 1440, 600, 790, 900], [960, 1011, 1256, 600, 613, 708],
+                  [960, 960, 1170, 600, 600, 660], [960, 1320, 1440, 600, 790, 900],
+                  [760, 760, 760, 530, 530, 530], [960, 960, 1000, 600, 790, 900]],
+                 "responsive sizing respects reserved edges, laptop/portrait/tiny workareas and large-display caps"),
+    "bounded": (True, "preferred sizes stay between feasible minimum and maximum sizes"),
     "bytes": (["0 B", "1.5 KiB", "720 MiB", "1.7 GiB", "123 MiB"], "sizes are binary units, one decimal under 100"),
     "percent": (["0.0%", "8.1%", "12%"], "percentages keep a decimal only while small"),
     "duration": (["5 s", "2 min 5 s", "1 h 1 min", "1 d 1 h"], "durations read as the two largest units"),

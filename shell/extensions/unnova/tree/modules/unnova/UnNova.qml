@@ -7,6 +7,7 @@ import Caelestia.Config
 import Caelestia.Services
 import qs.components
 import qs.services
+import "windowGeometry.js" as Geometry
 
 // UnNova, the system monitor, as a window the shell owns, the way Nexus is.
 // There is never more than one: opening it while it is open brings it forward.
@@ -50,10 +51,17 @@ Singleton {
             color: Colours.tPalette.m3surface
             surfaceFormat.opaque: false
 
-            implicitWidth: Math.round((screen?.width ?? 1920) * 0.62)
-            implicitHeight: Math.round((screen?.height ?? 1080) * 0.72)
-            minimumSize.width: 880
-            minimumSize.height: 560
+            // ShellScreen dimensions and Hyprland's reserved edges are logical
+            // pixels; do not apply the physical monitor scale a second time.
+            readonly property var reserved: Hypr.monitorFor(screen)?.lastIpcObject?.reserved ?? []
+            readonly property var sizing: Geometry.sizing(screen?.width ?? 1920, screen?.height ?? 1080, reserved)
+
+            implicitWidth: sizing.width.preferred
+            implicitHeight: sizing.height.preferred
+            minimumSize.width: sizing.width.minimum
+            minimumSize.height: sizing.height.minimum
+            maximumSize.width: sizing.width.maximum
+            maximumSize.height: sizing.height.maximum
 
             contentItem.Config.screen: screen.name
             contentItem.Tokens.screen: screen.name
