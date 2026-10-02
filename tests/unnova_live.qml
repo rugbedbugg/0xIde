@@ -263,7 +263,7 @@ ShellRoot {
             const translation = find(o => o.title === "Translation" && o.lines !== undefined);
             check("AI card spans service grid", ai.width === ai.parent.width && ai.parent.columns === 2);
             check("service cards provide useful details", ai.lines.some(l => l.includes("Context window")) && dictation.lines.some(l => l.startsWith("Language:")) && translation.lines.some(l => l.startsWith("Selected:")));
-            check("on-demand cards remain informational", !descendants(dictation).some(o => o.clicked !== undefined) && !descendants(translation).some(o => o.clicked !== undefined));
+            check("on-demand cards have no fake runtime lifecycle", !descendants(dictation).some(o => o.clicked !== undefined) && descendants(translation).some(o => o.objectName === "translationCancel") && ![...descendants(dictation), ...descendants(translation)].some(o => ["Unload", "Restart"].includes(o.text)));
         } else if (n === 77) {
             closeButton = find(o => o.icon === "close" && o.clicked !== undefined);
             input.mouseMove(closeButton, closeButton.width / 2, closeButton.height / 2, 0, Qt.NoButton, Qt.NoModifier);

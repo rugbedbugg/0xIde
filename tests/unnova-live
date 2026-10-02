@@ -1,6 +1,7 @@
 #!/usr/bin/env -S uv run --no-project --python 3.13 python
 """Opt-in Wayland UI verification. Only this harness's children receive signals."""
 
+import argparse
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,10 @@ import shlex
 import subprocess
 import tempfile
 import time
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--controls", action="store_true", help="test runtime controls in an unmapped window with mock services")
+args = parser.parse_args()
 
 repo = Path(__file__).resolve().parent.parent
 source = repo / "build/shell-src"
@@ -29,7 +34,7 @@ for service, method in [("Colours", "reloadHyprRules"), ("Hypr", "reloadDynamicC
     if text.count(signature) != 1:
         raise SystemExit(f"Cannot isolate {service}.{method}; review the live harness")
     path.write_text(text.replace(signature, signature + "\n        return; // Live-test desktop isolation."))
-qml = (repo / "tests/unnova_live.qml").read_text().replace("@PLUGIN_QML@", str(plugin))
+qml = (repo / ("tests/unnova_controls.qml" if args.controls else "tests/unnova_live.qml")).read_text().replace("@PLUGIN_QML@", str(plugin))
 (output / "shell/shell.qml").write_text(qml)
 env = os.environ.copy()
 # Reuse the host's pinned interpreter while keeping helper state/cache private.
@@ -73,6 +78,14 @@ if cli:
                      f'if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then exec {shlex.quote(cli)} "$@"; fi\n'
                      'printf \'%s\\n\' "$@" >> "$UNNOVA_TEST_OUTPUT/cli-invocations"\nexit 1\n')
     guard.chmod(0o755)
+if args.controls:
+    # No helper may escape the mocks, even if a default service is accidentally
+    # instantiated. Reject before it can download, delete or start a model.
+    guard = bindir / "uv"
+    guard.unlink(missing_ok=True)
+    guard.write_text("#!/bin/sh\n"
+                     'printf \'%s\\n\' "$@" >> "$UNNOVA_TEST_OUTPUT/helper-invocations"\nexit 1\n')
+    guard.chmod(0o755)
 env.update(QT_QPA_PLATFORM="wayland", NO_COLOR="1", UNNOVA_TEST_OUTPUT=str(output))
 
 phases = {}
@@ -111,6 +124,8 @@ for phase in ("visible", "hidden"):
             rss_start_kib=a["rss_kib"], rss_end_kib=b["rss_kib"],
             samples=b["samples"] - a["samples"], processes=b["count"]))
 completed = bool(results)
+if args.controls:
+    results["no real model helper called"] = not (output / "helper-invocations").exists()
 results["no desktop CLI side effects"] = not (output / "cli-invocations").exists()
 report = dict(results=results, measurements=measurements, sample_ms=costs, warnings=warnings)
 (output / "results.json").write_text(json.dumps(report, indent=2))
