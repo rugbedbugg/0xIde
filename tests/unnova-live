@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import subprocess
 import tempfile
 import time
@@ -18,6 +19,16 @@ if not os.environ.get("WAYLAND_DISPLAY") or not plugin.is_dir():
 output = Path(tempfile.mkdtemp(prefix="unnova-live-"))
 print(f"Live verification artifacts: {output}", flush=True)
 shutil.copytree(source, output / "shell", ignore=shutil.ignore_patterns(".git", "plugin", "__pycache__"))
+# The temporary shell shares the compositor with the user's real shell. Suppress
+# only desktop-wide rule/binding writers in this disposable copy, retaining real
+# monitor queries, focus handling, rendering, process services and interactions.
+for service, method in [("Colours", "reloadHyprRules"), ("Hypr", "reloadDynamicConfs")]:
+    path = output / "shell/services" / f"{service}.qml"
+    text = path.read_text()
+    signature = f"function {method}(): void {{"
+    if text.count(signature) != 1:
+        raise SystemExit(f"Cannot isolate {service}.{method}; review the live harness")
+    path.write_text(text.replace(signature, signature + "\n        return; // Live-test desktop isolation."))
 qml = (repo / "tests/unnova_live.qml").read_text().replace("@PLUGIN_QML@", str(plugin))
 (output / "shell/shell.qml").write_text(qml)
 env = os.environ.copy()
@@ -31,6 +42,23 @@ if scheme.is_file():
     target = Path(env["XDG_STATE_HOME"]) / "caelestia/scheme.json"
     target.parent.mkdir(parents=True)
     shutil.copyfile(scheme, target)
+# A fresh state directory otherwise makes Wallpapers apply its fallback through
+# the real CLI, which changes desktop themes and launches Chromium policy refresh.
+# Seed the read-only wallpaper input; this test never changes the wallpaper.
+wallpaper = Path(env["XDG_STATE_HOME"]) / "caelestia/wallpaper/path.txt"
+wallpaper.parent.mkdir(parents=True)
+wallpaper.write_text(str(output / "shell/assets/wallpaper.webp") + "\n")
+# Keep unexpected shell initialization from escaping the UI test's scope.
+cli = shutil.which("caelestia")
+if cli:
+    bindir = output / "bin"
+    bindir.mkdir()
+    guard = bindir / "caelestia"
+    guard.write_text("#!/bin/sh\n"
+                     f'if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then exec {shlex.quote(cli)} "$@"; fi\n'
+                     'printf \'%s\\n\' "$@" >> "$UNNOVA_TEST_OUTPUT/cli-invocations"\nexit 1\n')
+    guard.chmod(0o755)
+    env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
 env.update(QT_QPA_PLATFORM="wayland", NO_COLOR="1", UNNOVA_TEST_OUTPUT=str(output))
 
 phases = {}
@@ -68,7 +96,9 @@ for phase in ("visible", "hidden"):
             cpu_percent=100 * (b["ticks"] - a["ticks"]) / os.sysconf("SC_CLK_TCK") / (b["time"] - a["time"]),
             rss_start_kib=a["rss_kib"], rss_end_kib=b["rss_kib"],
             samples=b["samples"] - a["samples"], processes=b["count"]))
+completed = bool(results)
+results["no desktop CLI side effects"] = not (output / "cli-invocations").exists()
 report = dict(results=results, measurements=measurements, sample_ms=costs, warnings=warnings)
 (output / "results.json").write_text(json.dumps(report, indent=2))
 print(json.dumps(report, indent=2))
-raise SystemExit(0 if rc == 0 and results and all(results.values()) and not warnings else 1)
+raise SystemExit(0 if rc == 0 and completed and all(results.values()) and not warnings else 1)
