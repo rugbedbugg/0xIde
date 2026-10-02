@@ -1,11 +1,14 @@
 //@ pragma Env QML_IMPORT_PATH=@PLUGIN_QML@
 import QtQuick
+import QtTest
 import Quickshell
 import Quickshell.Io
 import Caelestia.Services
+import Caelestia.Config
 import qs.components
 import qs.services
 import qs.modules.unnova
+import qs.modules.nexus as Nexus
 import qs.modules.session as Session
 import "modules/unnova/unnova.js" as U
 
@@ -19,6 +22,27 @@ ShellRoot {
     property int stoppedAt
     property var costs: []
     property var infoPane
+    property var closeButton
+    property var nexusWindow
+    property bool nexusClosed: false
+    TestEvent { id: input }
+    Component {
+        id: nexusComponent
+        FloatingWindow {
+            implicitWidth: 960
+            implicitHeight: 600
+            color: Colours.tPalette.m3surface
+            contentItem.Tokens.screen: screen.name
+            contentItem.Config.screen: screen.name
+            Nexus.Nexus {
+                anchors.fill: parent
+                nState.screen: Quickshell.screens[0]
+                nState.isWindow: true
+                nState.currentPageIdx: 12
+                onClose: { test.nexusClosed = true; test.nexusWindow.destroy(); }
+            }
+        }
+    }
     property int stage: 0
     Process { id: child; command: ["sleep", "3017"]; running: true }
     Process { id: stubborn; command: ["bash", "-c", "trap '' TERM; exec sleep 3019"]; running: true }
@@ -91,6 +115,13 @@ ShellRoot {
         } else if (n === 5) {
             check("launcher opens and closes power panel", UnNova.isOpen && !state.session);
             originalWindow = UnNova.window;
+            const content = find(o => o.currentTab !== undefined);
+            const tabs = find(o => o.tabs?.length === 2);
+            check("responsive preferred size", originalWindow.width === originalWindow.sizing.width.preferred && originalWindow.height === originalWindow.sizing.height.preferred);
+            check("header has no branding", !descendants(content).some(o => o.text === "UnNova" || o.text === "monitoring"));
+            check("tabs are centered", Math.abs(tabs.mapToItem(content, tabs.width / 2, 0).x - content.width / 2) < 1);
+            check("one header close control", descendants(content).filter(o => o.icon === "close" && o.clicked !== undefined && o.mapToItem(content, 0, 0).y < tabs.y + tabs.height).length === 1);
+
             UnNova.open();
             check("single surface", UnNova.window === originalWindow);
             childKey = Processes.usage(child.processId).key;
@@ -165,7 +196,16 @@ ShellRoot {
         } else if (n === 75) {
             snapshot("oxide");
         } else if (n === 77) {
-            UnNova.close();
+            closeButton = find(o => o.icon === "close" && o.clicked !== undefined);
+            input.mouseMove(closeButton, closeButton.width / 2, closeButton.height / 2, 0, Qt.NoButton, Qt.NoModifier);
+        } else if (n === 78) {
+            check("corner hover feedback", closeButton.hovered && closeButton.inactiveOnColour === Colours.palette.m3error);
+            snapshot("close-hover");
+            input.mousePress(closeButton, closeButton.width / 2, closeButton.height / 2, Qt.LeftButton, Qt.NoModifier, 0);
+        } else if (n === 79) {
+            check("corner pressed feedback", closeButton.pressed && Math.abs(closeButton.label.scale - 0.8) < 0.01);
+            snapshot("close-pressed");
+            input.mouseRelease(closeButton, closeButton.width / 2, closeButton.height / 2, Qt.LeftButton, Qt.NoModifier, 0);
         } else if (n === 81) {
             check("close stops sampling", !UnNova.isOpen && !Processes.active);
             stoppedAt = Processes.samples;
@@ -177,9 +217,43 @@ ShellRoot {
             check("reopen samples immediately", Processes.samples === stoppedAt + 1);
         } else if (n === 115) {
             check("reopen single surface", UnNova.isOpen && Processes.active);
-            UnNova.window.visible = false;
+            // Constrain only this disposable window; implicit size changes
+            // alone do not resize an already mapped Wayland surface.
+            UnNova.window.maximumSize.width = 960;
+            UnNova.window.maximumSize.height = 600;
+            Processes.selectedKey = Processes.usage(Quickshell.processId).key;
         } else if (n === 119) {
+            check("small compositor size", UnNova.window.width === 960 && UnNova.window.height === 600);
+            snapshot("small-selected");
+            const info = find(o => o.pendingKey !== undefined && o.choose !== undefined);
+            const list = find(o => o.reuseItems !== undefined && o.model === Processes.model);
+            const search = find(o => o.placeholderText === "Search by name, PID, command or user");
+            console.log("LAYOUT " + JSON.stringify({ inspector: info.width, listWidth: list.width, listHeight: list.height, search: search.width }));
+            check("small surface retains useful panes", info.width >= 260 && list.width >= 600 && list.height >= 200 && search.width > 180);
+            const strip = find(o => o.compact !== undefined);
+            check("compact resource labels stay inside", strip.compact && descendants(strip).filter(o => o.text !== undefined && o.visible).every(o => o.mapToItem(strip, 0, 0).x >= 0 && o.mapToItem(strip, o.width, o.height).x <= strip.width));
+            const scroll = descendants(info).find(o => o.contentHeight !== undefined && o.flickableDirection !== undefined);
+            check("inspector retains scrolling", scroll && scroll.contentHeight > scroll.height);
+        } else if (n === 120) {
+            UnNova.window.visible = false;
+        } else if (n === 121) {
             check("hide stops sampling", !UnNova.isOpen && !Processes.active);
+            nexusWindow = nexusComponent.createObject(test);
+        } else if (n === 127) {
+            nexusWindow.contentItem.children.find(o => o.nState !== undefined).grabToImage(result => result.saveToFile(Quickshell.env("UNNOVA_TEST_OUTPUT") + "/nexus.png"));
+            closeButton = descendants(nexusWindow.contentItem).find(o => o.icon === "close" && o.clicked !== undefined);
+            check("Nexus uses shared chrome", closeButton.parent.leftInset > 100 && closeButton.parent.isWindow);
+            input.mouseMove(closeButton, closeButton.width / 2, closeButton.height / 2, 0, Qt.NoButton, Qt.NoModifier);
+        } else if (n === 128) {
+            input.mouseMove(closeButton, closeButton.width / 2, closeButton.height / 2, 0, Qt.NoButton, Qt.NoModifier);
+            check("Nexus corner hover unchanged", closeButton.hovered && closeButton.inactiveOnColour === Colours.palette.m3error);
+            input.mousePress(closeButton, closeButton.width / 2, closeButton.height / 2, Qt.LeftButton, Qt.NoModifier, 0);
+        } else if (n === 129) {
+            check("Nexus corner press unchanged", closeButton.pressed && Math.abs(closeButton.label.scale - 0.8) < 0.01);
+            input.mouseRelease(closeButton, closeButton.width / 2, closeButton.height / 2, Qt.LeftButton, Qt.NoModifier, 0);
+        } else if (n === 131) {
+            check("Nexus close unchanged", nexusClosed);
+            check("Nexus does not sample processes", !Processes.active);
             console.log("RESULTS " + JSON.stringify(results));
             console.log("COSTS " + JSON.stringify(costs));
             Qt.quit();

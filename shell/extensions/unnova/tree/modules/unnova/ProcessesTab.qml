@@ -16,7 +16,7 @@ RowLayout {
     spacing: Tokens.spacing.large
 
     ProcessInfo {
-        Layout.preferredWidth: Math.max(280, Math.round(root.width * 0.28))
+        Layout.preferredWidth: Math.max(260, Math.round((root.width - root.spacing) * 0.27))
         Layout.fillHeight: true
     }
 

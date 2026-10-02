@@ -14,6 +14,8 @@ import "unnova.js" as U
 StyledRect {
     id: root
 
+    readonly property bool compact: width < 800
+
     color: Colours.tPalette.m3surfaceContainer
     radius: Tokens.rounding.large
     implicitHeight: row.implicitHeight + Tokens.padding.medium * 2
@@ -30,14 +32,16 @@ StyledRect {
         service: Storage
     }
 
-    RowLayout {
+    GridLayout {
         id: row
 
         anchors.fill: parent
         anchors.margins: Tokens.padding.medium
         anchors.leftMargin: Tokens.padding.large
         anchors.rightMargin: Tokens.padding.large
-        spacing: Tokens.spacing.large
+        columns: root.compact ? 4 : 6
+        columnSpacing: root.compact ? Tokens.spacing.small : Tokens.spacing.large
+        rowSpacing: Tokens.spacing.small
 
         Gauge {
             icon: "memory"
@@ -72,9 +76,12 @@ StyledRect {
 
         Item {
             Layout.fillWidth: true
+            visible: !root.compact
         }
 
         ColumnLayout {
+            Layout.columnSpan: root.compact ? 4 : 1
+            Layout.alignment: Qt.AlignRight
             spacing: 0
 
             StyledText {
