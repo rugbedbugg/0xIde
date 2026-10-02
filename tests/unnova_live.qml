@@ -139,6 +139,7 @@ ShellRoot {
             check("closed is idle", !Processes.active);
             const launch = descendants(panel).find(o => o.activeFocusOnTab && o.manualHoverOverride !== undefined);
             check("launcher keyboard focus", !!launch);
+            check("launcher has no visible label", !descendants(panel).some(o => o.text === "System monitor"));
             launch.clicked(null);
         } else if (n === 5) {
             check("launcher opens and closes power panel", UnNova.isOpen && !state.session);
@@ -148,11 +149,15 @@ ShellRoot {
             check("responsive preferred size", originalWindow.width === originalWindow.sizing.width.preferred && originalWindow.height === originalWindow.sizing.height.preferred);
             check("header has no branding", !descendants(content).some(o => o.text === "UnNova" || o.text === "monitoring"));
             const chrome = find(o => o.cornerWidth !== undefined);
-            check("navigation clears close pocket", tabs.mapToItem(content, tabs.width, 0).x <= content.width - chrome.cornerWidth - content.Tokens.spacing.large);
-            check("divider confined to tabs", tabs.width < content.width * 0.6 && tabs.x > 0);
+            check("navigation clears close pocket", tabs.mapToItem(content, tabs.width - tabs.tabRightInset, 0).x <= content.width - chrome.cornerWidth - content.Tokens.spacing.large);
+            const strip = find(o => o.compact !== undefined);
+            check("divider spans right pane", Math.abs(tabs.mapToItem(content, 0, 0).x - strip.mapToItem(content, 0, 0).x) < 0.01 && Math.abs(tabs.width - strip.width) < 0.01);
             check("header has room for Nexus title", tabs.parent.height === tabs.height + content.Tokens.padding.large);
             check("one header close control", descendants(content).filter(o => o.icon === "close" && o.clicked !== undefined && o.mapToItem(content, 0, 0).y < tabs.y + tabs.height).length === 1);
-            referenceTabs = dashboardTabsReference.createObject(content, { width: tabs.width, tabs: tabs.tabs });
+            const defaultTabs = dashboardTabsReference.createObject(content, { width: tabs.width, tabs: tabs.tabs });
+            check("Dashboard keeps its original default inset", defaultTabs.tabRightInset === 0);
+            defaultTabs.destroy();
+            referenceTabs = dashboardTabsReference.createObject(content, { width: tabs.width, tabs: tabs.tabs, tabRightInset: tabs.tabRightInset });
 
             UnNova.open();
             check("single surface", UnNova.window === originalWindow);
@@ -295,6 +300,8 @@ ShellRoot {
             check("small surface retains useful panes", info.width >= 260 && list.width >= 600 && list.height >= 200 && search.width > 180);
             const strip = find(o => o.compact !== undefined);
             check("compact resource labels stay inside", strip.compact && descendants(strip).filter(o => o.text !== undefined && o.visible).every(o => o.mapToItem(strip, 0, 0).x >= 0 && o.mapToItem(strip, o.width, o.height).x <= strip.width));
+            const tabs = find(o => o.tabs?.length === 2);
+            check("small divider spans right pane", Math.abs(tabs.width - strip.width) < 0.01 && Math.abs(tabs.mapToItem(UnNova.window.contentItem, 0, 0).x - strip.mapToItem(UnNova.window.contentItem, 0, 0).x) < 0.01);
             const scroll = descendants(info).find(o => o.contentHeight !== undefined && o.flickableDirection !== undefined);
             check("inspector retains scrolling", scroll && scroll.contentHeight > scroll.height);
         } else if (n === 120) {
