@@ -24,6 +24,8 @@ Scope {
     property var languages: []
     property var resultScreen: null
     property string error: ""
+    // Reading or copying a capture right now.
+    readonly property bool busy: extraction.running || recognition.running || copy.running
 
     // Configured languages win when set; otherwise every installed one, which
     // is what Illogical Impulse does. "eng" is only the last resort for when

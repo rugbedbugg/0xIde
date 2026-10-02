@@ -1,0 +1,137 @@
+From 5958aa11dea9cbccc48075cc9bbc2942ee71df3b Mon Sep 17 00:00:00 2001
+From: Oxide 1-6 <yes.par781@gmail.com>
+Date: Fri, 2 Oct 2026 11:44:43 +0530
+Subject: [PATCH] session: open UnNova from the power panel's character
+
+The animated character between Shutdown and Hibernate becomes the way
+into UnNova, the system monitor: it keeps its artwork, grows a little on
+hover and shrinks while pressed, and says "System monitor" when hovered.
+A click closes the panel and opens UnNova, or brings the open one
+forward. Nothing about the buttons around it changes.
+
+Also adds an "unnova" IPC target with open(), beside Nexus's.
+---
+ modules/Shortcuts.qml       |  9 ++++++++
+ modules/session/Content.qml | 60 +++++++++++++++++++++++++++++++++++++
+ 2 files changed, 69 insertions(+)
+
+diff --git a/modules/Shortcuts.qml b/modules/Shortcuts.qml
+index 4231a262..9175740f 100644
+--- a/modules/Shortcuts.qml
++++ b/modules/Shortcuts.qml
+@@ -5,6 +5,7 @@ import Caelestia
+ import qs.components.misc
+ import qs.services
+ import qs.modules.nexus
++import qs.modules.unnova
+
+ Scope {
+     id: root
+@@ -143,6 +144,14 @@ Scope {
+         target: "nexus"
+     }
+
++    IpcHandler {
++        function open(): void {
++            UnNova.open();
++        }
++
++        target: "unnova"
++    }
++
+     IpcHandler {
+         function info(title: string, message: string, icon: string): void {
+             Toaster.toast(title, message, icon, Toast.Info);
+diff --git a/modules/session/Content.qml b/modules/session/Content.qml
+index fedf6032..04210fc3 100644
+--- a/modules/session/Content.qml
++++ b/modules/session/Content.qml
+@@ -1,6 +1,7 @@
+ pragma ComponentBehavior: Bound
+
+ import QtQuick
++import QtQuick.Templates as T
+ import Quickshell
+ import Caelestia
+ import Caelestia.Config
+@@ -9,6 +10,7 @@ import qs.components
+ import qs.components.controls
+ import qs.services
+ import qs.utils
++import qs.modules.unnova
+
+ Column {
+     id: root
+@@ -49,7 +51,12 @@ Column {
+         KeyNavigation.down: hibernate
+     }
+
++    // The character opens UnNova, the system monitor. It stays the same
++    // picture; hovering and pressing only nudge it, so it reads as clickable
++    // without competing with the buttons around it.
+     AnimatedImage {
++        id: unnovaLauncher
++
+         width: Tokens.sizes.session.button
+         height: Tokens.sizes.session.button
+         sourceSize.width: width * ((QsWindow.window as QsWindow)?.devicePixelRatio ?? 1)
+@@ -59,6 +66,59 @@ Column {
+         speed: Config.general.sessionGifSpeed
+         source: Paths.absolutePath(Config.paths.sessionGif)
+         fillMode: AnimatedImage.PreserveAspectFit
++
++        scale: unnovaLayer.pressed ? 0.92 : unnovaLayer.containsMouse || unnovaLayer.activeFocus ? 1.06 : 1
++
++        Behavior on scale {
++            Anim {
++                type: Anim.FastSpatial
++            }
++        }
++
++        StateLayer {
++            id: unnovaLayer
++
++            radius: Tokens.rounding.largeIncreased
++            activeFocusOnTab: true
++            manualHoverOverride: activeFocus
++            Accessible.role: Accessible.Button
++            Accessible.name: qsTr("System monitor")
++            Accessible.onPressAction: clicked(null)
++            Keys.onPressed: event => {
++                if (!event.isAutoRepeat && [Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space].includes(event.key)) {
++                    event.accepted = true;
++                    clicked(null);
++                }
++            }
++            KeyNavigation.up: shutdown
++            KeyNavigation.down: hibernate
++            onClicked: {
++                root.screenState.session = false;
++                UnNova.open();
++            }
++        }
++
++        T.ToolTip {
++            Config.screen: root.screenState.modelData.name
++            Tokens.screen: root.screenState.modelData.name
++            x: -implicitWidth - Tokens.spacing.medium
++            y: (parent.height - implicitHeight) / 2
++            visible: unnovaLayer.containsMouse || unnovaLayer.activeFocus
++            delay: 400
++            padding: Tokens.padding.small
++            horizontalPadding: Tokens.padding.medium
++            text: qsTr("System monitor")
++
++            background: StyledRect {
++                radius: Tokens.rounding.full
++                color: Colours.palette.m3inverseSurface
++            }
++            contentItem: StyledText {
++                text: qsTr("System monitor")
++                font: Tokens.font.body.small
++                color: Colours.palette.m3inverseOnSurface
++            }
++        }
+     }
+
+     SessionButton {

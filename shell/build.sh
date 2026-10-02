@@ -2,13 +2,13 @@
 # Materialises the forked Caelestia shell from upstream + patches + extensions,
 # builds the plugin, and (unless --no-install) installs both.
 #
-#   ./shell/build.sh [--extensions ai,ocr,search,desktop-profile,wallpaper-info] [--no-install] [--no-plugin]
+#   ./shell/build.sh [--extensions ai,ocr,search,desktop-profile,wallpaper-info,unnova] [--no-install] [--no-plugin]
 #
 # Nothing here writes outside $OX_BUILD, $OX_QMLDIR and $OX_SHELLDIR.
 set -euo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../orchestration/lib/common.sh"
 
-EXTENSIONS="ai,ocr,search,desktop-profile,wallpaper-info"
+EXTENSIONS="ai,ocr,search,desktop-profile,wallpaper-info,unnova"
 DO_INSTALL=1
 DO_PLUGIN=1
 while [ $# -gt 0 ]; do
@@ -54,6 +54,10 @@ ox_step "Patches"
 install -Dm644 "$OX_ROOT/shell/plugin/src/aiconfig.hpp"  "$SRC/plugin/src/Caelestia/Config/aiconfig.hpp"
 install -Dm644 "$OX_ROOT/shell/plugin/src/airequest.hpp" "$SRC/plugin/src/Caelestia/airequest.hpp"
 install -Dm644 "$OX_ROOT/shell/plugin/src/airequest.cpp" "$SRC/plugin/src/Caelestia/airequest.cpp"
+install -Dm644 "$OX_ROOT/shell/plugin/src/procfs.hpp" "$SRC/plugin/src/Caelestia/Services/procfs.hpp"
+install -Dm644 "$OX_ROOT/shell/plugin/src/procfs.cpp" "$SRC/plugin/src/Caelestia/Services/procfs.cpp"
+install -Dm644 "$OX_ROOT/shell/plugin/src/processes.hpp" "$SRC/plugin/src/Caelestia/Services/processes.hpp"
+install -Dm644 "$OX_ROOT/shell/plugin/src/processes.cpp" "$SRC/plugin/src/Caelestia/Services/processes.cpp"
 for p in "$OX_ROOT"/shell/plugin/patches/*.patch "$OX_ROOT"/shell/patches/*.patch; do
     [ -e "$p" ] || continue
     ox_log "$(basename "$p")"
