@@ -17,7 +17,7 @@ RowLayout {
     readonly property real contentPaneWidth: processPane.width
 
     ProcessInfo {
-        Layout.preferredWidth: Math.max(260, Math.round((root.width - root.spacing) * 0.27))
+        Layout.preferredWidth: Math.max(260, Math.round((root.width - root.spacing) * 0.30))
         Layout.fillHeight: true
     }
 
