@@ -15,34 +15,60 @@ Item {
     signal close
 
     SurfaceChrome {
+        id: chrome
+
         anchors.fill: parent
-        z: 1 // Keep the corner control above the full-width navigation hit area.
+        z: 1
         onActivated: root.close()
     }
 
-    TabBar {
-        id: tabs
+    Item {
+        id: header
 
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.topMargin: CUtils.clamp(anchors.margins - Config.border.thickness, 0, anchors.margins)
         anchors.margins: Tokens.padding.large
+        anchors.rightMargin: chrome.cornerWidth + Tokens.spacing.large
+        implicitHeight: tabs.implicitHeight + Tokens.padding.large
 
-        tabs: [
-            {
-                iconName: "deployed_code",
-                text: qsTr("0xIde")
-            },
-            {
-                iconName: "list_alt",
-                text: qsTr("Processes")
-            }
-        ]
+        StyledText {
+            id: heading
+
+            anchors.left: parent.left
+            anchors.leftMargin: Tokens.padding.large
+            anchors.right: tabs.left
+            anchors.rightMargin: Tokens.spacing.extraLarge
+            anchors.verticalCenter: parent.verticalCenter
+            text: tabs.tabs[root.currentTab].text
+            // The Nexus page heading, without application branding.
+            font: Tokens.font.title.large
+            elide: Text.ElideRight
+        }
+
+        TabBar {
+            id: tabs
+
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            width: parent.width * 0.55
+
+            tabs: [
+                {
+                    iconName: "deployed_code",
+                    text: qsTr("0xIde")
+                },
+                {
+                    iconName: "list_alt",
+                    text: qsTr("Processes")
+                }
+            ]
+        }
     }
 
     StackLayout {
-        anchors.top: tabs.bottom
+        anchors.top: header.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
