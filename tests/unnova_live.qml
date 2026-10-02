@@ -308,6 +308,8 @@ ShellRoot {
             check("inspector retains scrolling", scroll && scroll.contentHeight > scroll.height);
             const residentHint = descendants(info).find(o => o.text === "including memory shared with other processes");
             check("resident explanation wraps without truncation", residentHint.wrapMode === Text.WordWrap && !residentHint.truncated && residentHint.lineCount > 1 && residentHint.height >= residentHint.contentHeight);
+            scroll.contentY = Math.max(0, scroll.contentHeight - scroll.height);
+            snapshot("small-process-details");
         } else if (n === 120) {
             UnNova.window.visible = false;
         } else if (n === 121) {

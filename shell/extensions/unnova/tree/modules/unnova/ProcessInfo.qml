@@ -136,7 +136,7 @@ StyledRect {
             id: column
 
             width: flick.width
-            spacing: Tokens.spacing.small
+            spacing: Tokens.spacing.medium
 
             // Header
             StyledText {
@@ -476,7 +476,8 @@ StyledRect {
     component Section: StyledText {
         Layout.fillWidth: true
         Layout.topMargin: Tokens.spacing.medium
-        font: Tokens.font.label.medium
+        Layout.bottomMargin: Tokens.spacing.extraSmall
+        font: Tokens.font.label.builders.large.weight(Font.DemiBold).build()
         color: Colours.palette.m3primary
         text: ""
     }
@@ -495,12 +496,12 @@ StyledRect {
         signal activated
 
         Layout.fillWidth: true
-        spacing: 0
+        spacing: Tokens.spacing.extraSmall
 
         StyledText {
             Layout.fillWidth: true
             text: field.label
-            font: Tokens.font.body.small
+            font: Tokens.font.label.medium
             color: Colours.palette.m3onSurfaceVariant
         }
 
@@ -513,9 +514,10 @@ StyledRect {
 
                 Layout.fillWidth: true
                 text: String(field.value ?? "")
-                font: Tokens.font.body.medium
+                font: field.lines > 1 ? Tokens.font.mono.small : Tokens.font.body.medium
                 color: field.link ? Colours.palette.m3primary : Colours.palette.m3onSurface
-                wrapMode: field.lines > 1 ? Text.WrapAnywhere : Text.NoWrap
+                wrapMode: field.lines > 1 ? Text.Wrap : Text.NoWrap
+                lineHeight: field.lines > 1 ? 1.2 : 1
                 maximumLineCount: field.lines
                 elide: Text.ElideRight
 
@@ -528,6 +530,7 @@ StyledRect {
             }
 
             IconButton {
+                Layout.alignment: Qt.AlignTop
                 visible: field.copyable
                 icon: field.copied ? "check" : "content_copy"
                 type: IconButton.Text
@@ -551,8 +554,9 @@ StyledRect {
             Layout.fillWidth: true
             text: field.hint
             font: Tokens.font.body.small
-            color: Colours.palette.m3outline
+            color: Colours.palette.m3onSurfaceVariant
             wrapMode: Text.WordWrap
+            lineHeight: 1.15
         }
     }
 
@@ -574,7 +578,7 @@ StyledRect {
             StyledText {
                 Layout.fillWidth: true
                 text: graph.label
-                font: Tokens.font.body.small
+                font: Tokens.font.label.medium
                 color: Colours.palette.m3onSurfaceVariant
             }
 
