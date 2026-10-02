@@ -2747,7 +2747,7 @@ if [ -n "$p11" ]; then
     ! grep -qE '^-[^-]' "$p11" && ok "the power panel patch only adds: its buttons and the artwork are untouched" || no "the power panel patch changes existing lines"
     grep -qF '+                UnNova.open();' "$p11" && grep -qF '+                root.screenState.session = false;' "$p11" &&
         ok "the character closes the panel and opens UnNova" || no "the character no longer opens UnNova"
-    grep -qF '+            text: qsTr("System monitor")' "$p11" && ok "the character says what it opens when hovered" || no "the character lost its tooltip"
+    grep -qF '+            Accessible.name: qsTr("System monitor")' "$p11" && ! grep -qF 'T.ToolTip' "$p11" && ok "the character retains its accessible name without a visible tooltip" || no "the character label or accessibility changed"
 else
     no "the power panel patch is missing"
 fi

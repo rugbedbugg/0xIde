@@ -5,15 +5,12 @@ Subject: [PATCH] session: open UnNova from the power panel's character
 
 The animated character between Shutdown and Hibernate becomes the way
 into UnNova, the system monitor: it keeps its artwork, grows a little on
-hover and shrinks while pressed, and says "System monitor" when hovered.
+hover and shrinks while pressed. Its accessible name is "System monitor".
 A click closes the panel and opens UnNova, or brings the open one
 forward. Nothing about the buttons around it changes.
 
 Also adds an "unnova" IPC target with open(), beside Nexus's.
 ---
- modules/Shortcuts.qml       |  9 ++++++++
- modules/session/Content.qml | 60 +++++++++++++++++++++++++++++++++++++
- 2 files changed, 69 insertions(+)
 
 diff --git a/modules/Shortcuts.qml b/modules/Shortcuts.qml
 index 4231a262..9175740f 100644
@@ -43,18 +40,9 @@ index 4231a262..9175740f 100644
          function info(title: string, message: string, icon: string): void {
              Toaster.toast(title, message, icon, Toast.Info);
 diff --git a/modules/session/Content.qml b/modules/session/Content.qml
-index fedf6032..04210fc3 100644
 --- a/modules/session/Content.qml
 +++ b/modules/session/Content.qml
-@@ -1,6 +1,7 @@
- pragma ComponentBehavior: Bound
-
- import QtQuick
-+import QtQuick.Templates as T
- import Quickshell
- import Caelestia
- import Caelestia.Config
-@@ -9,6 +10,7 @@ import qs.components
+@@ -9,6 +9,7 @@
  import qs.components.controls
  import qs.services
  import qs.utils
@@ -62,7 +50,7 @@ index fedf6032..04210fc3 100644
 
  Column {
      id: root
-@@ -49,7 +51,12 @@ Column {
+@@ -49,7 +50,12 @@
          KeyNavigation.down: hibernate
      }
 
@@ -75,7 +63,7 @@ index fedf6032..04210fc3 100644
          width: Tokens.sizes.session.button
          height: Tokens.sizes.session.button
          sourceSize.width: width * ((QsWindow.window as QsWindow)?.devicePixelRatio ?? 1)
-@@ -59,6 +66,59 @@ Column {
+@@ -59,6 +65,38 @@
          speed: Config.general.sessionGifSpeed
          source: Paths.absolutePath(Config.paths.sessionGif)
          fillMode: AnimatedImage.PreserveAspectFit
@@ -111,27 +99,6 @@ index fedf6032..04210fc3 100644
 +            }
 +        }
 +
-+        T.ToolTip {
-+            Config.screen: root.screenState.modelData.name
-+            Tokens.screen: root.screenState.modelData.name
-+            x: -implicitWidth - Tokens.spacing.medium
-+            y: (parent.height - implicitHeight) / 2
-+            visible: unnovaLayer.containsMouse || unnovaLayer.activeFocus
-+            delay: 400
-+            padding: Tokens.padding.small
-+            horizontalPadding: Tokens.padding.medium
-+            text: qsTr("System monitor")
-+
-+            background: StyledRect {
-+                radius: Tokens.rounding.full
-+                color: Colours.palette.m3inverseSurface
-+            }
-+            contentItem: StyledText {
-+                text: qsTr("System monitor")
-+                font: Tokens.font.body.small
-+                color: Colours.palette.m3inverseOnSurface
-+            }
-+        }
      }
 
      SessionButton {

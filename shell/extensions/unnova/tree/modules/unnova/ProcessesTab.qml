@@ -14,6 +14,7 @@ RowLayout {
     id: root
 
     spacing: Tokens.spacing.large
+    readonly property real contentPaneWidth: processPane.width
 
     ProcessInfo {
         Layout.preferredWidth: Math.max(260, Math.round((root.width - root.spacing) * 0.27))
@@ -21,6 +22,8 @@ RowLayout {
     }
 
     ColumnLayout {
+        id: processPane
+
         Layout.fillWidth: true
         Layout.fillHeight: true
         spacing: Tokens.spacing.medium

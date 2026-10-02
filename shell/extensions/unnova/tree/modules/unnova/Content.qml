@@ -30,7 +30,6 @@ Item {
         anchors.right: parent.right
         anchors.topMargin: CUtils.clamp(anchors.margins - Config.border.thickness, 0, anchors.margins)
         anchors.margins: Tokens.padding.large
-        anchors.rightMargin: chrome.cornerWidth + Tokens.spacing.large
         implicitHeight: tabs.implicitHeight + Tokens.padding.large
 
         StyledText {
@@ -52,7 +51,8 @@ Item {
 
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            width: parent.width * 0.55
+            width: processes.contentPaneWidth
+            tabRightInset: Math.max(0, chrome.cornerWidth + Tokens.spacing.large - header.anchors.rightMargin)
 
             tabs: [
                 {
@@ -77,6 +77,8 @@ Item {
 
         OxideTab {}
 
-        ProcessesTab {}
+        ProcessesTab {
+            id: processes
+        }
     }
 }
