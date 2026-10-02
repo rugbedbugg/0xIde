@@ -6,7 +6,7 @@ diff --git a/components/SurfaceChrome.qml b/components/SurfaceChrome.qml
 new file mode 100644
 --- /dev/null
 +++ b/components/SurfaceChrome.qml
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,73 @@
 +pragma ComponentBehavior: Bound
 +
 +import QtQuick
@@ -23,6 +23,7 @@ new file mode 100644
 +    property color colour: Colours.tPalette.m3surfaceContainerLow
 +    property real leftInset: Tokens.padding.medium
 +    property bool isWindow: true
++    readonly property real cornerWidth: windowBtnRect.width
 +
 +    signal activated
 +

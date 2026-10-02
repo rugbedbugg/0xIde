@@ -32,6 +32,23 @@ for service, method in [("Colours", "reloadHyprRules"), ("Hypr", "reloadDynamicC
 qml = (repo / "tests/unnova_live.qml").read_text().replace("@PLUGIN_QML@", str(plugin))
 (output / "shell/shell.qml").write_text(qml)
 env = os.environ.copy()
+# Reuse the host's pinned interpreter while keeping helper state/cache private.
+# Changing XDG_DATA_HOME otherwise hides uv's managed Python installations.
+env.setdefault("UV_PYTHON_INSTALL_DIR", subprocess.check_output(["uv", "python", "dir"], text=True).strip())
+env["UV_PYTHON_DOWNLOADS"] = "never"
+uv = shutil.which("uv")
+if uv and "/mise/shims/" in uv:
+    # Resolve before isolating XDG state; a mise shim would lose its trust cache.
+    resolved = subprocess.run(["mise", "which", "uv"], capture_output=True, text=True)
+    fallback = os.pathsep.join(p for p in env.get("PATH", "").split(os.pathsep) if Path(p) != Path(uv).parent)
+    uv = resolved.stdout.strip() if resolved.returncode == 0 else shutil.which("uv", path=fallback)
+    if not uv:
+        raise SystemExit("Cannot resolve uv outside its mise shim")
+bindir = output / "bin"
+bindir.mkdir()
+if uv:
+    (bindir / "uv").symlink_to(uv)
+env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
 for key, name in [("XDG_CONFIG_HOME", "config"), ("XDG_STATE_HOME", "state"),
                   ("XDG_DATA_HOME", "data"), ("XDG_CACHE_HOME", "cache")]:
     env[key] = str(output / "xdg" / name)
@@ -51,14 +68,11 @@ wallpaper.write_text(str(output / "shell/assets/wallpaper.webp") + "\n")
 # Keep unexpected shell initialization from escaping the UI test's scope.
 cli = shutil.which("caelestia")
 if cli:
-    bindir = output / "bin"
-    bindir.mkdir()
     guard = bindir / "caelestia"
     guard.write_text("#!/bin/sh\n"
                      f'if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then exec {shlex.quote(cli)} "$@"; fi\n'
                      'printf \'%s\\n\' "$@" >> "$UNNOVA_TEST_OUTPUT/cli-invocations"\nexit 1\n')
     guard.chmod(0o755)
-    env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
 env.update(QT_QPA_PLATFORM="wayland", NO_COLOR="1", UNNOVA_TEST_OUTPUT=str(output))
 
 phases = {}

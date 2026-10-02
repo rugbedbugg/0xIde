@@ -147,7 +147,10 @@ ShellRoot {
             const tabs = find(o => o.tabs?.length === 2);
             check("responsive preferred size", originalWindow.width === originalWindow.sizing.width.preferred && originalWindow.height === originalWindow.sizing.height.preferred);
             check("header has no branding", !descendants(content).some(o => o.text === "UnNova" || o.text === "monitoring"));
-            check("tabs are centered", Math.abs(tabs.mapToItem(content, tabs.width / 2, 0).x - content.width / 2) < 1);
+            const chrome = find(o => o.cornerWidth !== undefined);
+            check("navigation clears close pocket", tabs.mapToItem(content, tabs.width, 0).x <= content.width - chrome.cornerWidth - content.Tokens.spacing.large);
+            check("divider confined to tabs", tabs.width < content.width * 0.6 && tabs.x > 0);
+            check("header has room for Nexus title", tabs.parent.height === tabs.height + content.Tokens.padding.large);
             check("one header close control", descendants(content).filter(o => o.icon === "close" && o.clicked !== undefined && o.mapToItem(content, 0, 0).y < tabs.y + tabs.height).length === 1);
             referenceTabs = dashboardTabsReference.createObject(content, { width: tabs.width, tabs: tabs.tabs });
 
@@ -162,19 +165,21 @@ ShellRoot {
             const geometry = tabGeometry(tabs);
             check("navigation exactly matches Dashboard geometry", JSON.stringify(geometry) === JSON.stringify(tabGeometry(referenceTabs)));
             const strip = find(o => o.compact !== undefined);
-            const gap = strip.mapToItem(content, 0, 0).y - tabs.y - tabs.height;
+            const gap = strip.mapToItem(content, 0, 0).y - tabs.mapToItem(content, 0, tabs.height).y;
             const artwork = descendants(strip);
             check("CPU uses Performance usage artwork", artwork.some(o => o.usage !== undefined && o.shape !== undefined && o.implicitSize === 44));
             check("resource gauges use Performance arcs", artwork.filter(o => o.startAngle === -225 && o.sweepAngle === 270).length === 2);
             check("process summary excludes device storage", !artwork.some(o => o.text === "Storage" || o.icon === "hard_drive"));
             check("one normal padding below navigation divider", gap === content.Tokens.padding.large && geometry.divider[0] + geometry.divider[1] === tabs.height);
-            check("navigation uses Dashboard outer top padding", tabs.y === Math.max(0, content.Tokens.padding.large - content.Config.border.thickness));
+            check("navigation uses Dashboard outer top padding", tabs.parent.y === Math.max(0, content.Tokens.padding.large - content.Config.border.thickness));
             console.log("NAVIGATION " + JSON.stringify({ geometry: geometry, top: tabs.y, contentGap: gap }));
             const bar = descendants(tabs).find(o => o.contentModel !== undefined && o.currentIndex !== undefined);
             for (const index of [0, 1]) {
                 const tab = bar.itemAt(index);
                 input.mouseClick(tab, tab.width / 2, tab.height / 2, Qt.LeftButton, Qt.NoModifier, 0);
                 check("native navigation selects tab " + index, content.currentTab === index);
+                const heading = tabs.parent.children.find(o => o.elide !== undefined);
+                check("Nexus title follows tab " + index, heading.text === tabs.tabs[index].text && heading.font.pixelSize === content.Tokens.font.title.large.pixelSize && heading.x + heading.width < tabs.x);
             }
             check("navigation selection is independent of Dashboard", referenceTabs.screenState.dashboardTab === 1);
             referenceTabs.destroy();
@@ -246,6 +251,12 @@ ShellRoot {
             check("BitNet state agrees", !AiRuntime.serving && U.aiState({serving: AiRuntime.serving, installed: AiRuntime.info.installed}) !== "Ready");
         } else if (n === 75) {
             snapshot("oxide");
+            const ai = find(o => o.title === "Local AI" && o.lines !== undefined);
+            const dictation = find(o => o.title === "Dictation" && o.lines !== undefined);
+            const translation = find(o => o.title === "Translation" && o.lines !== undefined);
+            check("AI card spans service grid", ai.width === ai.parent.width && ai.parent.columns === 2);
+            check("service cards provide useful details", ai.lines.some(l => l.includes("Context window")) && dictation.lines.some(l => l.startsWith("Language:")) && translation.lines.some(l => l.startsWith("Selected:")));
+            check("on-demand cards remain informational", !descendants(dictation).some(o => o.clicked !== undefined) && !descendants(translation).some(o => o.clicked !== undefined));
         } else if (n === 77) {
             closeButton = find(o => o.icon === "close" && o.clicked !== undefined);
             input.mouseMove(closeButton, closeButton.width / 2, closeButton.height / 2, 0, Qt.NoButton, Qt.NoModifier);

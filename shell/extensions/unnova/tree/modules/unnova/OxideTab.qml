@@ -47,13 +47,16 @@ StyledFlickable {
         id: grid
 
         width: root.width
-        columns: Math.max(1, Math.floor(root.width / 380))
+        columns: root.width >= 760 ? 2 : 1
         columnSpacing: Tokens.spacing.medium
         rowSpacing: Tokens.spacing.medium
 
         // Local AI
         Card {
             id: ai
+
+            Layout.columnSpan: grid.columns
+            sideActions: grid.columns > 1
 
             readonly property var usage: {
                 Processes.samples; // re-read each sample
@@ -72,13 +75,17 @@ StyledFlickable {
             icon: "neurology"
             title: qsTr("Local AI")
             subtitle: AiRuntime.info.model ? `BitNet · ${String(AiRuntime.info.model).split("/").pop()}` : qsTr("BitNet")
-            status: U.aiState(runtime)
+            status: AiRuntime.error && AiRuntime.info.installed === undefined ? qsTr("Status unavailable") : U.aiState(runtime)
             statusColour: AiRuntime.endpoint && !AiRuntime.stopping ? Colours.palette.m3primary : AiRuntime.serving || AiRuntime.installing ? Colours.palette.m3tertiary : Colours.palette.m3outline
             lines: [
+                AiRuntime.info.installed === undefined ? (AiRuntime.error ? qsTr("Installation status unavailable") : qsTr("Checking installation…")) : AiRuntime.info.installed ? qsTr("Model installed · starts when local AI is used") : qsTr("Model not installed · set up Local AI in Settings"),
+                AiRuntime.info.contextTokens ? qsTr("Context window: %1 tokens").arg(AiRuntime.info.contextTokens) : "",
                 ai.usage.found ? qsTr("%1 memory · %2 CPU · %3 process(es)").arg(U.formatBytes(ai.usage.memory)).arg(U.formatPercent(ai.usage.cpu)).arg(ai.usage.processes) : "",
-                AiRuntime.endpoint ? AiRuntime.endpoint : "",
+                AiRuntime.endpoint ? qsTr("Endpoint: %1").arg(AiRuntime.endpoint) : "",
                 AiRuntime.serving && AiRuntime.endpoint ? qsTr("Unloads itself after five minutes unused.") : "",
-                AiRuntime.installing ? AiRuntime.message : ""
+                (AiRuntime.info.missing ?? []).length ? qsTr("Missing: %1").arg(AiRuntime.info.missing.join(", ")) : "",
+                AiRuntime.installing ? AiRuntime.message : "",
+                AiRuntime.error
             ]
 
             RowLayout {
@@ -126,10 +133,12 @@ StyledFlickable {
             }, listener !== null)
             statusColour: listener ? Colours.palette.m3primary : Speech.working ? Colours.palette.m3tertiary : Colours.palette.m3outline
             lines: [
-                Speech.info.installed ? qsTr("Model installed") : "",
+                Speech.info.installed === undefined ? qsTr("Checking installation…") : Speech.info.installed ? qsTr("Model installed · loaded for dictation as needed") : qsTr("Set up the speech model in Settings to enable dictation"),
+                qsTr("Language: %1").arg(GlobalConfig.ai.dictationLanguage === "auto" ? qsTr("Auto-detect") : Translator.name(GlobalConfig.ai.dictationLanguage)),
                 listener ? qsTr("%1 memory while listening").arg(U.formatBytes(listener.memory)) : "",
                 (Speech.info.missing ?? []).length ? qsTr("Missing: %1").arg(Speech.info.missing.join(", ")) : "",
-                Speech.working ? Speech.message : ""
+                Speech.working ? Speech.message : "",
+                Speech.error
             ]
         }
 
@@ -146,8 +155,11 @@ StyledFlickable {
             })
             statusColour: Translator.working || Translator.translating ? Colours.palette.m3tertiary : Colours.palette.m3outline
             lines: [
-                U.translationLanguages(Translator.installed.map(c => Translator.name(c))),
-                Translator.working ? Translator.message : ""
+                U.translationLanguages(Translator.installed.filter(c => c !== "en").map(c => Translator.name(c))),
+                GlobalConfig.ai.translateFrom && GlobalConfig.ai.translateLanguage ? qsTr("Selected: %1 → %2").arg(Translator.name(GlobalConfig.ai.translateFrom)).arg(Translator.name(GlobalConfig.ai.translateLanguage)) : qsTr("Selected: no language pair configured"),
+                qsTr("Runs per request; no background runtime to unload"),
+                Translator.working ? Translator.message : "",
+                Translator.error
             ]
         }
 
@@ -158,7 +170,12 @@ StyledFlickable {
             subtitle: qsTr("Tesseract")
             status: Ocr.busy ? qsTr("Reading text") : qsTr("Idle")
             statusColour: Ocr.busy ? Colours.palette.m3tertiary : Colours.palette.m3outline
-            lines: [Ocr.languages.length ? qsTr("Languages: %1").arg(Ocr.effectiveLanguages.split("+").join(", ")) : ""]
+            lines: [
+                Ocr.languages.length ? qsTr("Installed languages: %1").arg(Ocr.languages.join(", ")) : qsTr("No recognition languages detected"),
+                Ocr.languages.length ? qsTr("Selected languages: %1").arg(Ocr.effectiveLanguages.split("+").join(", ")) : "",
+                qsTr("Runs when you capture text; no background runtime to unload"),
+                Ocr.error
+            ]
         }
 
         // Desktop profile
@@ -168,7 +185,10 @@ StyledFlickable {
             subtitle: qsTr("Desktop profile")
             status: U.profileState(DesktopProfiles.active)
             statusColour: DesktopProfiles.active ? Colours.palette.m3primary : Colours.palette.m3outline
-            lines: [DesktopProfiles.active?.description ?? ""]
+            lines: [
+                DesktopProfiles.active?.description ?? qsTr("Waiting for the active profile"),
+                qsTr("Profile selection is managed in Settings")
+            ]
         }
     }
 
@@ -181,11 +201,12 @@ StyledFlickable {
         required property string status
         property color statusColour: Colours.palette.m3outline
         property list<string> lines
+        property bool sideActions: false
         default property alias actions: actionSlot.data
 
         Layout.fillWidth: true
         Layout.alignment: Qt.AlignTop
-        implicitHeight: content.implicitHeight + Tokens.padding.large * 2
+        implicitHeight: (sideActions ? Math.max(content.implicitHeight, actionSlot.implicitHeight) : content.implicitHeight + (actionSlot.visible ? actionSlot.implicitHeight + Tokens.spacing.small : 0)) + Tokens.padding.large * 2
         radius: Tokens.rounding.large
         color: Colours.tPalette.m3surfaceContainer
 
@@ -196,6 +217,7 @@ StyledFlickable {
             anchors.right: parent.right
             anchors.top: parent.top
             anchors.margins: Tokens.padding.large
+            anchors.rightMargin: Tokens.padding.large + (card.sideActions ? actionSlot.implicitWidth + Tokens.spacing.extraLarge : 0)
             spacing: Tokens.spacing.small
 
             RowLayout {
@@ -259,15 +281,21 @@ StyledFlickable {
                     wrapMode: Text.WordWrap
                 }
             }
+        }
 
-            Item {
-                id: actionSlot
+        Item {
+            id: actionSlot
 
-                Layout.topMargin: children.length ? Tokens.spacing.small : 0
-                implicitWidth: childrenRect.width
-                implicitHeight: childrenRect.height
-                visible: children.length > 0
-            }
+            anchors.left: card.sideActions ? undefined : parent.left
+            anchors.right: card.sideActions ? parent.right : undefined
+            anchors.top: card.sideActions ? undefined : content.bottom
+            anchors.verticalCenter: card.sideActions ? parent.verticalCenter : undefined
+            anchors.leftMargin: Tokens.padding.large
+            anchors.rightMargin: Tokens.padding.large
+            anchors.topMargin: Tokens.spacing.small
+            implicitWidth: childrenRect.width
+            implicitHeight: childrenRect.height
+            visible: children.length > 0
         }
     }
 }
