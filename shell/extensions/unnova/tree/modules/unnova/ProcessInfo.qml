@@ -552,7 +552,7 @@ StyledRect {
             text: field.hint
             font: Tokens.font.body.small
             color: Colours.palette.m3outline
-            elide: Text.ElideRight
+            wrapMode: Text.WordWrap
         }
     }
 

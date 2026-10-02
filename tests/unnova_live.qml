@@ -147,6 +147,8 @@ ShellRoot {
             const content = find(o => o.currentTab !== undefined);
             const tabs = find(o => o.tabs?.length === 2);
             check("responsive preferred size", originalWindow.width === originalWindow.sizing.width.preferred && originalWindow.height === originalWindow.sizing.height.preferred);
+            const inspector = find(o => o.pendingKey !== undefined && o.choose !== undefined);
+            check("inspector uses thirty percent", inspector.width === Math.max(260, Math.round((inspector.parent.width - inspector.parent.spacing) * 0.30)));
             check("header has no branding", !descendants(content).some(o => o.text === "UnNova" || o.text === "monitoring"));
             const chrome = find(o => o.cornerWidth !== undefined);
             check("navigation clears close pocket", tabs.mapToItem(content, tabs.width - tabs.tabRightInset, 0).x <= content.width - chrome.cornerWidth - content.Tokens.spacing.large);
@@ -304,6 +306,8 @@ ShellRoot {
             check("small divider spans right pane", Math.abs(tabs.width - strip.width) < 0.01 && Math.abs(tabs.mapToItem(UnNova.window.contentItem, 0, 0).x - strip.mapToItem(UnNova.window.contentItem, 0, 0).x) < 0.01);
             const scroll = descendants(info).find(o => o.contentHeight !== undefined && o.flickableDirection !== undefined);
             check("inspector retains scrolling", scroll && scroll.contentHeight > scroll.height);
+            const residentHint = descendants(info).find(o => o.text === "including memory shared with other processes");
+            check("resident explanation wraps without truncation", residentHint.wrapMode === Text.WordWrap && !residentHint.truncated && residentHint.lineCount > 1 && residentHint.height >= residentHint.contentHeight);
         } else if (n === 120) {
             UnNova.window.visible = false;
         } else if (n === 121) {
