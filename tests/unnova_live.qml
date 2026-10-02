@@ -9,6 +9,7 @@ import qs.components
 import qs.services
 import qs.modules.unnova
 import qs.modules.nexus as Nexus
+import qs.modules.dashboard as Dashboard
 import qs.modules.session as Session
 import "modules/unnova/unnova.js" as U
 
@@ -25,7 +26,20 @@ ShellRoot {
     property var closeButton
     property var nexusWindow
     property bool nexusClosed: false
+    property var referenceTabs
     TestEvent { id: input }
+    Component {
+        id: dashboardTabsReference
+        Dashboard.Tabs {
+            visible: false
+            height: implicitHeight
+            nonAnimWidth: width
+            screenState: ScreenState {
+                modelData: Quickshell.screens[0]
+                dashboardTab: 1
+            }
+        }
+    }
     Component {
         id: nexusComponent
         FloatingWindow {
@@ -68,6 +82,20 @@ ShellRoot {
         return out;
     }
     function find(predicate) { return descendants(UnNova.window.contentItem).find(predicate); }
+    function tabGeometry(tabs) {
+        const bar = descendants(tabs).find(o => o.contentModel !== undefined && o.currentIndex !== undefined);
+        const icon = descendants(bar.currentItem).find(o => o.text === "list_alt");
+        const label = descendants(bar.currentItem).find(o => o.text === "Processes" && o.elide !== undefined);
+        const indicator = tabs.children.find(o => o.clip && o.implicitHeight === 3);
+        const divider = tabs.children.find(o => o.implicitHeight === 1);
+        return {
+            bandHeight: tabs.height, barTop: bar.y, barHeight: bar.height,
+            iconSize: [icon.width, icon.height], iconLabelGap: label.y - icon.y - icon.height,
+            labelBaseline: label.mapToItem(tabs, 0, label.baselineOffset).y,
+            underline: [indicator.x, indicator.y, indicator.width, indicator.height],
+            divider: [divider.y, divider.height]
+        };
+    }
     function search(text) {
         find(o => o.placeholderText === "Search by name, PID, command or user").text = text;
         check("search field drives model", Processes.query === text);
@@ -121,12 +149,35 @@ ShellRoot {
             check("header has no branding", !descendants(content).some(o => o.text === "UnNova" || o.text === "monitoring"));
             check("tabs are centered", Math.abs(tabs.mapToItem(content, tabs.width / 2, 0).x - content.width / 2) < 1);
             check("one header close control", descendants(content).filter(o => o.icon === "close" && o.clicked !== undefined && o.mapToItem(content, 0, 0).y < tabs.y + tabs.height).length === 1);
+            referenceTabs = dashboardTabsReference.createObject(content, { width: tabs.width, tabs: tabs.tabs });
 
             UnNova.open();
             check("single surface", UnNova.window === originalWindow);
             childKey = Processes.usage(child.processId).key;
             stubbornKey = Processes.usage(stubborn.processId).key;
             search("sleep 3017");
+        } else if (n === 6) {
+            const content = find(o => o.currentTab !== undefined);
+            const tabs = find(o => o.tabs?.length === 2);
+            const geometry = tabGeometry(tabs);
+            check("navigation exactly matches Dashboard geometry", JSON.stringify(geometry) === JSON.stringify(tabGeometry(referenceTabs)));
+            const strip = find(o => o.compact !== undefined);
+            const gap = strip.mapToItem(content, 0, 0).y - tabs.y - tabs.height;
+            const artwork = descendants(strip);
+            check("CPU uses Performance usage artwork", artwork.some(o => o.usage !== undefined && o.shape !== undefined && o.implicitSize === 44));
+            check("resource gauges use Performance arcs", artwork.filter(o => o.startAngle === -225 && o.sweepAngle === 270).length === 2);
+            check("process summary excludes device storage", !artwork.some(o => o.text === "Storage" || o.icon === "hard_drive"));
+            check("one normal padding below navigation divider", gap === content.Tokens.padding.large && geometry.divider[0] + geometry.divider[1] === tabs.height);
+            check("navigation uses Dashboard outer top padding", tabs.y === Math.max(0, content.Tokens.padding.large - content.Config.border.thickness));
+            console.log("NAVIGATION " + JSON.stringify({ geometry: geometry, top: tabs.y, contentGap: gap }));
+            const bar = descendants(tabs).find(o => o.contentModel !== undefined && o.currentIndex !== undefined);
+            for (const index of [0, 1]) {
+                const tab = bar.itemAt(index);
+                input.mouseClick(tab, tab.width / 2, tab.height / 2, Qt.LeftButton, Qt.NoModifier, 0);
+                check("native navigation selects tab " + index, content.currentTab === index);
+            }
+            check("navigation selection is independent of Dashboard", referenceTabs.screenState.dashboardTab === 1);
+            referenceTabs.destroy();
         } else if (n === 7) {
             const row = find(o => o.key === childKey && o.selected !== undefined);
             row.children.find(o => o.containsMouse !== undefined).clicked(null);
@@ -217,6 +268,7 @@ ShellRoot {
             check("reopen samples immediately", Processes.samples === stoppedAt + 1);
         } else if (n === 115) {
             check("reopen single surface", UnNova.isOpen && Processes.active);
+            check("reopen selects Processes", find(o => o.currentTab !== undefined).currentTab === 1);
             // Constrain only this disposable window; implicit size changes
             // alone do not resize an already mapped Wayland surface.
             UnNova.window.maximumSize.width = 960;
