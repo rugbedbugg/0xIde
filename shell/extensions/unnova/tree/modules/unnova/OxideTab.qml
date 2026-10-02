@@ -8,15 +8,11 @@ import Caelestia.Config
 import Caelestia.Services
 import qs.components
 import qs.components.containers
-import qs.components.controls
 import qs.services
 import "unnova.js" as U
 
-// What 0xIde itself runs, by what it is rather than by PID. Each card shows
-// only what its service can establish, and offers an action only where the
-// service already has one: the local AI server can be unloaded and restarted;
-// dictation, translation and OCR run a helper per use, so there is nothing
-// resident to manage, and the desktop profile is switched in Theme settings.
+// Operate each feature through its existing service. Only local AI owns a
+// persistent runtime. Model and language setup stays in Settings.
 StyledFlickable {
     id: root
 
@@ -70,7 +66,6 @@ StyledFlickable {
                     stopping: AiRuntime.stopping,
                     endpoint: AiRuntime.endpoint
                 })
-            readonly property var can: U.aiCan(runtime)
 
             icon: "neurology"
             title: qsTr("Local AI")
@@ -88,27 +83,7 @@ StyledFlickable {
                 AiRuntime.error
             ]
 
-            RowLayout {
-                spacing: Tokens.spacing.small
-
-                IconTextButton {
-                    icon: "eject"
-                    text: qsTr("Unload")
-                    type: IconTextButton.Tonal
-                    isRound: true
-                    disabled: !ai.can.unload
-                    onClicked: AiRuntime.stop()
-                }
-
-                IconTextButton {
-                    icon: "restart_alt"
-                    text: qsTr("Restart")
-                    type: IconTextButton.Tonal
-                    isRound: true
-                    disabled: !ai.can.restart
-                    onClicked: AiRuntime.restart()
-                }
-            }
+            AiControls {}
         }
 
         // Dictation
@@ -135,6 +110,7 @@ StyledFlickable {
             lines: [
                 Speech.info.installed === undefined ? qsTr("Checking installation…") : Speech.info.installed ? qsTr("Model installed · loaded for dictation as needed") : qsTr("Set up the speech model in Settings to enable dictation"),
                 qsTr("Language: %1").arg(GlobalConfig.ai.dictationLanguage === "auto" ? qsTr("Auto-detect") : Translator.name(GlobalConfig.ai.dictationLanguage)),
+                qsTr("Use your dictation shortcut to start or stop recording"),
                 listener ? qsTr("%1 memory while listening").arg(U.formatBytes(listener.memory)) : "",
                 (Speech.info.missing ?? []).length ? qsTr("Missing: %1").arg(Speech.info.missing.join(", ")) : "",
                 Speech.working ? Speech.message : "",
@@ -161,6 +137,8 @@ StyledFlickable {
                 Translator.working ? Translator.message : "",
                 Translator.error
             ]
+
+            TranslationAction {}
         }
 
         // OCR

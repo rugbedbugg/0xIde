@@ -277,17 +277,19 @@ again brings the open one forward. It has two tabs.
 
 **0xIde** shows what 0xIde itself runs, by what it is rather than by process ID:
 
-| Component        | Shown                                                    | Actions             |
-| ---------------- | -------------------------------------------------------- | ------------------- |
-| Local AI         | stopped, starting, ready or stopping; its memory and CPU | Unload, Restart     |
-| Dictation        | the speech model, and whether dictation is listening     | none                |
-| Translation      | installed languages, and whether it is translating       | none                |
-| Text recognition | languages, and whether it is reading a capture           | none                |
-| Desktop          | the active desktop profile                               | none (Theme does)   |
+| Component        | Shown                                                    | Actions                   |
+| ---------------- | -------------------------------------------------------- | ------------------------- |
+| Local AI         | stopped, starting, ready or stopping; its memory and CPU  | Start, Unload, Restart    |
+| Dictation        | the speech model, and whether dictation is listening      | none                      |
+| Translation      | installed languages, and whether it is translating        | Cancel active translation |
+| Text recognition | languages, and whether it is reading a capture            | none                      |
+| Desktop          | the active desktop profile                               | none (Theme does)         |
 
 Only the local AI keeps a server running, so only it has something to unload or restart;
 those use the runtime's own stop and start. The others start a helper for each use and
-leave nothing behind to manage. Opening UnNova never starts the local AI.
+leave nothing behind to manage. You can cancel an active translation. Model and language
+setup stays in Settings; dictation and capture keep their existing shortcuts. Opening
+UnNova never starts the local AI; **Start** does so explicitly when its model is installed.
 
 **Processes** lists every process you can see, calmer than a task manager's table: name,
 CPU and memory, with PID and user underneath. Search matches the name, PID, command line
@@ -423,7 +425,9 @@ on Arch Linux, with `shellcheck`, on every push and pull request.
 UnNova's process core is compiled on its own with `c++` and signals only children the test
 starts. Its service and the local AI lifecycle are driven in a windowless `qs`; those two
 parts need `qs` and a plugin built with `./shell/build.sh --no-install`, and are skipped
-without them.
+without them. The runtime-control checks use mock services in an unmapped window
+(`./tests/unnova-live --controls`); they need a Wayland connection and never start models
+or translation requests.
 
 CI compiles the process core; the full plugin and Quickshell checks require the local
 build environment described above. Qt's model-contract test covers repeated row

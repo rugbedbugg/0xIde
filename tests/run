@@ -2706,6 +2706,20 @@ CHK
     rm -rf "$ax"
 fi
 
+ox_step "UnNova: runtime controls"
+if ox_have qs && [ -n "${WAYLAND_DISPLAY:-}" ] && [ -f "$SRC/modules/unnova/AiControls.qml" ] && [ -d "$PLUGIN_QML/Caelestia/Services" ]; then
+    controls_log="$(mktemp)"
+    if timeout 30 "$PY" "$OX_ROOT/tests/unnova-live" --controls > "$controls_log" 2>&1; then
+        ok "runtime controls delegate, guard busy states, and never start work on opening (18 checks)"
+    else
+        cat "$controls_log"
+        no "runtime control interaction checks"
+    fi
+    rm -f "$controls_log"
+else
+    skipt "runtime controls need a built shell/plugin and a Wayland connection (no window is shown)"
+fi
+
 ox_step "UnNova: surface and safety"
 PLUGSRC="$OX_ROOT/shell/plugin/src"
 ! grep -nE '\b(system|popen|execv?[lpe]*|fork|posix_spawn)\(|QProcess' "$PLUGSRC/procfs.cpp" "$PLUGSRC/processes.cpp" >/dev/null &&
@@ -2737,11 +2751,13 @@ grep -c 'U.action("force")' "$info" | grep -qx 2 &&
     ok "Force stop is offered in the Actions menu and after an End task that did not work, nowhere else" || no "Force stop appears elsewhere"
 ! grep -nE 'execDetached|Process \{|"kill"|"sh"' "$UN"/*.qml >/dev/null &&
     ok "UnNova's interface runs no command; signals go by name to the service" || no "UnNova's QML runs a command"
-! grep -nE 'AiRuntime\.(start|install|uninstall|release)\(' "$UN"/*.qml >/dev/null &&
-    grep -q 'onClicked: AiRuntime.stop()' "$UN/OxideTab.qml" && grep -q 'onClicked: AiRuntime.restart()' "$UN/OxideTab.qml" &&
-    ok "the 0xIde tab only unloads and restarts the local AI, with the runtime's own calls" || no "the 0xIde tab drives the local AI some other way"
-! grep -nE '(Speech|Translator|Ocr|DesktopProfiles)\.(install|remove|run|translate|cancel|capture|captureForPanel|activate|refreshLanguages)\(' "$UN"/*.qml >/dev/null &&
-    ok "dictation, translation, OCR and the desktop profile are shown, not driven" || no "the 0xIde tab drives another service"
+grep -q 'property var runtime: AiRuntime' "$UN/AiControls.qml" &&
+    grep -q 'root.runtime.stop()' "$UN/AiControls.qml" && grep -q 'root.runtime.restart()' "$UN/AiControls.qml" &&
+    ok "local AI controls delegate to the existing runtime" || no "local AI controls bypass their service"
+! grep -nE '(Speech|Translator|Ocr)\.(stop|restart|unload)\(|DesktopProfiles\.activate\(' "$UN"/*.qml >/dev/null &&
+    ok "request-based features have no fake runtime lifecycle; Desktop stays read-only" || no "the 0xIde tab invents runtime or profile controls"
+! grep -nE '\.(install|uninstall|remove|activate)\(' "$UN"/*.qml >/dev/null &&
+    ok "model, language and profile setup stays in Settings" || no "UnNova exposes setup actions"
 p11="$(ls "$OX_ROOT"/shell/patches/*-session-open-UnNova-from-the-power-panel-s-character.patch 2>/dev/null)"
 if [ -n "$p11" ]; then
     ! grep -qE '^-[^-]' "$p11" && ok "the power panel patch only adds: its buttons and the artwork are untouched" || no "the power panel patch changes existing lines"

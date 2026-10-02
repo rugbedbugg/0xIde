@@ -213,6 +213,7 @@ function aiState(rt) {
 // What can be done to the local AI right now, with the runtime's own calls.
 function aiCan(rt) {
     return {
+        start: rt.installed === true && !rt.serving && !rt.stopping && !rt.installing,
         unload: !!rt.serving && !rt.stopping && !rt.installing,
         restart: !!rt.endpoint && !!rt.serving && !rt.stopping && !rt.installing
     };
