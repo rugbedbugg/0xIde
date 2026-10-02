@@ -2,55 +2,55 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Layouts
+import Caelestia
 import Caelestia.Config
 import qs.components
-import qs.components.controls
-import qs.services
 
 Item {
     id: root
 
-    // 0: 0xIde, 1: Processes. It opens on the processes, which is what the
-    // launcher's tooltip promises.
-    property int currentTab: 1
+    // 0: 0xIde, 1: Processes. The selection belongs to this window only.
+    property alias currentTab: tabs.currentIndex
 
     signal close
 
     SurfaceChrome {
         anchors.fill: parent
+        z: 1 // Keep the corner control above the full-width navigation hit area.
         onActivated: root.close()
     }
 
-    ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: Tokens.padding.extraLarge
-        spacing: Tokens.spacing.large
+    TabBar {
+        id: tabs
 
-        TabBar {
-            Layout.alignment: Qt.AlignHCenter
-            Layout.preferredWidth: Math.min(420, root.width / 2)
-            currentIndex: root.currentTab
-            tabs: [
-                {
-                    icon: "deployed_code",
-                    text: qsTr("0xIde")
-                },
-                {
-                    icon: "list_alt",
-                    text: qsTr("Processes")
-                }
-            ]
-            onSelected: index => root.currentTab = index
-        }
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.topMargin: CUtils.clamp(anchors.margins - Config.border.thickness, 0, anchors.margins)
+        anchors.margins: Tokens.padding.large
 
-        StackLayout {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            currentIndex: root.currentTab
+        tabs: [
+            {
+                iconName: "deployed_code",
+                text: qsTr("0xIde")
+            },
+            {
+                iconName: "list_alt",
+                text: qsTr("Processes")
+            }
+        ]
+    }
 
-            OxideTab {}
+    StackLayout {
+        anchors.top: tabs.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: Tokens.padding.large
+        currentIndex: root.currentTab
 
-            ProcessesTab {}
-        }
+        OxideTab {}
+
+        ProcessesTab {}
     }
 }

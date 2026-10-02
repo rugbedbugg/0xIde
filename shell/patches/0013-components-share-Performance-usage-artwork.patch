@@ -1,0 +1,81 @@
+Subject: [PATCH] components: share Performance usage artwork
+
+Reuse the existing Material Shape artwork without changing the Performance card.
+
+diff --git a/components/UsageShape.qml b/components/UsageShape.qml
+new file mode 100644
+--- /dev/null
++++ b/components/UsageShape.qml
+@@ -0,0 +1,27 @@
++pragma ComponentBehavior: Bound
++
++import QtQuick
++import M3Shapes
++import Caelestia.Config
++import qs.services
++
++// The Performance card's usage artwork, shared at its original or compact size.
++MaterialShape {
++    id: root
++
++    required property real usage
++
++    implicitSize: Tokens.sizes.dashboard.perfUsageShapeSize
++    color: Colours.palette.m3secondaryContainer
++    shape: {
++        if (root.usage >= 0.8)
++            return MaterialShape.SoftBurst;
++        if (root.usage >= 0.4)
++            return MaterialShape.Sunny;
++        return MaterialShape.Cookie4Sided;
++    }
++
++    Behavior on color {
++        CAnim {}
++    }
++}
+diff --git a/modules/dashboard/performance/HeroCard.qml b/modules/dashboard/performance/HeroCard.qml
+--- a/modules/dashboard/performance/HeroCard.qml
++++ b/modules/dashboard/performance/HeroCard.qml
+@@ -1,8 +1,7 @@
+ import QtQuick
+ import QtQuick.Layouts
+-import M3Shapes
+ import Caelestia.Config
+ import qs.components
+ import qs.components.controls
+ import qs.services
+
+@@ -104,30 +103,18 @@
+             fgColour: root.accent
+             indeterminate: isNaN(root.usage) || isNaN(root.temperature)
+         }
+     }
+
+-    MaterialShape {
++    UsageShape {
+         id: usageShape
+
+         anchors.right: parent.right
+         anchors.bottom: parent.bottom
+         anchors.margins: Tokens.padding.medium
+
+-        implicitSize: Tokens.sizes.dashboard.perfUsageShapeSize
+-        color: Colours.palette.m3secondaryContainer
+-        shape: {
+-            if (root.usage >= 0.8)
+-                return MaterialShape.SoftBurst;
+-            if (root.usage >= 0.4)
+-                return MaterialShape.Sunny;
+-            return MaterialShape.Cookie4Sided;
+-        }
+-
+-        Behavior on color {
+-            CAnim {}
+-        }
++        usage: root.usage
+
+         StyledText {
+             id: usageLabel
+
+             anchors.bottom: parent.top

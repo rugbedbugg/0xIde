@@ -9,8 +9,8 @@ import qs.components.controls
 import qs.services
 import "unnova.js" as U
 
-// The dashboard's resource gauges, small and in a row: enough to see how the
-// machine is doing while reading the list, not a second Performance page.
+// Performance's usage artwork and open-arc gauges in a compact summary.
+// Values and service lifetimes stay with the existing process surface.
 StyledRect {
     id: root
 
@@ -28,10 +28,6 @@ StyledRect {
         service: Memory
     }
 
-    ServiceRef {
-        service: Storage
-    }
-
     GridLayout {
         id: row
 
@@ -39,13 +35,14 @@ StyledRect {
         anchors.margins: Tokens.padding.medium
         anchors.leftMargin: Tokens.padding.large
         anchors.rightMargin: Tokens.padding.large
-        columns: root.compact ? 4 : 6
+        columns: root.compact ? 3 : 5
         columnSpacing: root.compact ? Tokens.spacing.small : Tokens.spacing.large
         rowSpacing: Tokens.spacing.small
 
         Gauge {
             icon: "memory"
             label: qsTr("CPU")
+            shaped: true
             value: Cpu.percentage
             detail: U.formatPercent(Cpu.percentage * 100)
         }
@@ -66,21 +63,13 @@ StyledRect {
             detail: Processes.swapTotal > 0 ? `${U.formatBytes(Processes.swapUsed)} / ${U.formatBytes(Processes.swapTotal)}` : qsTr("None")
         }
 
-        Gauge {
-            icon: "hard_disk"
-            label: qsTr("Storage")
-            value: Storage.percentage
-            accent: Colours.palette.m3secondary
-            detail: U.formatPercent(Storage.percentage * 100)
-        }
-
         Item {
             Layout.fillWidth: true
             visible: !root.compact
         }
 
         ColumnLayout {
-            Layout.columnSpan: root.compact ? 4 : 1
+            Layout.columnSpan: root.compact ? 3 : 1
             Layout.alignment: Qt.AlignRight
             spacing: 0
 
@@ -107,20 +96,48 @@ StyledRect {
         required property real value
         required property string detail
         property color accent: Colours.palette.m3primary
+        property bool shaped: false
 
         spacing: Tokens.spacing.small
 
-        CircularProgress {
-            implicitSize: 44
-            strokeWidth: Tokens.sizes.dashboard.resourceProgressThickness
-            value: gauge.value
-            fgColour: gauge.accent
+        Loader {
+            sourceComponent: gauge.shaped ? shapeArtwork : arcArtwork
+        }
 
-            MaterialIcon {
-                anchors.centerIn: parent
-                text: gauge.icon
-                color: gauge.accent
-                fontStyle: Tokens.font.icon.small
+        Component {
+            id: shapeArtwork
+
+            UsageShape {
+                implicitSize: 44
+                usage: gauge.value
+
+                StyledText {
+                    anchors.centerIn: parent
+                    text: gauge.detail
+                    color: gauge.accent
+                    font: Tokens.font.label.small
+                }
+            }
+        }
+
+        Component {
+            id: arcArtwork
+
+            CircularProgress {
+                implicitSize: 44
+                startAngle: -225
+                sweepAngle: 270
+                strokeWidth: Tokens.sizes.dashboard.resourceProgressThickness
+                value: gauge.value
+                fgColour: gauge.accent
+
+                MaterialIcon {
+                    anchors.centerIn: parent
+                    text: gauge.icon
+                    fill: 1
+                    color: gauge.accent
+                    fontStyle: Tokens.font.icon.small
+                }
             }
         }
 
@@ -134,6 +151,7 @@ StyledRect {
             }
 
             StyledText {
+                visible: !gauge.shaped
                 text: gauge.detail
                 font: Tokens.font.body.small
             }
