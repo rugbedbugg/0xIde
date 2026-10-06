@@ -2338,11 +2338,16 @@ for t in git cmake ninja rsync; do
 done
 
 # The installer itself, with shell/build.sh and the firefox installer
-# replaced by stubs that print a marker and exit with a chosen status.
+# replaced by stubs that print a marker and exit with a chosen status, and a qs
+# that reports no shell running, so the real one is never asked or stopped.
+cp "$OX_ROOT/installer/shell-handoff" "$fr/repo/installer/"
 for s in shell/build.sh overrides/firefox/install; do
     printf '#!/usr/bin/env bash\necho STUB-RAN\nexit "${STUB_RC:-0}"\n' > "$fr/repo/$s"; chmod +x "$fr/repo/$s"
 done
-frinst() { env STUB_RC="$1" XDG_CONFIG_HOME="$fr/xdg/c" XDG_DATA_HOME="$fr/xdg/d" XDG_STATE_HOME="$fr/xdg/s" \
+mkdir -p "$fr/qsbin"
+printf '#!/bin/sh\n[ "$*" = "list --all -j" ] && { echo "No running instances"; exit 0; }\necho "$*" >> "%s/qs-other"; exit 99\n' "$fr" > "$fr/qsbin/qs"
+chmod +x "$fr/qsbin/qs"
+frinst() { env PATH="$fr/qsbin:$PATH" STUB_RC="$1" XDG_CONFIG_HOME="$fr/xdg/c" XDG_DATA_HOME="$fr/xdg/d" XDG_STATE_HOME="$fr/xdg/s" \
     bash "$fr/repo/install" "${@:2}" 2>&1; }
 
 out="$(frinst 127 --only shell)"; rc=$?
@@ -2351,7 +2356,7 @@ grep -q STUB-RAN <<<"$out" && ! grep -q 'Done' <<<"$out" && ! grep -q 'Optional 
     grep -q 'the shell was not installed (shell/build.sh exited 127)' <<<"$out" &&
     ok "a failed shell install never reaches Done, and says why" || no "a failed shell install still printed Done"
 out="$(frinst 0 --only shell)"; rc=$?
-[ "$rc" -eq 0 ] && grep -q STUB-RAN <<<"$out" && grep -q 'Done' <<<"$out" &&
+[ "$rc" -eq 0 ] && grep -q STUB-RAN <<<"$out" && grep -q 'Done' <<<"$out" && [ ! -e "$fr/qs-other" ] &&
     ok "a shell that installs still ends in Done with exit 0" || no "a successful shell install exited $rc"
 out="$(frinst 1 --only shell --dry-run)"; rc=$?
 [ "$rc" -eq 0 ] && ! grep -q STUB-RAN <<<"$out" && grep -q 'would run: shell/build.sh' <<<"$out" &&
@@ -2360,6 +2365,157 @@ out="$(frinst 1 --only firefox)"; rc=$?
 [ "$rc" -eq 0 ] && grep -q STUB-RAN <<<"$out" && grep -q 'Done' <<<"$out" &&
     ok "a tolerated component failure still does not stop the install" || no "a firefox failure now stops ./install"
 rm -rf "$fr"
+
+ox_step "Shell hand-off"
+# The first install once left two shells: the system Caelestia shell kept
+# running because `-c caelestia` meant the user's copy by the time it was looked
+# up. These drive installer/shell-handoff and ./install against a simulated qs
+# whose instances live in a JSON file; the real qs is never on PATH first.
+ho="$(mktemp -d)"
+mkdir -p "$ho/bin" "$ho/repo/orchestration/lib" "$ho/repo/installer" "$ho/repo/shell"
+cp "$OX_ROOT/install" "$ho/repo/"
+cp "$OX_ROOT/orchestration/lib/common.sh" "$ho/repo/orchestration/lib/"
+cp "$OX_ROOT/installer/components.conf" "$OX_ROOT/installer/check_deps.sh" "$OX_ROOT/installer/shell-handoff" "$ho/repo/installer/"
+cat > "$ho/bin/qs" <<'QS'
+#!/usr/bin/env bash
+# list, kill -i, start (-c caelestia -n -d) and log -i, against $QS_STATE.
+echo "$*" >> "$QS_CALLS"
+st="$QS_STATE"
+put() { jq "$@" "$st" > "$st.t" && mv "$st.t" "$st"; }
+case "$*" in
+    "list --all -j")
+        if [ "$(jq length "$st")" = 0 ]; then echo 'No running instances for "x"'; else cat "$st"; fi ;;
+    "kill -i "*)
+        id="$3"
+        [ -n "${QS_KILL_FAIL:-}" ] && exit 255
+        [ "$(jq --arg id "$id" '[.[] | select(.id | startswith($id))] | length' "$st")" = 1 ] || exit 255
+        [ -n "${QS_KILL_STUCK:-}" ] || put --arg id "$id" '[.[] | select(.id | startswith($id) | not)]'
+        echo "Killed $id" ;;
+    "-c caelestia -n -d")
+        [ -n "${QS_START_FAIL:-}" ] && exit 1
+        p="${QS_START_PATH:-$XDG_CONFIG_HOME/quickshell/caelestia/shell.qml}"
+        jq -e --arg p "$p" 'any(.[]; .config_path == $p)' "$st" >/dev/null && exit 0
+        n=$(( $(cat "$st.n" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$st.n"
+        put --arg id "new$n" --arg p "$p" --argjson pid $((5000 + n)) \
+            '. + [{id: $id, pid: $pid, config_path: $p, launch_time: "T\($pid)", shell_id: "s"}]' ;;
+    "log -i "*)
+        [ -n "${QS_NO_LOAD:-}" ] || echo "  INFO: Configuration Loaded" ;;
+    *) echo "simulated qs: unexpected: $*" >&2; exit 99 ;;
+esac
+QS
+chmod +x "$ho/bin/qs"
+SYSQ="$ho/sys/quickshell/caelestia/shell.qml"; USRQ="$ho/c/quickshell/caelestia/shell.qml"; OTHQ="$ho/c/quickshell/bar/shell.qml"
+mkdir -p "$(dirname "$USRQ")"; touch "$USRQ"
+inst() { printf '{"id":"%s","pid":%s,"config_path":"%s","launch_time":"T%s","shell_id":"s"}' "$1" "$2" "$3" "$2"; }
+seed() { printf '[%s]' "$(IFS=,; echo "$*")" > "$ho/state"; : > "$ho/calls"; rm -f "$ho/state.n"; }
+hoenv() { env PATH="$ho/bin:$PATH" QS_STATE="$ho/state" QS_CALLS="$ho/calls" WAYLAND_DISPLAY=wayland-test \
+    XDG_CONFIG_HOME="$ho/c" XDG_CONFIG_DIRS="$ho/sys" XDG_DATA_HOME="$ho/d" XDG_STATE_HOME="$ho/s" OX_HANDOFF_TIMEOUT=1 "$@"; }
+H="$ho/repo/installer/shell-handoff"
+OTH="$(inst oth1 900 "$OTHQ")"
+kills() { grep -c '^kill' "$ho/calls"; }
+starts() { grep -c '^-c caelestia -n -d$' "$ho/calls"; }
+# The other configuration's instance, byte for byte as it was.
+other_intact() { [ "$(jq -c '.[] | select(.id == "oth1")' "$ho/state")" = "$(jq -c . <<<"$OTH")" ]; }
+caelestia_now() { jq -r --arg u "$USRQ" --arg s "$SYSQ" '[.[] | select(.config_path == $u or .config_path == $s) | "\(.id)@\(.config_path)"] | join(" ")' "$ho/state"; }
+
+if [ "$(hoenv bash -c 'command -v qs')" != "$ho/bin/qs" ]; then
+    no "the simulated qs is not first on PATH; hand-off tests not run"
+else
+    # 1. first install: the system shell is replaced by exactly one user shell.
+    seed "$(inst sys1 101 "$SYSQ")" "$OTH"
+    before="$(hoenv "$H" capture)"
+    [ "$(jq -c '[.[].id]' <<<"$before")" = '["sys1"]' ] &&
+        ok "capture finds the system Caelestia shell, and only it" || no "capture: $before"
+    out="$(hoenv "$H" handoff "$before" 2>&1)"; rc=$?
+    [ "$rc" -eq 0 ] && [ "$(caelestia_now)" = "new1@$USRQ" ] && [ "$(kills)" = 1 ] && grep -qx 'kill -i sys1' "$ho/calls" &&
+        ok "first install: the system shell is stopped by id and one user shell runs" ||
+        no "first install: exit $rc, now: $(caelestia_now), calls: $(tr '\n' ';' < "$ho/calls")"
+    other_intact && ok "first install: another Quickshell configuration is left running as it was" ||
+        no "first install touched another configuration"
+
+    # 2. update: the 0xIde shell already running is replaced the same way.
+    seed "$(inst usr1 102 "$USRQ")" "$OTH"
+    out="$(hoenv "$H" handoff "$(hoenv "$H" capture)" 2>&1)"; rc=$?
+    [ "$rc" -eq 0 ] && [ "$(caelestia_now)" = "new1@$USRQ" ] && [ "$(kills)" = 1 ] && other_intact &&
+        ok "update: the running 0xIde shell is replaced by exactly one new one" || no "update: exit $rc, now: $(caelestia_now)"
+
+    # 3. nothing running: nothing is stopped or started.
+    seed "$OTH"
+    out="$(hoenv "$H" handoff "$(hoenv "$H" capture)" 2>&1)"; rc=$?
+    [ "$rc" -eq 0 ] && [ "$(kills)" = 0 ] && [ "$(starts)" = 0 ] && grep -q 'start it with: caelestia shell -d' <<<"$out" && other_intact &&
+        ok "no shell running: nothing is stopped or started, and it says how to start one" || no "no shell running: exit $rc"
+
+    # 5. the recorded shell has gone, or its pid now belongs to another
+    #    instance: nothing else is stopped in its place.
+    seed "$(inst sys1 101 "$SYSQ")" "$OTH"; before="$(hoenv "$H" capture)"
+    seed "$(inst sys2 103 "$SYSQ")" "$OTH"
+    out="$(hoenv "$H" handoff "$before" 2>&1)"; rc=$?
+    [ "$rc" -eq 3 ] && [ "$(kills)" = 0 ] && [ "$(starts)" = 0 ] && [ "$(caelestia_now)" = "sys2@$SYSQ" ] && other_intact &&
+        grep -q 'sys1.*stopped during the install' <<<"$out" &&
+        ok "a recorded shell that is gone is reported, and no other instance is stopped instead" || no "vanished shell: exit $rc, calls: $(tr '\n' ';' < "$ho/calls")"
+    seed "$(inst sys1 104 "$SYSQ")" "$OTH"
+    hoenv "$H" handoff "$before" >/dev/null 2>&1; rc=$?
+    [ "$rc" -eq 3 ] && [ "$(kills)" = 0 ] && ok "the same id with another pid is not the recorded shell" || no "pid mismatch: exit $rc"
+    seed "$(inst sys1 101 "$SYSQ")" "$(inst sys1x 105 "$OTHQ")"
+    hoenv "$H" handoff "$before" >/dev/null 2>&1; rc=$?
+    [ "$rc" -eq 3 ] && [ "$(kills)" = 0 ] && ok "an id that begins another id is not used to kill" || no "id prefix: exit $rc"
+
+    # 6. two Caelestia shells: refuse, name them, touch neither.
+    seed "$(inst sys1 101 "$SYSQ")" "$(inst usr1 102 "$USRQ")" "$OTH"
+    out="$(hoenv "$H" handoff "$(hoenv "$H" capture)" 2>&1)"; rc=$?
+    [ "$rc" -eq 3 ] && [ "$(kills)" = 0 ] && [ "$(starts)" = 0 ] && grep -q sys1 <<<"$out" && grep -q usr1 <<<"$out" &&
+        [ "$(caelestia_now)" = "sys1@$SYSQ usr1@$USRQ" ] &&
+        ok "two Caelestia shells: neither is stopped, and both are named" || no "two shells: exit $rc"
+
+    # 7. each failure after the deploy is reported and fails.
+    hofail() {
+        local want="$1"; shift
+        seed "$(inst sys1 101 "$SYSQ")" "$OTH"
+        out="$(hoenv "$@" "$H" handoff "$(hoenv "$H" capture)" 2>&1)"; rc=$?
+        [ "$rc" -eq 3 ] && grep -q "$want" <<<"$out" && other_intact
+    }
+    hofail 'could not stop.*nothing new was started' QS_KILL_FAIL=1 && [ "$(starts)" = 0 ] &&
+        ok "a failed stop fails, and nothing is started" || no "failed stop: exit $rc: $out"
+    hofail 'did not exit within' QS_KILL_STUCK=1 && [ "$(starts)" = 0 ] &&
+        ok "a shell that will not exit fails, and nothing is started beside it" || no "stuck stop: exit $rc: $out"
+    hofail 'new one did not start' QS_START_FAIL=1 &&
+        ok "a failed start fails and says the previous shell was stopped" || no "failed start: exit $rc: $out"
+    hofail 'has not loaded its configuration' QS_NO_LOAD=1 &&
+        ok "a shell that never loads its configuration fails" || no "no load: exit $rc: $out"
+    hofail "expected one Caelestia shell, running from $USRQ" QS_START_PATH="$SYSQ" &&
+        ok "a start that comes up from the system copy fails" || no "wrong config started: exit $rc: $out"
+    hofail 'not in a graphical session' WAYLAND_DISPLAY= && [ "$(kills)" = 0 ] &&
+        ok "outside a graphical session the running shell is left alone, and it fails" || no "no session: exit $rc: $out"
+
+    # The installer: read before the deploy, handed over after it.
+    printf '#!/usr/bin/env bash\necho BUILD >> "$QS_CALLS"\nexit "${STUB_RC:-0}"\n' > "$ho/repo/shell/build.sh"
+    chmod +x "$ho/repo/shell/build.sh"
+    seed "$(inst sys1 101 "$SYSQ")" "$OTH"
+    out="$(hoenv "$ho/repo/install" --only shell 2>&1)"; rc=$?
+    [ "$rc" -eq 0 ] && grep -q Done <<<"$out" && [ "$(caelestia_now)" = "new1@$USRQ" ] && other_intact &&
+        [ "$(grep -nx 'list --all -j' "$ho/calls" | head -1 | cut -d: -f1)" -lt "$(grep -nx BUILD "$ho/calls" | cut -d: -f1)" ] &&
+        [ "$(grep -nx BUILD "$ho/calls" | cut -d: -f1)" -lt "$(grep -nx 'kill -i sys1' "$ho/calls" | cut -d: -f1)" ] &&
+        ok "./install records the running shell before the deploy and hands it over after" ||
+        no "./install hand-off: exit $rc, calls: $(tr '\n' ';' < "$ho/calls")"
+    seed "$(inst sys1 101 "$SYSQ")" "$OTH"
+    out="$(hoenv QS_START_FAIL=1 "$ho/repo/install" --only shell 2>&1)"; rc=$?
+    [ "$rc" -eq 3 ] && ! grep -q Done <<<"$out" && grep -q 'the shell is installed, but the running shell was not handed over' <<<"$out" &&
+        ok "./install fails without Done when the shell installed but was not handed over" || no "./install after a failed hand-off: exit $rc"
+    seed "$(inst sys1 101 "$SYSQ")" "$OTH"
+    out="$(hoenv STUB_RC=1 "$ho/repo/install" --only shell 2>&1)"; rc=$?
+    [ "$rc" -eq 1 ] && [ "$(kills)" = 0 ] && [ "$(starts)" = 0 ] && grep -q 'the shell was not installed' <<<"$out" &&
+        ok "a failed build leaves the running shell alone" || no "failed build: exit $rc, calls: $(tr '\n' ';' < "$ho/calls")"
+    seed "$(inst sys1 101 "$SYSQ")" "$OTH"
+    out="$(hoenv "$ho/repo/install" --only shell --dry-run 2>&1)"; rc=$?
+    [ "$rc" -eq 0 ] && [ ! -s "$ho/calls" ] && grep -q 'would hand the running Caelestia shell over' <<<"$out" &&
+        ok "a dry run neither asks qs nor stops or starts anything" || no "dry run: exit $rc, calls: $(tr '\n' ';' < "$ho/calls")"
+fi
+rm -rf "$ho"
+# shell/build.sh, even with --no-install, only materialises, builds and deploys.
+! grep -vE '^\s*(#|ox_log)' "$OX_ROOT/shell/build.sh" | grep -qE '(^|[;&|[:space:]])(qs|caelestia|pkill|killall|[^ ]*shell-handoff)([[:space:]]|$)' &&
+    ok "shell/build.sh starts and stops no shell" || no "shell/build.sh manages a running shell"
+! grep -qE '\b(pkill|killall)\b|kill -9|SIGKILL|--pid "\$' "$OX_ROOT/installer/shell-handoff" &&
+    ok "the hand-off stops instances only by id, never by process name or signal" || no "shell-handoff kills by name or signal"
 
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"

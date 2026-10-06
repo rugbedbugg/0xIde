@@ -117,6 +117,10 @@ To work with individual components:
 > Components under `system/` need root. None is on by default: each prints the exact
 > change and asks first, and each has a `remove` that reverses it.
 
+Installing the shell replaces the Caelestia shell that is running, whether that is the
+stock one or an earlier 0xIde build, with exactly one instance of the new one, and leaves
+any other Quickshell configuration running as it was. Run it from the desktop session.
+
 Re-running `./install` is a no-op. An adapter whose application is missing is skipped
 rather than failing. The first version of every file this project replaces is kept under
 `$XDG_STATE_HOME/0xide/replaced/`, and nothing here deletes it.

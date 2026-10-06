@@ -143,4 +143,5 @@ rsync -a --delete \
     "$SRC/" "$OX_SHELLDIR/"
 ox_own "$OX_SHELLDIR"
 ox_log "shell  -> $OX_SHELLDIR"
-ox_log "restart the shell to pick this up: caelestia shell -d"
+# Not `caelestia shell -r`: after a first install it misses the system shell.
+ox_log "./install switches the running shell over; after building by hand: ./installer/shell-handoff restart"
