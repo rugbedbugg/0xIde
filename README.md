@@ -34,6 +34,8 @@ applications Caelestia does not theme itself.
         chat-completions endpoint you point it at. It explains, summarises, translates or
         tabulates captured text, and nothing is sent anywhere unless you press Ask AI.
     -   **OCR & AI settings** in the shell's own settings app.
+    -   **Keyboard shortcuts**: an overlay listing what is bound in Hyprland right now,
+        with what each bind does and a search. See [Keybinds](#keybinds).
     -   **Desktop profiles**: personalities of the same Hyprland and Caelestia session,
         such as tiled Caelestia or floating Windows XP. `>theme` in the launcher, or
         **Theme** in settings, switches through one CLI that verifies each switch and
@@ -136,11 +138,19 @@ rather than failing. The first version of every file this project replaces is ke
 | `SUPER + SHIFT + T` | Extract text from a region          | clipboard, nothing opens                  |
 | `SUPER + SHIFT + A` | Search a region, or ask AI about it | browser, or the AI panel                  |
 | `SUPER + SHIFT + D` | Dictation on or off                 | each phrase typed where you are           |
+| `SUPER + /`         | Keyboard shortcuts                  | every keybind bound right now, searchable |
 
 They are set in `overrides/caelestia/hypr-vars.lua` and bound in
 `overrides/caelestia/hypr-user.lua`, both extension points Caelestia supports. A binding
 that collides with one upstream already made is skipped, with a message, rather than
 shadowing it.
+
+**Keyboard shortcuts** lists the keybinds Hyprland has registered at the moment you open
+it, not a list kept here, so a binding that was skipped never shows. Open it with
+`SUPER + /` (`kbShowShortcuts`), from **Keyboard Shortcuts** in the launcher, or with
+`caelestia shell shortcuts toggle`; type to search by key or action, and press the key
+again, `Esc` or click outside to close it. Like the others, its key is skipped if
+something already uses it, which leaves the launcher entry.
 
 `SUPER + SHIFT + A` has three choices, picked from a card at the bottom of the selector
 before you drag: **Text** searches the words read from a rectangle, **Image** sends a

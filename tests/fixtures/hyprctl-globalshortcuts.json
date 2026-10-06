@@ -1,0 +1,26 @@
+[
+ {
+  "name": "caelestia:clearNotifs",
+  "description": "Clear all notifications"
+ },
+ {
+  "name": "caelestia:brightnessUp",
+  "description": "Increase brightness"
+ },
+ {
+  "name": "caelestia:launcher",
+  "description": "Toggle launcher"
+ },
+ {
+  "name": "caelestia:dashboard",
+  "description": "Toggle dashboard"
+ },
+ {
+  "name": "caelestia:regionSearch",
+  "description": "Select a region and search the web for what it contains"
+ },
+ {
+  "name": "caelestia:screenshotOcr",
+  "description": "Select a region and copy the text in it"
+ }
+]

@@ -2,6 +2,11 @@
 -- Upstream merges this table over hypr/variables.lua, so nothing in
 -- ~/.config/hypr needs editing for any value that lives here.
 
+-- Caelestia requires this file before its keybinds, so this is where their
+-- descriptions start being recorded; hypr-user.lua stops it. See 0xide-binds.lua.
+local ok, binds = pcall(require, "0xide-binds")
+if ok and type(binds) == "table" then pcall(binds.install) end
+
 -- Upstream names its cursor "sweet-cursors", but the Sweet package installs
 -- "Sweet-cursors" and theme names are case sensitive, so upstream always gets
 -- the default cursor. The cursor adapter rebuilds Sweet in the scheme's
@@ -35,4 +40,6 @@ return {
     kbRegionSearch = "SUPER + SHIFT + A",
     -- Press to start dictating, press again to type what was said.
     kbDictation = "SUPER + SHIFT + D",
+    -- The keyboard shortcuts bound right now; press again or Esc to close.
+    kbShowShortcuts = "SUPER + Slash",
 }
