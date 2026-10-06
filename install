@@ -214,7 +214,26 @@ main() {
             overrides:firefox)
                 run "$OX_ROOT/overrides/firefox/install" || true ;;
             shell:*)
-                run "$OX_ROOT/shell/build.sh" ;;
+                # Unlike an adapter, a shell that did not build is not a skip:
+                # stop here, with its error the last thing on screen, so it is
+                # neither buried under later components nor followed by "Done".
+                if [ "$DRY" = 1 ]; then
+                    run "$OX_ROOT/shell/build.sh"
+                    ox_log "would hand the running Caelestia shell over to the new one"
+                    continue
+                fi
+                # Which shell is running is read before the deploy: once the
+                # user's copy exists, the name caelestia means that copy, not
+                # the system one that may still be running.
+                before="$("$OX_ROOT/installer/shell-handoff" capture)" ||
+                    ox_die "could not tell which Caelestia shell is running, so nothing was built; see qs list --all"
+                "$OX_ROOT/shell/build.sh" ||
+                    ox_die "the shell was not installed (shell/build.sh exited $?); nothing after it ran. Fix the error above, then run ./install --only shell"
+                "$OX_ROOT/installer/shell-handoff" handoff "$before" || {
+                    rc=$?
+                    printf '  error: the shell is installed, but the running shell was not handed over to it (see above); nothing after it ran\n' >&2
+                    exit "$rc"
+                } ;;
             adapter:*)
                 missing="$(adapter_missing "$name")"
                 if [ -n "$missing" ]; then

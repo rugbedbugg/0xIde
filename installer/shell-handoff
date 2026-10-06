@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# Hands the desktop over from the Caelestia shell that is running to the one
+# shell/build.sh just deployed, and touches no other Quickshell instance.
+#
+#   ./installer/shell-handoff capture          print the running Caelestia shells, as JSON
+#   ./installer/shell-handoff handoff <json>   replace exactly those with the deployed shell
+#   ./installer/shell-handoff restart          both at once, after running shell/build.sh by hand
+#
+# Quickshell resolves `-c caelestia` to the first of $XDG_CONFIG_HOME and
+# $XDG_CONFIG_DIRS holding quickshell/caelestia/shell.qml. Before the first
+# install that is the system copy; after it, the user's. Anything that finds
+# the running shell by that name once the deploy is done (`qs -c caelestia
+# kill`, `caelestia shell -r`) finds only the user's copy, misses the system
+# shell still running, and the start that follows leaves two. So instances are
+# matched here by the config path each one reports, against every place a
+# caelestia config can live, recorded before the deploy, and stopped by id.
+#
+# Exit status: 0 handed over or nothing to do, 3 the running shell was not
+# handed over (the reason is printed), 1 usage.
+set -uo pipefail
+. "$(dirname -- "${BASH_SOURCE[0]}")/../orchestration/lib/common.sh"
+
+TIMEOUT="${OX_HANDOFF_TIMEOUT:-10}"
+NEW="$OX_SHELLDIR/shell.qml"
+
+# Every shell.qml `qs -c caelestia` can have been started from, as written and
+# with symlinks resolved, as a JSON array.
+candidates() {
+    local d p IFS=:
+    {
+        for p in "$NEW" "$XDG_CONFIG_HOME/quickshell/caelestia/shell.qml"; do
+            printf '%s\n' "$p"; realpath -m -- "$p"
+        done
+        for d in ${XDG_CONFIG_DIRS:-/etc/xdg}; do
+            [ -n "$d" ] || continue
+            printf '%s\n' "$d/quickshell/caelestia/shell.qml"; realpath -m -- "$d/quickshell/caelestia/shell.qml"
+        done
+    } | jq -Rsc 'split("\n") | map(select(length > 0)) | unique'
+}
+
+# Every running instance on this display, as a JSON array. No qs means none.
+all_instances() {
+    local out
+    ox_have qs || { echo '[]'; return 0; }
+    out="$(qs list --all -j 2>/dev/null)" || return 1
+    case "$out" in "No running instances"*) echo '[]'; return 0 ;; esac
+    jq -ce 'if type == "array" then . else error end' <<<"$out" 2>/dev/null
+}
+
+# The Caelestia shells among them.
+caelestia_of() {
+    jq -c --argjson c "$CANDIDATES" '[.[] | select(.config_path as $p | $c | index($p))]' <<<"$1"
+}
+
+listed() { jq -r '.[] | "    \(.id)  pid \(.pid)  \(.config_path)"' <<<"$1" >&2; }
+
+# Waits until $1 holds for the current instance list (passed to it as $2).
+wait_for() {
+    local test="$1" deadline=$((SECONDS + TIMEOUT)) now
+    while :; do
+        now="$(all_instances)" && "$test" "$now" && return 0
+        [ "$SECONDS" -ge "$deadline" ] && return 1
+        sleep 0.2
+    done
+}
+
+capture() {
+    local now
+    now="$(all_instances)" || { ox_warn "could not list the running Quickshell instances (qs list --all -j)"; return 3; }
+    caelestia_of "$now"
+}
+
+handoff() {
+    local before="$1" n id pid launch path now newid
+    n="$(jq length <<<"$before")" || { ox_warn "not a captured instance list: $before"; return 1; }
+
+    if [ "$n" = 0 ]; then
+        ox_log "no Caelestia shell was running; start it with: caelestia shell -d"
+        return 0
+    fi
+    if [ "$n" -gt 1 ]; then
+        ox_warn "$n Caelestia shells were running, so none was replaced:"
+        listed "$before"
+        ox_warn "stop all but one with: qs kill -i <id>, then run ./installer/shell-handoff restart"
+        return 3
+    fi
+    if [ -z "${WAYLAND_DISPLAY:-}" ]; then
+        ox_warn "not in a graphical session, so the running shell was left as it is; from the desktop run: ./installer/shell-handoff restart"
+        return 3
+    fi
+
+    id="$(jq -r '.[0].id' <<<"$before")"; pid="$(jq -r '.[0].pid' <<<"$before")"
+    launch="$(jq -r '.[0].launch_time' <<<"$before")"; path="$(jq -r '.[0].config_path' <<<"$before")"
+
+    # The instance recorded before the deploy, and nothing else, is stopped:
+    # same id, same process, same launch. If it has gone, nothing is stopped in
+    # its place.
+    now="$(all_instances)" || { ox_warn "could not list the running Quickshell instances"; return 3; }
+    if ! jq -e --arg id "$id" --argjson pid "$pid" --arg t "$launch" \
+        'any(.[]; .id == $id and .pid == $pid and .launch_time == $t)' <<<"$now" >/dev/null; then
+        ox_warn "the shell that was running ($id, $path) stopped during the install; nothing was stopped or started"
+        [ "$(caelestia_of "$now" | jq length)" = 0 ] || { ox_warn "Caelestia shells running now:"; listed "$(caelestia_of "$now")"; }
+        return 3
+    fi
+    # qs kill -i selects by id prefix, so the id must not begin another one.
+    if ! jq -e --arg id "$id" '[.[] | select(.id | startswith($id))] | length == 1' <<<"$now" >/dev/null; then
+        ox_warn "instance id $id is the start of another instance's id; stop it yourself with qs kill --pid $pid"
+        return 3
+    fi
+
+    qs kill -i "$id" >/dev/null 2>&1 || { ox_warn "could not stop the running shell $id ($path); nothing new was started"; return 3; }
+    gone() { ! jq -e --arg id "$id" 'any(.[]; .id == $id)' <<<"$1" >/dev/null; }
+    wait_for gone || { ox_warn "the running shell $id did not exit within ${TIMEOUT}s; nothing new was started"; return 3; }
+
+    if ! qs -c caelestia -n -d >/dev/null 2>&1; then
+        ox_warn "the previous shell was stopped, but the new one did not start: run caelestia shell -d and see qs log"
+        return 3
+    fi
+    one() {
+        jq -e --arg old "$id" --arg n "$NEW" --arg r "$(realpath -m -- "$NEW")" \
+            'length == 1 and .[0].id != $old and (.[0].config_path == $n or .[0].config_path == $r)' \
+            <<<"$(caelestia_of "$1")" >/dev/null
+    }
+    if ! wait_for one; then
+        ox_warn "expected one Caelestia shell, running from $NEW, after the start; running now:"
+        listed "$(caelestia_of "$(all_instances)")"
+        return 3
+    fi
+    newid="$(caelestia_of "$(all_instances)" | jq -r '.[0].id')"
+    loaded() { qs log -i "$newid" 2>/dev/null | grep -q 'Configuration Loaded'; }
+    local deadline=$((SECONDS + TIMEOUT))
+    until loaded; do
+        [ "$SECONDS" -ge "$deadline" ] && { ox_warn "the new shell $newid started but has not loaded its configuration; see qs log -i $newid"; return 3; }
+        sleep 0.2
+    done
+    ox_log "running shell: $id ($path) -> $newid ($NEW)"
+}
+
+ox_have jq || ox_die "jq is required to hand the running shell over"
+CANDIDATES="$(candidates)"
+
+case "${1:-}" in
+    capture) capture ;;
+    handoff) [ $# -eq 2 ] || ox_die "usage: $0 handoff <captured json>"; handoff "$2" ;;
+    restart) before="$(capture)" || exit $?; handoff "$before" ;;
+    *) ox_die "usage: $0 capture | handoff <captured json> | restart" ;;
+esac

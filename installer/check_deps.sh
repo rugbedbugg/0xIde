@@ -1,16 +1,32 @@
 #!/usr/bin/env bash
 # Reports which dependency each component needs and whether it is present.
 # Never installs anything.
+#
+#   ./installer/check_deps.sh          everything a default install needs
+#   ./installer/check_deps.sh shell    also count the shell's build tools as required
 set -uo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../orchestration/lib/common.sh"
+
+# The shell is off by default, so its build tools are required only when it is
+# being installed; otherwise a missing one is reported against the shell alone.
+WITH_SHELL=0
+for arg in "$@"; do
+    case "$arg" in
+        shell) WITH_SHELL=1 ;;
+        *) ox_die "unknown component $arg (only shell has its own requirements)" ;;
+    esac
+done
 
 missing=0
 report() {
     local kind="$1" name="$2" owner="$3"
+    [ "$kind" = shell ] && [ "$WITH_SHELL" = 1 ] && kind=required
     if ox_have "$name"; then
         printf '  %-9s %-18s %s\n' "ok" "$name" "$owner"
     elif [ "$kind" = required ]; then
         printf '  %-9s %-18s %s\n' "MISSING" "$name" "$owner"; missing=$((missing+1))
+    elif [ "$kind" = shell ]; then
+        printf '  %-9s %-18s %s\n' "absent" "$name" "$owner (required to install the shell)"
     else
         printf '  %-9s %-18s %s\n' "absent" "$name" "$owner (optional)"
     fi
@@ -21,9 +37,10 @@ report required python3     "adapters/kde, installer"
 report optional caelestia   "everything (caelestia-cli)"
 report optional qs          "shell (quickshell)"
 report optional hyprctl     "overrides/caelestia"
-report optional cmake       "shell (build only)"
-report optional ninja       "shell (build only)"
-report optional git         "shell (build only)"
+report shell    git         "shell (fetches upstream)"
+report shell    cmake       "shell (builds the plugin)"
+report shell    ninja       "shell (builds the plugin)"
+report shell    rsync       "shell (deploys the build)"
 report optional tesseract   "shell/extensions/ocr, shell/extensions/search (text extraction)"
 report optional wl-copy     "shell/extensions/ocr (the extracted text goes here)"
 report optional curl        "shell/extensions/search (mode=host-upload only)"
