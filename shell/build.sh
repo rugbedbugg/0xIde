@@ -2,13 +2,13 @@
 # Materialises the forked Caelestia shell from upstream + patches + extensions,
 # builds the plugin, and (unless --no-install) installs both.
 #
-#   ./shell/build.sh [--extensions ai,ocr,search,desktop-profile,wallpaper-info] [--no-install] [--no-plugin]
+#   ./shell/build.sh [--extensions ai,ocr,search,desktop-profile,wallpaper-info,shortcuts] [--no-install] [--no-plugin]
 #
 # Nothing here writes outside $OX_BUILD, $OX_QMLDIR and $OX_SHELLDIR.
 set -euo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../orchestration/lib/common.sh"
 
-EXTENSIONS="ai,ocr,search,desktop-profile,wallpaper-info"
+EXTENSIONS="ai,ocr,search,desktop-profile,wallpaper-info,shortcuts"
 DO_INSTALL=1
 DO_PLUGIN=1
 while [ $# -gt 0 ]; do

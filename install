@@ -134,6 +134,12 @@ enable_adapter() {
 }
 
 install_overrides() {
+    # hypr-vars.lua requires 0xide-binds.lua, and Hyprland reloads as soon as
+    # hypr-vars.lua changes, so the module is in place first.
+    if run ox_install_file "$OX_CAELCONF/0xide-binds.lua" 644 < "$OX_ROOT/overrides/caelestia/0xide-binds.lua"; then
+        ox_log "0xide-binds.lua"
+    fi
+    run ox_own "$OX_CAELCONF/0xide-binds.lua"
     if run ox_install_file "$OX_CAELCONF/hypr-vars.lua" 644 < "$OX_ROOT/overrides/caelestia/hypr-vars.lua"; then
         ox_log "hypr-vars.lua"
     fi
@@ -229,6 +235,13 @@ main() {
                     ox_die "could not tell which Caelestia shell is running, so nothing was built; see qs list --all"
                 "$OX_ROOT/shell/build.sh" ||
                     ox_die "the shell was not installed (shell/build.sh exited $?); nothing after it ran. Fix the error above, then run ./install --only shell"
+                # The launcher lists desktop entries, so the shortcuts overlay
+                # can be found there without knowing its key.
+                if ox_install_file "$XDG_DATA_HOME/applications/0xide-shortcuts.desktop" 644 \
+                    < "$OX_ROOT/shell/extensions/shortcuts/0xide-shortcuts.desktop"; then
+                    ox_log "launcher entry: Keyboard Shortcuts"
+                fi
+                ox_own "$XDG_DATA_HOME/applications/0xide-shortcuts.desktop"
                 "$OX_ROOT/installer/shell-handoff" handoff "$before" || {
                     rc=$?
                     printf '  error: the shell is installed, but the running shell was not handed over to it (see above); nothing after it ran\n' >&2

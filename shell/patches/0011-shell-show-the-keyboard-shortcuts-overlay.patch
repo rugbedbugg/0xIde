@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Oxide 1-6 <yes.par781@gmail.com>
+Date: Tue, 6 Oct 2026 22:00:00 +0530
+Subject: [PATCH] shell: show the keyboard shortcuts overlay
+
+KeybindHelp lists the keybinds Hyprland has registered right now. It lives
+in modules/shortcuts, which the shortcuts extension provides; this only puts
+it in the shell.
+---
+ shell.qml | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/shell.qml b/shell.qml
+index b9696bbd..ca5f5126 100644
+--- a/shell.qml
++++ b/shell.qml
+@@ -10,6 +10,7 @@ import "modules/drawers"
+ import "modules/background"
+ import "modules/areapicker"
+ import "modules/lock"
++import "modules/shortcuts"
+ import QtQuick
+ import Quickshell
+ import qs.services
+@@ -36,6 +37,7 @@ ShellRoot {
+     }
+
+     Shortcuts {}
++    KeybindHelp {}
+     BatteryMonitor {}
+     IdleMonitors {
+         lock: lock

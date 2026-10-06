@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Keyboard Shortcuts
+GenericName=Keybind help
+Comment=Show the keyboard shortcuts bound in Hyprland right now
+Icon=preferences-desktop-keyboard-shortcuts
+Exec=caelestia shell shortcuts open
+Terminal=false
+Categories=Utility;
+Keywords=keybinds;keybindings;hotkeys;shortcuts;keys;help;
