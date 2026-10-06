@@ -26,7 +26,13 @@ URL="$(ox_pin "$PIN" url)"
 REV="$(ox_pin "$PIN" rev)"
 [ -n "$URL" ] && [ -n "$REV" ] || ox_die "shell/upstream.pin is incomplete"
 
-for tool in git cmake ninja; do ox_have "$tool" || ox_die "$tool is required to build the shell"; done
+# Every tool is checked before anything is cloned or compiled, so a missing
+# one fails in a second rather than after the build, with nothing half-written.
+missing=""
+for tool in git cmake ninja; do ox_have "$tool" || missing="$missing $tool"; done
+[ -n "$(ox_python)" ] || missing="$missing python3"
+[ "$DO_INSTALL" = 1 ] && { ox_have rsync || missing="$missing rsync"; }
+[ -z "$missing" ] || ox_die "missing${missing}, required to build and install the shell (see ./installer/check_deps.sh shell)"
 
 ox_step "Upstream source @ ${REV:0:9}"
 mkdir -p "$OX_BUILD"

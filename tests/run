@@ -2287,6 +2287,80 @@ p10="$(ls "$OX_ROOT"/shell/patches/*-nexus-show-a-wallpaper-s-size-and-a-delete-
 grep -qE '^EXTENSIONS="[^"]*\bwallpaper-info\b' "$OX_ROOT/shell/build.sh" && ok "build.sh deploys the wallpaper-info extension" ||
     no "wallpaper-info is not in build.sh's default extensions"
 
+ox_step "Fresh install: shell requirements"
+# A machine without rsync built the whole plugin, failed at the deploy, and
+# ./install still printed Done and exited 0. These run the real scripts with a
+# PATH that holds only what they need, and a stub in place of every build tool.
+fr="$(mktemp -d)"
+mkdir -p "$fr/bin" "$fr/xdg"
+for t in bash env dirname sed head grep awk cat mkdir mv rm sort tr cut basename mktemp chmod cmp; do
+    p="$(command -v "$t")" && ln -s "$p" "$fr/bin/$t"
+done
+# Each stub records that it ran; none of them may have by the time rsync is missed.
+for t in git cmake ninja jq python3; do
+    printf '#!/bin/sh\necho %s >> "%s/ran"\n' "$t" "$fr" > "$fr/bin/$t"; chmod +x "$fr/bin/$t"
+done
+# The builder runs from a copy, so even a regressed one that gets past its
+# preflight works on a scratch build directory, never this checkout's.
+mkdir -p "$fr/repo/orchestration/lib" "$fr/repo/installer" "$fr/repo/shell" "$fr/repo/overrides/firefox"
+cp "$OX_ROOT/install" "$fr/repo/"
+cp "$OX_ROOT/orchestration/lib/common.sh" "$fr/repo/orchestration/lib/"
+cp "$OX_ROOT/installer/components.conf" "$OX_ROOT/installer/check_deps.sh" "$fr/repo/installer/"
+cp "$OX_ROOT/shell/build.sh" "$OX_ROOT/shell/upstream.pin" "$fr/repo/shell/"
+frenv() { env -i HOME="$fr/home" PATH="$fr/bin" XDG_CONFIG_HOME="$fr/xdg/c" XDG_DATA_HOME="$fr/xdg/d" \
+    XDG_STATE_HOME="$fr/xdg/s" XDG_CACHE_HOME="$fr/xdg/k" "$@"; }
+
+out="$(frenv bash "$fr/repo/shell/build.sh" 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] && grep -q 'missing rsync' <<<"$out" && ! grep -q 'Upstream source' <<<"$out" && [ ! -e "$fr/ran" ] &&
+    ok "build.sh stops on a missing rsync before cloning or building" ||
+    no "build.sh without rsync: exit $rc, ran: $(tr '\n' ' ' < "$fr/ran" 2>/dev/null)"
+# Without git as well, the preflight still stops it, and names only git.
+mv "$fr/bin/git" "$fr/git"
+out="$(frenv bash "$fr/repo/shell/build.sh" --no-install 2>&1)"
+grep -q 'missing git, required' <<<"$out" && [ ! -e "$fr/ran" ] &&
+    ok "a build that installs nothing does not need rsync" || no "build.sh --no-install still asks for rsync"
+mv "$fr/git" "$fr/bin/git"
+
+out="$(frenv bash "$fr/repo/installer/check_deps.sh" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && grep -qE '^ +absent +rsync +shell .*\(required to install the shell\)$' <<<"$out" &&
+    ! grep -q MISSING <<<"$out" &&
+    ok "check_deps names rsync as the shell's, without failing an install that has no shell" ||
+    no "check_deps without rsync, no shell: exit $rc"
+out="$(frenv bash "$fr/repo/installer/check_deps.sh" shell 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] && grep -qE '^ +MISSING +rsync +shell' <<<"$out" && grep -qE '^ +ok +cmake ' <<<"$out" &&
+    ok "check_deps shell counts a missing rsync as required" || no "check_deps shell without rsync: exit $rc"
+printf '#!/bin/sh\n' > "$fr/bin/rsync"; chmod +x "$fr/bin/rsync"
+out="$(frenv bash "$fr/repo/installer/check_deps.sh" shell 2>&1)"
+grep -qE '^ +ok +rsync ' <<<"$out" &&
+    ok "check_deps reports a present rsync as ok" || no "check_deps does not find rsync"
+for t in git cmake ninja rsync; do
+    grep -qE "^report shell +$t " "$OX_ROOT/installer/check_deps.sh" || no "$t is not declared as a shell requirement"
+done
+
+# The installer itself, with shell/build.sh and the firefox installer
+# replaced by stubs that print a marker and exit with a chosen status.
+for s in shell/build.sh overrides/firefox/install; do
+    printf '#!/usr/bin/env bash\necho STUB-RAN\nexit "${STUB_RC:-0}"\n' > "$fr/repo/$s"; chmod +x "$fr/repo/$s"
+done
+frinst() { env STUB_RC="$1" XDG_CONFIG_HOME="$fr/xdg/c" XDG_DATA_HOME="$fr/xdg/d" XDG_STATE_HOME="$fr/xdg/s" \
+    bash "$fr/repo/install" "${@:2}" 2>&1; }
+
+out="$(frinst 127 --only shell)"; rc=$?
+[ "$rc" -ne 0 ] && ok "a failed shell build fails ./install --only shell" || no "./install exited $rc after the shell failed"
+grep -q STUB-RAN <<<"$out" && ! grep -q 'Done' <<<"$out" && ! grep -q 'Optional dependencies' <<<"$out" &&
+    grep -q 'the shell was not installed (shell/build.sh exited 127)' <<<"$out" &&
+    ok "a failed shell install never reaches Done, and says why" || no "a failed shell install still printed Done"
+out="$(frinst 0 --only shell)"; rc=$?
+[ "$rc" -eq 0 ] && grep -q STUB-RAN <<<"$out" && grep -q 'Done' <<<"$out" &&
+    ok "a shell that installs still ends in Done with exit 0" || no "a successful shell install exited $rc"
+out="$(frinst 1 --only shell --dry-run)"; rc=$?
+[ "$rc" -eq 0 ] && ! grep -q STUB-RAN <<<"$out" && grep -q 'would run: shell/build.sh' <<<"$out" &&
+    ok "a dry run neither builds the shell nor fails" || no "--dry-run with the shell exited $rc"
+out="$(frinst 1 --only firefox)"; rc=$?
+[ "$rc" -eq 0 ] && grep -q STUB-RAN <<<"$out" && grep -q 'Done' <<<"$out" &&
+    ok "a tolerated component failure still does not stop the install" || no "a firefox failure now stops ./install"
+rm -rf "$fr"
+
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"
 [ -z "$dups" ] && ok "every shell patch has its own number, so glob order is the series order" || no "duplicate patch numbers: $dups"

@@ -214,7 +214,12 @@ main() {
             overrides:firefox)
                 run "$OX_ROOT/overrides/firefox/install" || true ;;
             shell:*)
-                run "$OX_ROOT/shell/build.sh" ;;
+                # Unlike an adapter, a shell that did not build is not a skip:
+                # stop here, with its error the last thing on screen, so it is
+                # neither buried under later components nor followed by "Done".
+                [ "$DRY" = 1 ] && { run "$OX_ROOT/shell/build.sh"; continue; }
+                "$OX_ROOT/shell/build.sh" ||
+                    ox_die "the shell was not installed (shell/build.sh exited $?); nothing after it ran. Fix the error above, then run ./install --only shell" ;;
             adapter:*)
                 missing="$(adapter_missing "$name")"
                 if [ -n "$missing" ]; then

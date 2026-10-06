@@ -91,6 +91,7 @@ is missing:
 
 ```sh
 ./installer/check_deps.sh
+./installer/check_deps.sh shell   # also require the shell's build tools
 ```
 
 ### Install
