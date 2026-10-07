@@ -146,10 +146,11 @@ StyledFlickable {
             icon: "document_scanner"
             title: qsTr("Text recognition")
             subtitle: qsTr("Tesseract")
-            status: Ocr.busy ? qsTr("Reading text") : qsTr("Idle")
-            statusColour: Ocr.busy ? Colours.palette.m3tertiary : Colours.palette.m3outline
+            status: Ocr.busy ? qsTr("Reading text") : Ocr.engineMissing ? qsTr("Unavailable") : Ocr.readiness ? qsTr("Needs language data") : qsTr("Idle")
+            statusColour: Ocr.busy ? Colours.palette.m3tertiary : Ocr.readiness ? Colours.palette.m3error : Colours.palette.m3outline
             lines: [
-                Ocr.languages.length ? qsTr("Installed languages: %1").arg(Ocr.languages.join(", ")) : qsTr("No recognition languages detected"),
+                Ocr.readiness,
+                Ocr.languages.length ? qsTr("Installed languages: %1").arg(Ocr.languages.join(", ")) : "",
                 Ocr.languages.length ? qsTr("Selected languages: %1").arg(Ocr.effectiveLanguages.split("+").join(", ")) : "",
                 qsTr("Runs when you capture text; no background runtime to unload"),
                 Ocr.error

@@ -22,6 +22,8 @@ Scope {
     // Installed Tesseract languages. "osd" is orientation and script detection
     // rather than a recognition model, so it is not one.
     property var languages: []
+    // Tesseract itself could not be run, as opposed to having no language data.
+    property bool engineMissing: false
     property var resultScreen: null
     property string error: ""
     // Reading or copying a capture right now.
@@ -31,6 +33,36 @@ Scope {
     // is what Illogical Impulse does. "eng" is only the last resort for when
     // the listing failed.
     readonly property string effectiveLanguages: GlobalConfig.ai.ocrLanguages.trim() || languages.join("+") || "eng"
+    // Configured languages Tesseract has no data for.
+    readonly property var missingLanguages: engineMissing || !languages.length ? [] : GlobalConfig.ai.ocrLanguages.trim().split("+").map(l => l.trim()).filter(l => l && !languages.includes(l))
+    // Why text cannot be read right now, or "" when it can. The engine missing
+    // and its language data missing are different problems, said differently.
+    readonly property string readiness: {
+        if (engineMissing)
+            return qsTr("OCR requires Tesseract. Install tesseract first.");
+        if (!languages.length)
+            return qsTr("Tesseract has no language data. Install one, e.g. tesseract-data-eng.");
+        if (missingLanguages.length)
+            return missingLanguageText(missingLanguages);
+        return "";
+    }
+
+    function missingLanguageText(codes: var): string {
+        return qsTr("Tesseract has no data for %1. Install it (e.g. tesseract-data-%2) or change the OCR languages.").arg(codes.join(", ")).arg(codes[0]);
+    }
+    // Tesseract's own words for a language it could not load, as the reason.
+    function explain(stderr: string, code: int): string {
+        if (code === 127)
+            return qsTr("OCR requires Tesseract. Install tesseract first.");
+        // QML's JavaScript has no matchAll.
+        const failed = [];
+        const pattern = /Failed loading language '([^']+)'/g;
+        for (let m = pattern.exec(stderr); m; m = pattern.exec(stderr))
+            failed.push(m[1]);
+        if (failed.length)
+            return missingLanguageText(failed);
+        return stderr.trim().split("\n").pop() || qsTr("Tesseract could not read the selected region.");
+    }
 
     // Only fires for captureForPanel(), and only when there is something to
     // show. The ordinary extractor never emits it.
@@ -58,7 +90,12 @@ Scope {
     // Whether the capture in flight should be reported to a caller.
     property bool report: false
 
+    // didExit is reset here: a launch that never starts reports no exit, and
+    // the last run's would hide that Tesseract has gone.
     function refreshLanguages(): void {
+        if (listing.running)
+            return;
+        listing.didExit = false;
         listing.running = true;
     }
 
@@ -93,12 +130,29 @@ Scope {
     Process {
         id: listing
 
+        property bool didExit: false
+
         command: ["tesseract", "--list-langs"]
         stdout: StdioCollector {
             // The first line is a header, not a language.
             onStreamFinished: root.languages = text.split("\n").slice(1).map(line => line.trim()).filter(line => line && line !== "osd")
         }
+        onRunningChanged: {
+            if (running) {
+                didExit = false;
+                return;
+            }
+            // A command that cannot be started never reports an exit code.
+            Qt.callLater(() => {
+                if (!listing.didExit) {
+                    root.engineMissing = true;
+                    root.languages = [];
+                }
+            });
+        }
         onExited: code => {
+            didExit = true;
+            root.engineMissing = false;
             if (code !== 0)
                 root.languages = [];
         }
@@ -136,7 +190,8 @@ Scope {
 
         // Read a grey copy three times the size: screen text is far below the
         // resolution Tesseract is trained on. Without magick, the capture as is.
-        command: ["sh", "-c", 'if command -v magick >/dev/null 2>&1; then magick "$1" -colorspace Gray -resize 300% png:- | tesseract stdin - -l "$2"; else tesseract "$1" - -l "$2"; fi', "sh", root.extractPath, root.effectiveLanguages]
+        // Exit 127 when Tesseract itself is missing, whatever magick did.
+        command: ["sh", "-c", 'command -v tesseract >/dev/null 2>&1 || exit 127; if command -v magick >/dev/null 2>&1; then magick "$1" -colorspace Gray -resize 300% png:- | tesseract stdin - -l "$2"; else tesseract "$1" - -l "$2"; fi', "sh", root.extractPath, root.effectiveLanguages]
         stdout: StdioCollector {
             id: extracted
         }
@@ -152,13 +207,15 @@ Scope {
             // A command that cannot be started never reports an exit code.
             Qt.callLater(() => {
                 if (!extraction.exited)
-                    root.settleExtraction(qsTr("tesseract is not installed."), true);
+                    root.settleExtraction(qsTr("The text extractor could not be started."), true);
             });
         }
         onExited: code => {
             exited = true;
+            // Whatever happened, the settings show what is installed now.
+            root.refreshLanguages();
             if (code !== 0) {
-                root.settleExtraction(extractionError.text.trim() || qsTr("Tesseract could not read the selected region."), true);
+                root.settleExtraction(root.explain(extractionError.text, code), true);
                 return;
             }
             const text = extracted.text.trim();

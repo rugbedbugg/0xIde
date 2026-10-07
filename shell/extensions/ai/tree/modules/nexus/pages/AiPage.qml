@@ -88,8 +88,9 @@ PageBase {
             first: true
             icon: "translate"
             label: qsTr("Installed languages")
-            subtext: qsTr("Tesseract data found on this system")
-            value: Ocr.languages.join(", ") || qsTr("None found")
+            subtext: Ocr.readiness || qsTr("Tesseract data found on this system")
+            value: Ocr.engineMissing ? qsTr("Tesseract missing") : Ocr.languages.join(", ") || qsTr("None found")
+            iconColour: Ocr.readiness ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
         }
 
         TextFieldRow {

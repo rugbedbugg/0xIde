@@ -85,9 +85,12 @@ def table_from_words(words, boundaries=None):
 
 
 def recognize(path, language):
-    missing = set(language.split('+')) - set(languages())
+    if not shutil.which('tesseract'):
+        raise ValueError('OCR requires Tesseract. Install tesseract first.')
+    missing = sorted(set(language.split('+')) - set(languages()))
     if missing:
-        raise ValueError('Missing Tesseract language data: ' + ', '.join(sorted(missing)))
+        raise ValueError(f"Tesseract has no data for {', '.join(missing)}. "
+                         f"Install it (e.g. tesseract-data-{missing[0]}) or change the OCR languages.")
     copy = upscaled(path)
     scale = SCALE if copy else 1
     try:
