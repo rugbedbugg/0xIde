@@ -84,7 +84,17 @@ ask() {
 # --- mode: text (no image egress) --------------------------------------------
 if [[ "$mode" == "text" ]]; then
     command -v tesseract >/dev/null 2>&1 || die "tesseract is not installed, so the region cannot be read locally."
-    text="$(tesseract "$image" - -l "$ocr_languages" 2>/dev/null | tr '\n' ' ' | tr -s ' ')"
+    # Tesseract's own reason, such as a language whose data is not installed.
+    # Under set -e a failure here otherwise ended the search with no message.
+    errors="$(mktemp)"
+    trap 'rm -f -- "$image" "$errors"' EXIT
+    if ! raw="$(tesseract "$image" - -l "$ocr_languages" 2>"$errors")"; then
+        language="$(sed -n "s/^Failed loading language '\(.*\)'$/\1/p" "$errors" | head -n1)"
+        [[ -z "$language" ]] ||
+            die "Tesseract has no data for the language '${language}'. Install it, or set ocr_languages in ${conf}."
+        die "Tesseract could not read the region: $(tail -n1 "$errors")"
+    fi
+    text="$(printf '%s' "$raw" | tr '\n' ' ' | tr -s ' ')"
     text="${text#"${text%%[![:space:]]*}"}"
     text="${text%"${text##*[![:space:]]}"}"
     [[ -n "$text" ]] || die "No text was found in the selected region. Draw a circle instead to search the image itself."

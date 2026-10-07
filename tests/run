@@ -291,6 +291,25 @@ STUB
     [ -e "$sdir/rect.png" ] && no "the rectangle capture was not removed" ||
         ok "the rectangle capture is removed"
 
+    # Tesseract failing, here on language data that is not installed, has to
+    # say why. It used to end the search under set -e with no message at all.
+    cat > "$sdir/bin/notify-send" <<STUB
+#!/bin/sh
+printf '%s\n' "\$@" >> "$sdir/notified"
+STUB
+    rm -f "$sdir/opened" "$sdir/notified"
+    mkdir -p "$sdir/conf/0xide"
+    printf 'ocr_languages=zzz\n' > "$sdir/conf/0xide/region-search.conf"
+    cp "$sdir/probe.png" "$sdir/nolang.png"
+    PATH="$sdir/bin:$PATH" XDG_CONFIG_HOME="$sdir/conf" \
+        bash "$rs" "$sdir/nolang.png" rectangle >/dev/null 2>&1; rc=$?
+    grep -q "no data for the language 'zzz'" "$sdir/notified" 2>/dev/null && [ "$rc" = 1 ] && [ ! -s "$sdir/opened" ] &&
+        ok "a language Tesseract cannot load is named, and nothing is searched" ||
+        no "a Tesseract failure was not reported (exit $rc, notified: $(tr '\n' ' ' < "$sdir/notified" 2>/dev/null))"
+    [ -e "$sdir/nolang.png" ] && no "the failed capture was not removed" || ok "the failed capture is removed"
+    rm -f "$sdir/conf/0xide/region-search.conf" "$sdir/notified"
+    printf '#!/bin/sh\nexit 0\n' > "$sdir/bin/notify-send"
+
     # A drawn circle takes the visual path, which has to ask before uploading.
     rm -f "$sdir/opened" "$sdir/prompt"
     cp "$sdir/probe.png" "$sdir/circle.png"
