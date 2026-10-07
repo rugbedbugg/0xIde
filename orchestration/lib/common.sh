@@ -125,6 +125,27 @@ ox_strip_qt_locale_warning() {
     '
 }
 
+# Whether an adapter is enabled: ./install lists it once it has set it up.
+ox_adapter_enabled() { grep -qx "$1" "$OX_CONFIG/adapters.enabled" 2>/dev/null; }
+
+# The commands an adapter's adapter.conf requires that are not installed,
+# space separated; "" when it has them all.
+ox_adapter_missing() {
+    local conf="$OX_ROOT/adapters/$1/adapter.conf" cmd missing=""
+    [ -f "$conf" ] || return 0
+    for cmd in $(ox_pin "$conf" requires | tr ',' ' '); do
+        ox_have "$cmd" || missing="$missing $cmd"
+    done
+    printf '%s' "${missing# }"
+}
+
+# What the last theme change did for one adapter, from the theme hook's log:
+# "ok", "not applied", "FAILED (exit N)", or "" when it has not run since.
+ox_theme_result() {
+    sed -n -e "s/^$1 \(ok\) ([0-9]*s)\$/\1/p" -e "s/^$1 \(not applied\) (see above)\$/\1/p" \
+        -e "s/^$1 \(FAILED (exit [0-9]*)\)\$/\1/p" "$OX_STATE/post-theme.log" 2>/dev/null | tail -n1
+}
+
 # True when a passwordless sudo rule exists for a command. Greps the rule list
 # rather than running the command, and matches NOPASSWD explicitly so a cached
 # sudo credential cannot make an absent rule look present.

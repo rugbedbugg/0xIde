@@ -4388,6 +4388,36 @@ STUB
     rm -rf "$pb"
 fi
 
+ox_step "Cursor: status says what is actually the matter"
+cx="$(mktemp -d)"
+mkdir -p "$cx/bin" "$cx/c/0xide" "$cx/s/0xide" "$cx/d/icons"
+for t in sed grep tr head tail cat dirname mkdir mv; do ln -s "$(type -P "$t")" "$cx/bin/$t"; done
+cst() { env -i HOME="$cx" PATH="$cx/bin" XDG_CONFIG_HOME="$cx/c" XDG_STATE_HOME="$cx/s" XDG_DATA_HOME="$cx/d" "$(type -P bash)" "$OX_ROOT/adapters/cursor/status"; }
+out="$(cst)"; rc=$?
+[ "$rc" = 0 ] && [ "$out" = "cursor: not enabled (it needs python3 rsvg-convert xcursorgen)" ] &&
+    ok "not enabled is said as such, with what it would need, and is not a failure" || no "disabled cursor: $rc $out"
+echo cursor > "$cx/c/0xide/adapters.enabled"
+out="$(cst)"; rc=$?
+[ "$rc" = 1 ] && [ "$out" = "cursor: enabled, but python3 rsvg-convert xcursorgen is not installed, so the theme cannot be rebuilt" ] &&
+    ok "enabled without its tools names them" || no "enabled, no tools: $rc $out"
+for t in python3 rsvg-convert xcursorgen; do printf '#!/bin/sh\n' > "$cx/bin/$t"; chmod +x "$cx/bin/$t"; done
+if [ -d /usr/share/icons/Sweet-cursors/cursors_scalable ] || [ -d /usr/local/share/icons/Sweet-cursors/cursors_scalable ]; then
+    skipt "Sweet is installed system-wide here, so its absence cannot be shown"
+else
+    out="$(cst)"; rc=$?
+    [ "$rc" = 1 ] && grep -q 'Sweet is not installed' <<<"$out" && ok "enabled without Sweet says there is nothing to recolour" || no "no Sweet: $rc $out"
+fi
+mkdir -p "$cx/d/icons/Sweet-cursors/cursors_scalable"
+out="$(cst)"; rc=$?
+[ "$rc" = 0 ] && grep -q 'built on the next theme change' <<<"$out" && ok "not yet built is ready, not broken" || no "unbuilt: $rc $out"
+printf 'cursor FAILED (exit 1)\n' > "$cx/s/0xide/post-theme.log"
+out="$(cst)"; rc=$?
+[ "$rc" = 1 ] && grep -q 'last theme change failed' <<<"$out" && ok "a failed rebuild is reported" || no "failed rebuild: $rc $out"
+printf 'cursor ok (3s)\n' > "$cx/s/0xide/post-theme.log"; mkdir -p "$cx/d/icons/0xide-sweet"; : > "$cx/d/icons/0xide-sweet/index.theme"
+out="$(cst)"; rc=$?
+[ "$rc" = 0 ] && [ "$out" = "cursor: ok, 0xide-sweet follows the scheme" ] && ok "built and rebuilt is ok" || no "built: $rc $out"
+rm -rf "$cx"
+
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"
 [ -z "$dups" ] && ok "every shell patch has its own number, so glob order is the series order" || no "duplicate patch numbers: $dups"
