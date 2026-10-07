@@ -1983,6 +1983,22 @@ dp_set caelestia >/dev/null 2>&1; rc=$?
 [ "$(dp_win 0xf6 4)" = 1 ] && ! dp_calls | grep -q 0xf6 && ok "a window floated by its own rule is left alone" || no "mpv: $(dp_winline 0xf6)"
 [ -z "$(dp_ledger)" ] && ok "the ledger is empty again" || no "ledger: $(dp_ledger)"
 dpx "$OX_ROOT/0xide" profile status | grep -qx 'caelestia: in effect' && ok "status: Caelestia is in effect" || no "status: $(dpx "$OX_ROOT/0xide" profile status)"
+# A switch the command line refuses before changing anything still says so
+# on screen: from the shell, nothing reads its stderr.
+rm -f "$DPT/case/sim/notified"
+dp_set nope >/dev/null 2>&1
+grep -q "Desktop not switched no profile named 'nope'. Nothing was changed." "$DPT/case/sim/notified" 2>/dev/null &&
+    ok "an unknown profile is refused on screen, not only on stderr" || no "unknown profile notified: $(cat "$DPT/case/sim/notified" 2>/dev/null)"
+rm -f "$DPT/case/sim/notified"
+mkdir -p "$DPT/case/s/0xide"
+# One process holds it, so killing that process releases it.
+( exec 8>"$DPT/case/s/0xide/desktop-profile.lock"; flock 8; exec sleep 10 ) &
+holder=$!
+sleep 0.3
+dp_set windows-xp >/dev/null 2>&1
+grep -q 'Another desktop switch is still running' "$DPT/case/sim/notified" 2>/dev/null && [ "$(dp_active)" = caelestia ] &&
+    ok "a switch while another holds the lock is refused on screen" || no "lock busy notified: $(cat "$DPT/case/sim/notified" 2>/dev/null)"
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
 # Over SSH under the C locale, qs puts Qt's warning before its JSON; the shell
 # is still running and still in effect.
 touch "$DPT/case/sim/c-locale"
@@ -4028,6 +4044,106 @@ printf '%s\nnot json\n' "$qw" | ox_strip_qt_locale_warning | jq . >/dev/null 2>&
     ok "a block that is not exactly Qt's warning is left for the parser to reject" || no "a partial warning was removed"
 printf '[1]\n%s\n' "$qw" | ox_strip_qt_locale_warning | grep -q 'Detected locale' &&
     ok "the warning is only removed from the start" || no "a warning after the JSON was removed"
+
+ox_step "Desktop profiles: switching from the shell"
+# The real DesktopProfiles service against a stand-in command line. A switch
+# started from the launcher or settings must show that it is running, refresh
+# the current desktop when it ends, and say why when it did not happen.
+if ox_have qs && ox_have setsid; then
+    px="$(mktemp -d)"
+    mkdir -p "$px/cfg/services" "$px/xdg/run"
+    sed "s|@OXIDE_ROOT@|$px|" "$OX_ROOT/shell/extensions/desktop-profile/tree/services/DesktopProfiles.qml" > "$px/cfg/services/DesktopProfiles.qml"
+    echo caelestia > "$px/active"
+    cat > "$px/0xide" <<STUB
+#!/bin/sh
+a="\$(cat "$px/active")"
+case "\$2" in
+    list) for p in caelestia windows-xp broken half; do [ "\$p" = "\$a" ] && m=1 || m=0; printf '%s\t%s\t%s\t%s\n' "\$p" "\$p" "\$m" "desc \$p"; done ;;
+    set) sleep 0.6
+         case "\$3" in
+             broken) echo "fail: broken cannot run here: hyprctl is not installed" >&2; exit 1 ;;
+             half) echo "  switch to half failed at ENTER" >&2; echo "  rollback to \$a did not verify" >&2; exit 2 ;;
+             *) echo "\$3" > "$px/active" ;;
+         esac ;;
+esac
+STUB
+    chmod +x "$px/0xide"
+    cat > "$px/cfg/shell.qml" <<QML
+import QtQuick
+import Quickshell
+import qs.services
+
+ShellRoot {
+    id: h
+
+    property var r: ({})
+    property int phase
+    property real since: Date.now()
+
+    function next(): void {
+        phase++;
+        since = Date.now();
+    }
+
+    Component.onCompleted: DesktopProfiles.refresh()
+
+    Timer {
+        interval: 100
+        repeat: true
+        running: true
+        onTriggered: {
+            const r = h.r;
+            const P = DesktopProfiles;
+            const waited = Date.now() - h.since;
+            if (h.phase === 0 && P.active) {
+                r.listed = P.active.id === "caelestia" && P.profiles.length === 4;
+                P.activate("windows-xp");
+                r.switchingAtOnce = P.switching && P.switchingTo === "windows-xp";
+                P.activate("broken");
+                r.secondRefused = P.error === "A desktop switch is already running" && P.switchingTo === "windows-xp";
+                h.next();
+            } else if (h.phase === 1 && !P.switching && waited > 300) {
+                r.refreshed = P.active?.id === "windows-xp";
+                P.activate("broken");
+                h.next();
+            } else if (h.phase === 2 && !P.switching && waited > 300) {
+                r.refusal = P.error === "broken cannot run here: hyprctl is not installed" && P.active?.id === "windows-xp";
+                P.activate("half");
+                h.next();
+            } else if (h.phase === 3 && !P.switching && waited > 300) {
+                r.rollback = P.error.startsWith("switch to half failed at ENTER") && P.error.includes("could not be fully restored") && P.active?.id === "windows-xp";
+                P.activate("caelestia");
+                h.next();
+            } else if (h.phase === 4 && !P.switching && waited > 300) {
+                r.back = P.active?.id === "caelestia" && P.error === "";
+                console.log("RESULT " + JSON.stringify(r));
+                Qt.quit();
+            } else if (waited > 15000) {
+                console.log("RESULT " + JSON.stringify(Object.assign(r, {stuck: h.phase})));
+                Qt.quit();
+            }
+        }
+    }
+}
+QML
+    res="$(cd "$px" && timeout 60 env XDG_RUNTIME_DIR="$px/xdg/run" QT_QPA_PLATFORM=offscreen \
+        "$(command -v qs)" -p "$px/cfg/shell.qml" 2>&1 | sed -n 's/.*RESULT //p' | tail -1)"
+    for c in "listed:the profile list is read from the command line" \
+             "switchingAtOnce:a switch shows as running the moment it is asked for" \
+             "secondRefused:a second switch while one runs is refused with a reason" \
+             "refreshed:the current desktop is refreshed when a switch ends" \
+             "refusal:a refused switch says why and the current desktop stays as it is" \
+             "rollback:a switch that failed and could not restore says so" \
+             "back:switching back clears the last error"; do
+        key="${c%%:*}"
+        case "$res" in *"\"$key\":true"*) ok "${c#*:}" ;; *) no "${c#*:} ($res)" ;; esac
+    done
+    rm -rf "$px"
+else
+    skipt "qs and setsid are needed for the profile switching checks"
+fi
+grep -q 'This shell closes' "$OX_ROOT/shell/extensions/desktop-profile/tree/modules/nexus/pages/ThemePage.qml" &&
+    no "the switch dialog still says this shell closes" || ok "the switch dialog does not claim the shell closes"
 
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"

@@ -30,7 +30,7 @@ Searcher {
     component Profile: QtObject {
         required property var modelData
         readonly property string name: modelData.name
-        readonly property string desc: modelData.active ? qsTr("Current desktop") : modelData.description
+        readonly property string desc: DesktopProfiles.switchingTo === modelData.id ? qsTr("Switching…") : modelData.active ? qsTr("Current desktop") : modelData.description
         readonly property string icon: modelData.active ? "check_circle" : "desktop_windows"
 
         function onClicked(list: AppList): void {

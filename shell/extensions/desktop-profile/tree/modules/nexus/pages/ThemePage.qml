@@ -32,12 +32,20 @@ PageBase {
             first: true
             icon: "desktop_windows"
             label: qsTr("Current desktop")
-            subtext: DesktopProfiles.active?.description ?? ""
+            subtext: {
+                if (DesktopProfiles.switching)
+                    return qsTr("Switching to %1…").arg(DesktopProfiles.name(DesktopProfiles.switchingTo));
+                if (DesktopProfiles.error)
+                    return qsTr("Not switched: %1").arg(DesktopProfiles.error);
+                return DesktopProfiles.active?.description ?? "";
+            }
             value: DesktopProfiles.active?.name ?? qsTr("Unknown")
+            iconColour: DesktopProfiles.error && !DesktopProfiles.switching ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
         }
 
         Repeater {
-            model: DesktopProfiles.profiles.filter(p => !p.active)
+            // Not offered while a switch runs: the command line would refuse it.
+            model: DesktopProfiles.switching ? [] : DesktopProfiles.profiles.filter(p => !p.active)
 
             DialogRowButton {
                 id: row
@@ -56,7 +64,7 @@ PageBase {
                         wrapMode: Text.Wrap
                         font: Tokens.font.body.small
                         color: Colours.palette.m3onSurfaceVariant
-                        text: qsTr("This shell closes and %1 takes over the desktop. If it does not start, the current desktop comes back.").arg(row.modelData.name)
+                        text: qsTr("Your windows are rearranged for %1 and this shell keeps running. If the switch fails, the current desktop is restored.").arg(row.modelData.name)
                     }
                 }
             }

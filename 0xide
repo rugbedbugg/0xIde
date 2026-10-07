@@ -29,6 +29,10 @@ profile() {
         plan)   [ -n "${2:-}" ] || { usage >&2; return 64; }
                 dpm_show_plan "$2" ;;
         set)    [ -n "${2:-}" ] || { usage >&2; return 64; }
+                # Run from the shell, whoever reads stderr may go away mid-switch;
+                # a write to that pipe must not end the switch halfway. The log
+                # and the notifications still say what happened.
+                trap '' PIPE
                 case "${3:-}" in
                     "")        dpm_execute_plan "$2" 0 ;;
                     --dry-run) dpm_execute_plan "$2" 1 ;;
