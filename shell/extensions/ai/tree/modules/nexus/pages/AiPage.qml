@@ -335,38 +335,59 @@ PageBase {
             iconColour: Translator.error || Translator.statusError ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
         }
 
+        // A download, so only Enter does it: editingFinished also fires when
+        // the field loses focus or the page closes, and a name typed and left
+        // there must install nothing.
         TextFieldRow {
+            id: addLanguage
+
             label: qsTr("Add a language")
-            subtext: qsTr("Name or code, e.g. French. About 160 MB each")
+            subtext: qsTr("Name or code, e.g. French, then Enter. About 160 MB each")
             placeholderText: qsTr("Language")
             value: ""
+        }
+        Connections {
             // A name that leads nowhere says why, under Installed languages.
-            onEditingFinished: value => {
+            function onAccepted(): void {
+                const value = addLanguage.field.text;
                 const code = root.languageCode(value);
-                if (code && !Translator.installed.includes(code))
+                if (code && !Translator.installed.includes(code)) {
                     Translator.install(code);
-                else if (code)
+                    addLanguage.field.text = "";
+                } else if (code) {
                     root.tellLanguage("", qsTr("%1 is already installed").arg(Translator.name(code)));
-                else if (value.trim())
+                } else if (value.trim()) {
                     root.tellLanguage(root.unknownLanguage(value), "");
+                }
             }
+
+            target: addLanguage.field
         }
 
         TextFieldRow {
+            id: removeLanguage
+
             last: true
             label: qsTr("Remove a language")
-            subtext: qsTr("Its models are deleted; English stays while any other is installed")
+            subtext: qsTr("Name, then Enter. Its models are deleted; English stays while any other is installed")
             placeholderText: qsTr("Language")
             value: ""
-            onEditingFinished: value => {
+        }
+        Connections {
+            function onAccepted(): void {
+                const value = removeLanguage.field.text;
                 const code = root.languageCode(value);
-                if (code && Translator.installed.includes(code))
+                if (code && Translator.installed.includes(code)) {
                     Translator.remove(code);
-                else if (code)
+                    removeLanguage.field.text = "";
+                } else if (code) {
                     root.tellLanguage("", qsTr("%1 is not installed").arg(Translator.name(code)));
-                else if (value.trim())
+                } else if (value.trim()) {
                     root.tellLanguage(root.unknownLanguage(value), "");
+                }
             }
+
+            target: removeLanguage.field
         }
 
         // Voice dictation
