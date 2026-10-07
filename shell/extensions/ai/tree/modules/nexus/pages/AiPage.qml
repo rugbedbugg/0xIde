@@ -84,13 +84,13 @@ PageBase {
             text: qsTr("Text recognition")
         }
 
-        InfoRow {
+        StatusRow {
             first: true
             icon: "translate"
             label: qsTr("Installed languages")
             subtext: Ocr.readiness || qsTr("Tesseract data found on this system")
             value: Ocr.engineMissing ? qsTr("Tesseract missing") : Ocr.languages.join(", ") || qsTr("None found")
-            iconColour: Ocr.readiness ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
+            error: !!(Ocr.readiness)
         }
 
         TextFieldRow {
@@ -168,7 +168,7 @@ PageBase {
             last: true
             icon: root.probe.running ? "close" : "network_check"
             text: root.probe.running ? qsTr("Cancel test") : qsTr("Test connection")
-            subtext: (root.probe.error ? qsTr("Failed: %1").arg(root.probe.error) : "") || (root.probe.status === "complete" ? qsTr("Connection succeeded") : root.probe.status || qsTr("Sends a one-word request to the server"))
+            subtext: (root.probe.error ? qsTr("Failed: %1").arg(root.probe.error) : "") || (root.probe.status === "complete" ? qsTr("Connection succeeded") : root.probe.status || (GlobalConfig.ai.backendUrl ? qsTr("Sends a one-word request to the server") : qsTr("Enter the server URL above first")))
             disabled: !GlobalConfig.ai.backendUrl
             onClicked: {
                 if (root.probe.running) {
@@ -214,7 +214,7 @@ PageBase {
             text: qsTr("Local model")
         }
 
-        InfoRow {
+        StatusRow {
             first: true
             icon: "memory"
             label: qsTr("Status")
@@ -241,7 +241,7 @@ PageBase {
                     return AiRuntime.serverState === "stopping" ? qsTr("Stopping") : qsTr("Starting");
                 return root.installed ? qsTr("Installed") : qsTr("Not installed");
             }
-            iconColour: AiRuntime.error ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
+            error: !!(AiRuntime.error)
         }
 
         ConnectedRect {
@@ -326,13 +326,13 @@ PageBase {
             text: qsTr("Translation")
         }
 
-        InfoRow {
+        StatusRow {
             first: true
             icon: "translate"
             label: qsTr("Installed languages")
             subtext: Translator.error || Translator.statusError || Translator.message || qsTr("Translate runs offline between these")
             value: Translator.working ? qsTr("Working") : Translator.installed.map(code => Translator.name(code)).join(", ") || qsTr("None")
-            iconColour: Translator.error || Translator.statusError ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
+            error: !!(Translator.error || Translator.statusError)
         }
 
         // A download, so only Enter does it: editingFinished also fires when
@@ -395,7 +395,7 @@ PageBase {
             text: qsTr("Voice dictation")
         }
 
-        InfoRow {
+        StatusRow {
             first: true
             icon: "mic"
             label: qsTr("Speech model")
@@ -412,7 +412,7 @@ PageBase {
                 return qsTr("SUPER + SHIFT + D turns dictation on and off; each phrase is typed where you are as you pause");
             }
             value: Speech.installing ? qsTr("Installing") : Speech.working ? qsTr("Removing") : Speech.info.installed ? qsTr("Installed") : qsTr("Not installed")
-            iconColour: Speech.error || Speech.statusError ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
+            error: !!(Speech.error || Speech.statusError)
         }
 
         TextFieldRow {
