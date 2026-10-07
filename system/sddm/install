@@ -112,7 +112,8 @@ fi
 
 if [ "${OX_ASSUME_YES:-0}" != 1 ]; then
     printf 'Install it? [y/N] '
-    read -r reply
+    # No terminal to answer on is a no, said as such.
+    read -r reply || { echo; ox_log "no answer (stdin is not a terminal); nothing was installed"; exit 0; }
     case "$reply" in [yY]*) ;; *) ox_log "nothing was installed"; exit 0 ;; esac
 fi
 

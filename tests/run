@@ -4920,6 +4920,20 @@ else
             ok "$c: a rule visudo refuses installs nothing at all, and the run is not done" ||
             no "$c refused rule: exit $rc, sudo: $(cat "$yx/sudo-calls" 2>/dev/null | tr '\n' ';')"
     done
+    # Each component that asks reads its own answer from the terminal; the
+    # first used to read the next line of ./install's component list instead.
+    rm -f "$yx/bin/visudo"
+    rm -f "$yx/sudo-calls"
+    out="$(printf 'n\ny\n' | yenv "$OX_ROOT/install" --only sudoers --only sddm 2>&1)"; rc=$?
+    [ "$(grep -c 'Install it? \[y/N\]' <<<"$out")" = 2 ] && [ "$(grep -c 'nothing was installed' <<<"$out")" = 1 ] &&
+        grep -q 'install -m 0440 -o root -g root .* /etc/sudoers.d/0xide-sddm$' "$yx/sudo-calls" &&
+        ! grep -q '/etc/sudoers.d/0xide$' "$yx/sudo-calls" &&
+        ok "sudoers and sddm each ask, and each answer goes to the one that asked" ||
+        no "two prompts: exit $rc, $(grep -c 'Install it' <<<"$out") prompts, sudo: $(tr '\n' ';' < "$yx/sudo-calls" 2>/dev/null)"
+    rm -f "$yx/sudo-calls"
+    out="$(yenv "$OX_ROOT/install" --only sudoers < /dev/null 2>&1)"; rc=$?
+    [ "$rc" = 0 ] && grep -q 'no answer (stdin is not a terminal); nothing was installed' <<<"$out" && [ ! -e "$yx/sudo-calls" ] &&
+        ok "with no terminal to answer on, nothing is installed and it says why" || no "no tty: $rc $out"
     rm -rf "$yx"
 fi
 
