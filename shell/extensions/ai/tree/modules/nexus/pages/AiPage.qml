@@ -329,8 +329,8 @@ PageBase {
             icon: "mic"
             label: qsTr("Speech model")
             subtext: {
-                if (Speech.error)
-                    return Speech.error;
+                if (Speech.error || Speech.statusError)
+                    return Speech.error || Speech.statusError;
                 if (Speech.message)
                     return Speech.message;
                 if ((Speech.info.missing ?? []).length > 0)
@@ -338,7 +338,7 @@ PageBase {
                 return qsTr("SUPER + SHIFT + D turns dictation on and off; each phrase is typed where you are as you pause");
             }
             value: Speech.working ? qsTr("Working") : Speech.info.installed ? qsTr("Installed") : qsTr("Not installed")
-            iconColour: Speech.error ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
+            iconColour: Speech.error || Speech.statusError ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
         }
 
         TextFieldRow {
@@ -362,7 +362,7 @@ PageBase {
             label: qsTr("Install speech model")
             header: qsTr("Install the speech model?")
             acceptLabel: qsTr("Download")
-            acceptAllowed: (Speech.info.freeBytes ?? 0) > (Speech.info.downloadBytes ?? 0)
+            acceptAllowed: !Speech.installBlocker
             onOpenChanged: {
                 if (open)
                     Speech.refresh();
@@ -373,8 +373,9 @@ PageBase {
                 StyledText {
                     wrapMode: Text.Wrap
                     font: Tokens.font.body.small
-                    color: Colours.palette.m3onSurfaceVariant
-                    text: qsTr("Downloads the whisper.cpp base model, %1 MiB, into %2. Speech is transcribed on this computer.").arg(root.mib(Speech.info.downloadBytes)).arg(Speech.info.destination ?? "")
+                    // A disabled Download always says why.
+                    color: Speech.installBlocker ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
+                    text: Speech.installBlocker || qsTr("Downloads the whisper.cpp base model, %1 MiB, into %2. Speech is transcribed on this computer.").arg(root.mib(Speech.info.downloadBytes)).arg(Speech.info.destination ?? "")
                 }
             }
         }
