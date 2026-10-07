@@ -429,9 +429,10 @@ n=$(grep -c 'name: "askAi"' "$PICKER")
 
 # Web search has one key; the shape is chosen in the selector, not by which
 # key you pressed.
-n=$(grep -c '^bind("kb' "$OX_ROOT/overrides/caelestia/hypr-user.lua")
-[ "$n" = 2 ] && ok "two keybindings in total, extraction and web search" ||
-    no "hypr-user.lua binds $n actions, expected 2"
+# (The keyboard shortcuts overlay's key is not a capture.)
+n=$(grep '^bind("kb' "$OX_ROOT/overrides/caelestia/hypr-user.lua" | grep -vc '^bind("kbShowShortcuts"')
+[ "$n" = 2 ] && ok "two capture keybindings in total, extraction and web search" ||
+    no "hypr-user.lua binds $n capture actions, expected 2"
 if grep -q 'PickerModes' "$PICKER" &&
    [ -s "$OX_ROOT/shell/extensions/search/tree/modules/areapicker/PickerModes.qml" ]
 then ok "the selector offers the search shape as a control"
@@ -3596,6 +3597,215 @@ page="$OX_ROOT/shell/extensions/ai/tree/modules/nexus/pages/AiPage.qml"
     grep -q 'is not installed").arg(Translator.name(code))' "$page" &&
     [ "$(grep -c 'root.tellLanguage("", ' "$page")" = 2 ] &&
     ok "a language name that adds or removes nothing says why" || no "a language name can still be ignored without a word"
+
+ox_step "Keyboard shortcuts: keybind descriptions"
+# 0xide-binds.lua and hypr-user.lua, against a stand-in for Hyprland's hl.
+if ox_have lua; then
+    while IFS= read -r line; do
+        case "$line" in
+            "ok "*) ok "${line#ok }" ;;
+            "FAIL "*) no "${line#FAIL }" ;;
+            *) printf '  %s\n' "$line" ;;
+        esac
+    done < <(lua "$OX_ROOT/tests/binds_test.lua" "$OX_ROOT/overrides/caelestia" 2>&1 || echo "FAIL tests/binds_test.lua did not finish")
+else skipt "no lua interpreter"; fi
+
+ox_step "Keyboard shortcuts: snapshot"
+# keybinds.py on saved hyprctl output; nothing asks the running Hyprland.
+while IFS= read -r line; do
+    case "$line" in
+        "ok "*) ok "${line#ok }" ;;
+        "FAIL "*) no "${line#FAIL }" ;;
+        *) printf '  %s\n' "$line" ;;
+    esac
+done < <("$PY" "$OX_ROOT/tests/keybinds_test.py" "$OX_ROOT" 2>&1 || echo "FAIL tests/keybinds_test.py did not finish")
+grep -qE '^EXTENSIONS="[^"]*\bshortcuts\b' "$OX_ROOT/shell/build.sh" && ok "build.sh deploys the shortcuts extension" ||
+    no "shortcuts is not in build.sh's default extensions"
+KBH="$OX_ROOT/shell/extensions/shortcuts/tree/modules/shortcuts/KeybindHelp.qml"
+[ "$(grep -c 'Keys.onEscapePressed: Keybinds.hide()' "$KBH")" -ge 2 ] &&
+    ok "19. Esc closes it, from the card and from the search field" || no "Esc does not close the overlay"
+grep -qF 'onPressed: Keybinds.toggle()' "$KBH" && grep -qF 'name: "shortcuts"' "$KBH" &&
+    ok "20. its shortcut toggles it, so pressing it again closes it" || no "the shortcut does not toggle the overlay"
+! grep -qE 'implicitHeight: contentHeight|layout\.implicitHeight' "$KBH" &&
+    ok "the card's size does not follow the list, which would build every row at once" ||
+    no "the card's height follows the list's content"
+grep -qF 'active: Keybinds.open' "$KBH" && ! grep -qE '\b(Timer|FileView|SocketServer)\b' "$KBH" "$OX_ROOT/shell/extensions/shortcuts/tree/services/Keybinds.qml" &&
+    ok "18. no window exists while closed, and nothing in it runs on a timer" || no "the overlay keeps something running while closed"
+grep -qF 'hl.bind(vars[name], dispatcher, { description = "[0xIde] " .. description })' "$OX_ROOT/overrides/caelestia/hypr-user.lua" &&
+    grep -qF 'kbShowShortcuts = "SUPER + Slash"' "$OX_ROOT/overrides/caelestia/hypr-vars.lua" &&
+    ok "16. the shortcuts key is a kb* variable, bound through hypr-user.lua's guard" || no "the shortcuts key bypasses the guard"
+grep -qE '^Exec=caelestia shell shortcuts open$' "$OX_ROOT/shell/extensions/shortcuts/0xide-shortcuts.desktop" &&
+    grep -qF '0xide-shortcuts.desktop' "$OX_ROOT/install" &&
+    ok "the launcher lists Keyboard Shortcuts, installed with the shell" || no "no launcher entry for the overlay"
+grep -qF '0xide-binds.lua' "$OX_ROOT/install" && [ "$(grep -n '0xide-binds.lua\|hypr-vars.lua" 644' "$OX_ROOT/install" | head -1 | grep -c 0xide-binds)" = 1 ] &&
+    ok "0xide-binds.lua is installed before the hypr-vars.lua that requires it" || no "0xide-binds.lua is not installed first"
+
+ox_step "Keyboard shortcuts: service"
+# The real Keybinds service in a private Quickshell, with a stand-in for
+# keybinds.py that counts how often it is asked.
+if ox_have qs; then
+    kx="$(mktemp -d)"
+    mkdir -p "$kx/cfg/services" "$kx/xdg"
+    cp "$OX_ROOT/shell/extensions/shortcuts/tree/services/Keybinds.qml" "$kx/cfg/services/"
+    cat > "$kx/helper" <<HELPER
+import os, subprocess, sys, time
+open("$kx/runs", "a").write("run\\n")
+try:
+    mode = open("$kx/mode").read().strip()
+except OSError:
+    mode = ""
+real = ["$PY", "$OX_ROOT/shell/extensions/shortcuts/tree/assets/shortcuts/keybinds.py",
+        "--binds", "$OX_ROOT/tests/fixtures/hyprctl-binds.json",
+        "--globals", "$OX_ROOT/tests/fixtures/hyprctl-globalshortcuts.json"]
+if mode == "error":
+    print('{"error": "Hyprland did not answer"}')
+elif mode == "garbage":
+    print("not json")
+elif mode == "crash":
+    sys.exit(3)
+else:
+    if mode == "slow":
+        time.sleep(1)
+    sys.stdout.write(subprocess.run(real, capture_output=True, text=True,
+                                    env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}).stdout)
+HELPER
+    chmod +x "$kx/helper"
+    cat > "$kx/cfg/shell.qml" <<QML
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import qs.services
+
+ShellRoot {
+    id: h
+
+    property var r: ({})
+    property int n
+    property int at
+
+    // Kept current by watching the file, so a read here is never stale.
+    function runs(): int {
+        return runsFile.text().split("\n").filter(l => l).length;
+    }
+    function mode(m: string): void {
+        modeFile.setText(m);
+    }
+
+    FileView { id: runsFile; path: "$kx/runs"; blockLoading: true; printErrors: false; watchChanges: true; onFileChanged: reload() }
+    FileView { id: modeFile; path: "$kx/mode"; blockWrites: true }
+
+    Component.onCompleted: {
+        Keybinds.helper = "$kx/helper";
+        mode("");
+    }
+
+    Timer {
+        interval: 400
+        repeat: true
+        running: true
+        onTriggered: {
+            const n = ++h.n;
+            const r = h.r;
+            if (n === 2) {
+                r.idle = !Keybinds.open && Keybinds.snapshots === 0 && h.runs() === 0;
+                Keybinds.show();
+                r.opening = Keybinds.open && Keybinds.loading;
+            } else if (n === 4) {
+                r.loaded = !Keybinds.loading && !Keybinds.error && Keybinds.binds.length > 20 && h.runs() === 1;
+                r.headers = Keybinds.rows.filter(x => x.header).map(x => x.header).join(",");
+                r.firstIsHeader = !!Keybinds.rows[0].header;
+                Keybinds.query = "volume";
+                r.searchLocal = Keybinds.matches >= 1 && Keybinds.rows.filter(x => !x.header).every(x => x.search.includes("volume")) && h.runs() === 1;
+                Keybinds.query = "super shift t";
+                r.searchWords = Keybinds.matches >= 1 && Keybinds.rows.filter(x => !x.header).every(x => x.keys.includes("Super") && x.keys.includes("Shift"));
+                Keybinds.query = "zzzz";
+                r.noMatch = Keybinds.matches === 0 && Keybinds.rows.length === 0;
+                Keybinds.toggle();
+                r.toggleCloses = !Keybinds.open && Keybinds.binds.length === 0 && Keybinds.query === "";
+                h.at = h.runs();
+            } else if (n === 8) {
+                r.quietWhenClosed = h.runs() === h.at && Keybinds.snapshots === 1;
+                for (let i = 0; i < 5; i++) {
+                    Keybinds.toggle();
+                    Keybinds.toggle();
+                }
+                r.closedAfterToggles = !Keybinds.open;
+                Keybinds.show();
+            } else if (n === 10) {
+                r.reopenRefreshes = Keybinds.open && Keybinds.binds.length > 20 && h.runs() >= h.at + 1;
+                Keybinds.hide();
+                h.at = h.runs();
+            } else if (n === 13) {
+                r.noPollingAfterCycles = h.runs() === h.at;
+                h.mode("error");
+                Keybinds.show();
+            } else if (n === 15) {
+                r.errorShown = Keybinds.error === "Hyprland did not answer" && Keybinds.binds.length === 0 && !Keybinds.loading;
+                h.mode("garbage");
+                Keybinds.refresh();
+            } else if (n === 17) {
+                r.garbage = Keybinds.error !== "" && !Keybinds.loading && Keybinds.open;
+                h.mode("crash");
+                Keybinds.refresh();
+            } else if (n === 19) {
+                r.crash = Keybinds.error !== "" && !Keybinds.loading;
+                Keybinds.hide();
+                h.mode("slow");
+                Keybinds.show();
+                Keybinds.hide();
+            } else if (n === 24) {
+                r.lateIgnored = !Keybinds.open && Keybinds.binds.length === 0 && Keybinds.error === "";
+                Keybinds.refresh();
+                r.refreshClosedNoop = !Keybinds.loading;
+                console.log("RESULTS " + JSON.stringify(r));
+                Qt.quit();
+            }
+        }
+    }
+}
+QML
+    res="$(cd "$kx" && XDG_CONFIG_HOME="$kx/xdg" XDG_STATE_HOME="$kx/xdg" XDG_CACHE_HOME="$kx/xdg" XDG_DATA_HOME="$kx/xdg" \
+        XDG_RUNTIME_DIR="$kx/xdg" WAYLAND_DISPLAY='' QT_QPA_PLATFORM=offscreen \
+        timeout 40 qs -p "$kx/cfg" 2>&1 | sed -n 's/.*qml.*RESULTS //p')"
+    if [ -z "$res" ]; then
+        no "the shortcuts service harness did not run"
+    else
+        "$PY" - "$res" <<'CHK'
+import json, sys
+r = json.loads(sys.argv[1])
+want = {
+    "idle": (True, "nothing is read before it is opened"),
+    "opening": (True, "opening it starts one snapshot"),
+    "loaded": (True, "the snapshot is loaded, from one run of the helper"),
+    "firstIsHeader": (True, "the list starts with a group header"),
+    "searchLocal": (True, "14. search filters the loaded snapshot without asking Hyprland again"),
+    "searchWords": (True, "14. every word of a search has to match"),
+    "noMatch": (True, "a search with no match leaves an empty list"),
+    "toggleCloses": (True, "20. toggling while open closes it and drops the snapshot"),
+    "quietWhenClosed": (True, "18. nothing is read while closed"),
+    "closedAfterToggles": (True, "opening and closing repeatedly ends closed"),
+    "reopenRefreshes": (True, "reopening reads a fresh snapshot"),
+    "noPollingAfterCycles": (True, "18. after many opens and closes, nothing keeps running"),
+    "errorShown": (True, "an error from the helper is shown, not a crash"),
+    "garbage": (True, "output that is not JSON is an error"),
+    "crash": (True, "a helper that dies is an error"),
+    "lateIgnored": (True, "an answer that arrives after closing is ignored"),
+    "refreshClosedNoop": (True, "refresh does nothing while closed"),
+}
+for k, (v, what) in want.items():
+    print(("ok " if r.get(k) == v else "FAIL ") + what + ("" if r.get(k) == v else f" (got {r.get(k)!r})"))
+print("headers " + str(r.get("headers")))
+CHK
+    fi > "$kx/out"
+    while IFS= read -r line; do
+        case "$line" in
+            "ok "*) ok "${line#ok }" ;;
+            "FAIL "*) no "${line#FAIL }" ;;
+            *) printf '  %s\n' "$line" ;;
+        esac
+    done < "$kx/out"
+    rm -rf "$kx"
+else skipt "no qs for the shortcuts service harness"; fi
 
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"
