@@ -19,6 +19,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import sys
 import urllib.request
 import zipfile
@@ -59,15 +60,26 @@ def pair_dir(source, target):
     return ROOT / f'{source}_{target}'
 
 
-def installed():
-    languages = set()
+def complete_pairs():
+    """Pairs whose model and tokenizer are both in place. A .partial directory
+    is a download or extraction in progress, or one that failed or was cut off,
+    never an installed pair."""
+    pairs = set()
     for path in ROOT.glob('*_*'):
-        # A .partial directory is a download or extraction still in progress,
-        # or one that failed, never an installed pair.
-        if path.is_dir() and not path.name.endswith('.partial') and (path / 'model/model.bin').is_file():
+        if (path.is_dir() and not path.name.endswith('.partial')
+                and (path / 'model/model.bin').is_file() and (path / 'sentencepiece.model').is_file()):
             source, _, target = path.name.partition('_')
-            languages.update((source, target))
-    return sorted(languages)
+            pairs.add((source, target))
+    return pairs
+
+
+def installed():
+    """Languages that translate both ways through the pivot. One direction
+    alone, as an interrupted install can leave, is not an installed language;
+    the pivot is listed once any other language is."""
+    pairs = complete_pairs()
+    languages = {target for source, target in pairs if source == PIVOT and (target, PIVOT) in pairs}
+    return sorted(languages | {PIVOT}) if languages else []
 
 
 def status():
@@ -209,11 +221,18 @@ def translate_pair(pair, text):
     return '\n'.join(' '.join(next(decoded) for _ in group) for group in sentences)
 
 
+def terminate(signum=None, frame=None):
+    raise KeyboardInterrupt
+
+
 def main():
     if len(sys.argv) < 2 or sys.argv[1] not in ('status', 'install', 'remove', 'translate'):
         print(__doc__, file=sys.stderr)
         return 2
     action, args = sys.argv[1], sys.argv[2:]
+    # Stopped from outside, an install still rolls back what it added.
+    if action in ('install', 'remove'):
+        signal.signal(signal.SIGTERM, terminate)
     try:
         if action == 'status':
             status()
