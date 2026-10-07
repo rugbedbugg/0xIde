@@ -3961,7 +3961,12 @@ if ox_have qs && [ -d "$PLUGIN_QML/Caelestia/Config" ]; then
     cat > "$ox/tesseract" <<'STUB'
 #!/bin/sh
 if [ "$1" = --list-langs ]; then printf 'List of available languages (2):\neng\nosd\n'; exit 0; fi
-for a; do case "$a" in *deu*) printf "Error opening data file deu.traineddata\nFailed loading language 'deu'\nTesseract couldn't load any languages!\n" >&2; exit 1 ;; esac; done
+# As the real one: a language without data is warned about, and reading goes
+# on in the others; with none left it fails.
+for a; do case "$a" in
+    deu) printf "Error opening data file deu.traineddata\nFailed loading language 'deu'\nTesseract couldn't load any languages!\nCould not initialize tesseract.\n" >&2; exit 1 ;;
+    *deu*) printf "Error opening data file deu.traineddata\nFailed loading language 'deu'\n" >&2 ;;
+esac; done
 echo "HELLO"
 STUB
     chmod +x "$ox/tesseract"
@@ -4019,12 +4024,17 @@ ShellRoot {
                 Ocr.capture("/nonexistent.png");
                 h.next();
             } else if (h.phase === 4 && waited > 1500) {
-                h.run(["mv", "$ox/bin/tesseract", "$ox/gone"]);
-                h.next();
-            } else if (h.phase === 5 && sh.done) {
+                GlobalConfig.ai.ocrLanguages = "deu";
                 Ocr.capture("/nonexistent.png");
                 h.next();
-            } else if (h.phase === 6 && waited > 1500) {
+            } else if (h.phase === 5 && waited > 1500) {
+                GlobalConfig.ai.ocrLanguages = "eng+deu";
+                h.run(["mv", "$ox/bin/tesseract", "$ox/gone"]);
+                h.next();
+            } else if (h.phase === 6 && sh.done) {
+                Ocr.capture("/nonexistent.png");
+                h.next();
+            } else if (h.phase === 7 && waited > 1500) {
                 r.goneAfter = Ocr.engineMissing;
                 console.log("RESULT " + JSON.stringify(r));
                 Qt.quit();
@@ -4046,9 +4056,12 @@ QML
         key="${c%%:*}"
         case "$res" in *"\"$key\":true"*) ok "${c#*:}" ;; *) no "${c#*:} ($res)" ;; esac
     done
-    grep -q "Tesseract has no data for deu. Install it (e.g. tesseract-data-deu)" "$ox/notified" 2>/dev/null &&
-        ok "a capture in a language without data says which, not Tesseract's raw text" ||
+    grep -q -- "-u low Text read without deu Tesseract has no data for deu. Install it (e.g. tesseract-data-deu)" "$ox/notified" 2>/dev/null &&
+        ok "a capture missing one configured language reads the rest and says which was left out" ||
         no "a missing language at capture: $(tr '\n' '|' < "$ox/notified" 2>/dev/null)"
+    grep -q -- "-u critical Text extraction failed Tesseract has no data for deu. Install it" "$ox/notified" 2>/dev/null &&
+        ok "a capture with no configured language that has data fails, naming it" ||
+        no "only deu at capture: $(tr '\n' '|' < "$ox/notified" 2>/dev/null)"
     grep -q "OCR requires Tesseract. Install tesseract first." "$ox/notified" 2>/dev/null &&
         ok "a capture without Tesseract says to install it, not command-not-found" ||
         no "a capture without Tesseract: $(tr '\n' '|' < "$ox/notified" 2>/dev/null)"
@@ -4061,6 +4074,16 @@ mkdir -p "$rd/bin"; ln -s "$PY" "$rd/bin/python3"
 out="$(PATH="$rd/bin" "$PY" "$OX_ROOT/shell/extensions/ocr/tree/assets/ocr/recognize.py" "$rd/none.png" --language eng)"
 [[ "$out" == *'"error": "OCR requires Tesseract. Install tesseract first."'* ]] &&
     ok "the table recogniser names a missing Tesseract" || no "recognize.py without tesseract: $out"
+cat > "$rd/bin/tesseract" <<STUB
+#!/bin/sh
+[ "\$1" = --list-langs ] && { printf 'List of available languages (1):\neng\n'; exit 0; }
+printf '%s\n' "\$*" > "$rd/args"
+printf 'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n5\t1\t1\t1\t1\t1\t1\t1\t10\t10\t90\tHELLO\n'
+STUB
+chmod +x "$rd/bin/tesseract"
+out="$(PATH="$rd/bin" "$PY" "$OX_ROOT/shell/extensions/ocr/tree/assets/ocr/recognize.py" "$rd/none.png" --language eng+deu)"
+grep -q -- '-l eng ' "$rd/args" && [[ "$out" == *'"missing": ["deu"]'* && "$out" == *'"text": "HELLO"'* ]] &&
+    ok "the table recogniser reads with the languages it has and reports the one it has not" || no "recognize.py partial: $out"
 rm -rf "$rd"
 
 ox_step "Region search: OCR languages and uploads"
@@ -4105,8 +4128,12 @@ grep -q -- '-l fra$' "$rq/tess-args" && ok "it reads the languages the OCR setti
 langs "eng+fra"; rs_run
 grep -q -- '-l eng+fra$' "$rq/tess-args" && ok "several configured languages are read together" || no "eng+fra read: $(cat "$rq/tess-args" 2>/dev/null)"
 langs "eng+deu"; rs_run
-grep -q 'Tesseract has no data for deu. Install it (e.g. tesseract-data-deu)' "$rq/notified" && [ ! -e "$rq/tess-args" ] && [ ! -e "$rq/opened" ] &&
-    ok "a configured language without data is named before anything is read" || no "missing deu: $(cat "$rq/notified" 2>/dev/null)"
+grep -q -- '-l eng$' "$rq/tess-args" && grep -q 'Bonjour' "$rq/opened" &&
+    grep -q -- '-u low Text read without deu Tesseract has no data for deu. Install it (e.g. tesseract-data-deu)' "$rq/notified" &&
+    ok "a configured language without data is left out, said, and the rest is still read" || no "missing deu: $(cat "$rq/notified" 2>/dev/null)"
+langs "deu"; rs_run
+grep -q -- '-u critical Search failed Tesseract has no data for deu.' "$rq/notified" && [ ! -e "$rq/tess-args" ] && [ ! -e "$rq/opened" ] &&
+    ok "with no configured language that has data, nothing is read and it says why" || no "only deu: $(cat "$rq/notified" 2>/dev/null)"
 langs ""; rs_run TESS_FAIL=1
 grep -q 'Tesseract could not read the region: Image file .* cannot be read!' "$rq/notified" && [ ! -e "$rq/opened" ] &&
     ok "an image Tesseract cannot read is reported with its reason" || no "unreadable image: $(cat "$rq/notified" 2>/dev/null)"

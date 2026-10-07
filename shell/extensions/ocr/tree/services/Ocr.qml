@@ -55,13 +55,25 @@ Scope {
         if (code === 127)
             return qsTr("OCR requires Tesseract. Install tesseract first.");
         // QML's JavaScript has no matchAll.
+        const failed = unloaded(stderr);
+        if (failed.length)
+            return missingLanguageText(failed);
+        return stderr.trim().split("\n").pop() || qsTr("Tesseract could not read the selected region.");
+    }
+    // Languages Tesseract said it could not load. With others it could, it
+    // still reads, in those alone.
+    function unloaded(stderr: string): var {
+        // QML's JavaScript has no matchAll.
         const failed = [];
         const pattern = /Failed loading language '([^']+)'/g;
         for (let m = pattern.exec(stderr); m; m = pattern.exec(stderr))
             failed.push(m[1]);
-        if (failed.length)
-            return missingLanguageText(failed);
-        return stderr.trim().split("\n").pop() || qsTr("Tesseract could not read the selected region.");
+        return failed;
+    }
+    // Read, but without some of the configured languages: said, not hidden.
+    function warnPartial(codes: var): void {
+        if (codes.length)
+            notify(qsTr("Text read without %1").arg(codes.join(", ")), missingLanguageText(codes), false);
     }
 
     // Only fires for captureForPanel(), and only when there is something to
@@ -224,6 +236,7 @@ Scope {
                 return;
             }
             root.settleExtraction("", false);
+            root.warnPartial(root.unloaded(extractionError.text));
             root.publish(text, ({}));
         }
     }
@@ -288,6 +301,7 @@ Scope {
                         root.error = data.error;
                         return;
                     }
+                    root.warnPartial(data.missing ?? []);
                     const recognised = (data.text ?? "").trim();
                     if (!recognised) {
                         root.notify(qsTr("No text found"), qsTr("Nothing was recognised in the selected region."), false);

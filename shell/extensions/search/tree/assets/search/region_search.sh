@@ -90,13 +90,19 @@ if [[ "$mode" == "text" ]]; then
     ocr_languages="$(jq -r '.ai.ocrLanguages // ""' "${XDG_CONFIG_HOME:-$HOME/.config}/caelestia/shell.json" 2>/dev/null || true)"
     ocr_languages="${ocr_languages//[[:space:]]/}"
     [[ -n "$ocr_languages" ]] || ocr_languages="$(paste -sd+ <<<"$installed")"
-    missing=()
+    missing=(); present=()
     IFS=+ read -ra wanted <<<"$ocr_languages"
     for code in "${wanted[@]}"; do
-        grep -qxF -- "$code" <<<"$installed" || missing+=("$code")
+        if grep -qxF -- "$code" <<<"$installed"; then present+=("$code"); else missing+=("$code"); fi
     done
+    # As the shell's OCR does: read in the languages there is data for, say
+    # which were left out, and fail only when none has data.
+    missing_text="$(IFS=,; echo "${missing[*]}" | sed 's/,/, /g')"
+    [[ ${#present[@]} -gt 0 ]] ||
+        die "Tesseract has no data for ${missing_text}. Install it (e.g. tesseract-data-${missing[0]}) or change the OCR languages."
     [[ ${#missing[@]} -eq 0 ]] ||
-        die "Tesseract has no data for $(IFS=,; echo "${missing[*]}" | sed 's/,/, /g'). Install it (e.g. tesseract-data-${missing[0]}) or change the OCR languages."
+        note -u low "Text read without ${missing_text}" "Tesseract has no data for ${missing_text}. Install it (e.g. tesseract-data-${missing[0]}) or change the OCR languages."
+    ocr_languages="$(IFS=+; echo "${present[*]}")"
     # Tesseract's own reason for anything else, such as an unreadable image.
     # Under set -e a failure here otherwise ended the search with no message.
     errors="$(mktemp)"

@@ -87,10 +87,15 @@ def table_from_words(words, boundaries=None):
 def recognize(path, language):
     if not shutil.which('tesseract'):
         raise ValueError('OCR requires Tesseract. Install tesseract first.')
-    missing = sorted(set(language.split('+')) - set(languages()))
-    if missing:
+    wanted = language.split('+')
+    have = set(languages())
+    missing = [code for code in wanted if code not in have]
+    present = [code for code in wanted if code in have]
+    # Read in the languages there is data for; only with none is it an error.
+    if not present:
         raise ValueError(f"Tesseract has no data for {', '.join(missing)}. "
                          f"Install it (e.g. tesseract-data-{missing[0]}) or change the OCR languages.")
+    language = '+'.join(present)
     copy = upscaled(path)
     scale = SCALE if copy else 1
     try:
@@ -105,7 +110,7 @@ def recognize(path, language):
     words = [w | {k: round(w[k] / scale) for k in ('left', 'top', 'width', 'height')}
              for w in words_from_tsv(result.stdout)]
     table = table_from_words(words)
-    return {'words': words, **table, 'text': '\n'.join('    '.join(row) for row in table['rows'])}
+    return {'words': words, **table, 'missing': missing, 'text': '\n'.join('    '.join(row) for row in table['rows'])}
 
 
 def main():
