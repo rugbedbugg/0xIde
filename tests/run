@@ -824,6 +824,29 @@ PY
     tr_run remove fr >/dev/null
     [ ! -e "$td/data/0xide/translate/en_fr" ] && [ -e "$td/data/0xide/translate/en_de" ] &&
         ok "removing a language leaves the others" || no "removing French touched German"
+
+    # Spanish's way back to English is not a translation model: the half that
+    # did install must not leave Spanish listed, nor its .partial as a language.
+    "$PY" - "$td" <<'PY'
+import json, sys, zipfile
+td = sys.argv[1]
+for pair, files in (("en_es", ("model/model.bin", "sentencepiece.model")), ("es_en", ("model/model.bin",))):
+    with zipfile.ZipFile(f"{td}/pkg/{pair}.zip", "w") as z:
+        for f in files:
+            z.writestr(f"translate-{pair}-1_0/{f}", "")
+index = json.load(open(f"{td}/index.json"))
+for a, b in (("en", "es"), ("es", "en")):
+    index.append({"from_code": a, "to_code": b, "from_name": {"en": "English", "es": "Spanish"}[a],
+                  "to_name": {"en": "English", "es": "Spanish"}[b], "code": f"translate-{a}_{b}",
+                  "links": [f"file://{td}/pkg/{a}_{b}.zip"]})
+json.dump(index, open(f"{td}/index.json", "w"))
+PY
+    out="$(tr_run install es)"; rc=$?
+    listed="$(tr_run status | "$PY" -c 'import json,sys; print(" ".join(json.loads(sys.stdin.read())["installed"]))')"
+    [ "$rc" = 1 ] && [[ "$out" == *'"stage": "error"'*'es_en is not a translation model'* ]] &&
+        [ "$listed" = "de en" ] && [ -z "$(find "$td/data/0xide/translate" -maxdepth 1 -name '*es*')" ] &&
+        ok "a language that half installs is rolled back, and is not listed as installed" ||
+        no "a half-installed language: exit $rc, installed: $listed, left: $(cd "$td/data/0xide/translate" && ls -d ./*es* 2>/dev/null | tr '\n' ' ')"
 fi
 rm -rf "$td"
 

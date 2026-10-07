@@ -62,7 +62,9 @@ def pair_dir(source, target):
 def installed():
     languages = set()
     for path in ROOT.glob('*_*'):
-        if path.is_dir() and (path / 'model/model.bin').is_file():
+        # A .partial directory is a download or extraction still in progress,
+        # or one that failed, never an installed pair.
+        if path.is_dir() and not path.name.endswith('.partial') and (path / 'model/model.bin').is_file():
             source, _, target = path.name.partition('_')
             languages.update((source, target))
     return sorted(languages)
@@ -135,8 +137,17 @@ def install(language):
     missing = [pair for pair in wanted if pair not in packages]
     if missing:
         raise RuntimeError(f'No translation model for {language}')
-    for pair in wanted:
-        install_pair(packages[pair])
+    # Half a language is not installed: status would list it, but only one
+    # direction would translate. So a failure removes what this call added.
+    added = [pair for pair in wanted if not (pair_dir(*pair) / 'model/model.bin').is_file()]
+    try:
+        for pair in wanted:
+            install_pair(packages[pair])
+    except BaseException:
+        for pair in added:
+            shutil.rmtree(pair_dir(*pair), ignore_errors=True)
+            shutil.rmtree(pair_dir(*pair).with_name(pair_dir(*pair).name + '.partial'), ignore_errors=True)
+        raise
     emit(stage='installed', installed=installed())
 
 
