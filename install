@@ -163,7 +163,7 @@ if [ "$MODE" = status ]; then
     status_sudoers() {
         local helper=/usr/local/libexec/0xide-papirus-folders
         if [ -x "$helper" ] && ox_has_sudo_rule "$helper"; then say sudoers "ok, the papirus helper and its rule are installed"
-        elif ox_has_sudo_rule 'papirus-folders -C'; then bad sudoers "an older, wider rule for papirus-folders is installed; ./install --enable sudoers replaces it"
+        elif ox_wide_papirus_rules | grep -qx /etc/sudoers.d/0xide; then bad sudoers "the older, wider 0xIde rule for papirus-folders is installed; ./install --enable sudoers replaces it"
         elif [ -e "$helper" ]; then bad sudoers "the papirus helper is installed but its rule is not; run ./install --enable sudoers"
         else say sudoers "not installed (optional: ./install --enable sudoers)"; fi
     }
