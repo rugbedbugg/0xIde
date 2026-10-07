@@ -4512,6 +4512,35 @@ rm "$vx/nodefault"; out="$(vrun)"; rc=$?
     ok "a working switch says which microphone it replaced and how to go back" || no "voice ok: $rc $out"
 rm -rf "$vx"
 
+ox_step "check_deps: one truth for what each feature runs"
+# Only the base system's tools on PATH, so every feature tool is absent.
+cdb="$(mktemp -d)"
+for t in bash sed grep awk tr head tail cat sort xargs dirname basename paste mv mkdir; do ln -s "$(type -P "$t")" "$cdb/$t"; done
+cd_out="$(env PATH="$cdb" bash "$OX_ROOT/installer/check_deps.sh" 2>&1)"; rc=$?
+rm -rf "$cdb"
+declared() { grep -qE "^  (ok|MISSING|absent) +$1 " <<<"$cd_out"; }
+bad=""
+# Local AI's build tools, as runtime.py's preflight lists them.
+for t in $(sed -n "s/.*for tool in (\(.*\)) if not shutil.which.*/\1/p" "$OX_ROOT/shell/extensions/ai/tree/assets/ai/runtime.py" | tr -d "',"); do
+    declared "$t" || bad="$bad $t(runtime.py)"
+done
+# Dictation's tools, as dictate.sh and speech.py check them.
+for t in $(sed -n 's/^for tool in \(.*\); do$/\1/p' "$OX_ROOT/shell/extensions/ai/tree/assets/dictation/dictate.sh"); do
+    declared "$t" || bad="$bad $t(dictate.sh)"
+done
+# Every command an adapter requires.
+for conf in "$OX_ROOT"/adapters/*/adapter.conf; do
+    for t in $(ox_pin "$conf" requires | tr ',' ' '); do declared "$t" || bad="$bad $t($(basename "$(dirname "$conf")"))"; done
+done
+for t in uv pactl gio fuzzel curl xdg-open; do declared "$t" || bad="$bad $t"; done
+[ -z "$bad" ] && ok "every tool a feature checks for is in check_deps" || no "check_deps does not report:$bad"
+dups="$(grep -oE '^  (ok|MISSING|absent) +[^ ]+' <<<"$cd_out" | awk '{print $2}' | sort | uniq -d | tr '\n' ' ')"
+[ -z "$dups" ] && ok "each tool is reported once" || no "reported twice: $dups"
+[ "$rc" = 1 ] && [ "$(grep -c MISSING <<<"$cd_out")" = 2 ] && grep -qE '^  absent +spicetify +adapters: spotify \(optional\)$' <<<"$cd_out" &&
+    ok "only the installer's own tools are required; an adapter's are optional" || no "check_deps with nothing installed: $rc $(grep MISSING <<<"$cd_out" | tr '\n' ' ')"
+grep -qE 'spotify|firefox|zed' <<<"$(grep -oE '^  (ok|MISSING|absent) +[^ ]+' <<<"$cd_out")" &&
+    no "a themed application is listed as a dependency" || ok "applications an adapter themes are not listed as dependencies"
+
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"
 [ -z "$dups" ] && ok "every shell patch has its own number, so glob order is the series order" || no "duplicate patch numbers: $dups"
