@@ -51,7 +51,21 @@ Singleton {
         trashing = true;
         trashError = "";
         trashProc.target = openPath;
+        trashProc.didExit = false;
         trashProc.running = true;
+    }
+
+    // gio's message without what the overlay already shows: its own name, the
+    // file's URI and path. "gio: file:///…: Error trashing file …: No such
+    // file or directory" is "No such file or directory"; gio also says
+    // "Unable to trash file …: Permission denied".
+    function trashReason(stderr: string, path: string): string {
+        let text = stderr.trim().split("\n").pop() ?? "";
+        text = text.replace(/^gio: file:\/\/\S+: /, "");
+        for (const lead of [`Error trashing file ${path}: `, `Unable to trash file ${path}: `])
+            if (text.startsWith(lead))
+                text = text.slice(lead.length);
+        return text || qsTr("Could not move it to the Trash");
     }
 
     // "2.4 MB", "980 KB": binary units, as the memory figure is.
@@ -94,17 +108,31 @@ Singleton {
 
         property string target
 
+        property bool didExit: false
+
         command: ["gio", "trash", "--", target]
         stderr: StdioCollector {
             id: trashStderr
         }
+        // A command that cannot be started never reports an exit; without
+        // this the button would stay on "Moving…".
+        onRunningChanged: {
+            if (!running)
+                Qt.callLater(() => {
+                    if (!trashProc.didExit && root.trashing) {
+                        root.trashing = false;
+                        root.trashError = qsTr("gio is not installed, so nothing was moved to the Trash");
+                    }
+                });
+        }
         onExited: code => { // qmllint disable signal-handler-parameters
+            didExit = true;
             root.trashing = false;
             if (code === 0) {
                 if (root.openPath === target)
                     root.hide();
             } else {
-                root.trashError = trashStderr.text.trim() || qsTr("Could not move it to the Trash");
+                root.trashError = root.trashReason(trashStderr.text, target);
             }
         }
     }
