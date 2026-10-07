@@ -14,19 +14,24 @@ if ! grep -qx papirus "$OX_CONFIG/adapters.enabled" 2>/dev/null; then
 fi
 ox_have papirus-folders || { echo "papirus: enabled, but papirus-folders is not installed"; exit 1; }
 [ -d /usr/share/icons/Papirus ] || { echo "papirus: enabled, but the Papirus icon theme is not installed"; exit 1; }
-if ox_has_sudo_rule 'papirus-folders -C'; then
-    echo "papirus: warning: an older, wider sudo rule for papirus-folders itself is still installed"
-    echo "         ./install --enable sudoers replaces it with the fixed helper"
-fi
+# A rule for papirus-folders itself takes --theme <directory> too. 0xIde does
+# not use one; whoever installed it (Caelestia installs caelestia-papirus) has
+# to remove it, so it is named, not counted against this adapter.
+for f in $(ox_wide_papirus_rules); do
+    if [ "$f" = /etc/sudoers.d/0xide ]; then
+        echo "papirus: the older, wider 0xIde rule is still installed; ./install --enable sudoers replaces it"
+        exit 1
+    fi
+    echo "papirus: warning: $f also grants papirus-folders itself, any option included."
+    echo "         0xIde does not use it; remove it if nothing else needs it: sudo rm $f"
+done
 # The helper is opt-in (it needs root), so without it the adapter is inactive,
 # not broken: said plainly, but not counted as a fault. An older, wider rule
 # still in place is a fault, and so is a theme change that failed.
-old_rule=0
-ox_has_sudo_rule 'papirus-folders -C' && old_rule=1
 if [ ! -x "$HELPER" ] || ! ox_has_sudo_rule "$HELPER"; then
     echo "papirus: inactive: folder colours do NOT track the scheme until the 0xIde"
     echo "         papirus helper is installed, with: ./install --enable sudoers"
-    exit "$old_rule"
+    exit 0
 fi
 if [ ! -s "$RESULT" ]; then
     echo "papirus: ready; folders are recoloured on the next theme change"

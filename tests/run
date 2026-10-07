@@ -4454,6 +4454,8 @@ else
 printf '%s\n' "\$*" >> "$pb/calls"
 if [ "\$1" = install ]; then dest="\${@: -1}"; src="\${@: -2:1}"; cp "\$src" "$pb/cap/\$(basename "\$dest")"; fi
 if [ "\$1 \$2" = "-n -l" ]; then [ -e "$pb/rule" ] && echo "    (root) NOPASSWD: \$(cat "$pb/rule")"; exit 0; fi
+# -ll names the file each rule is in, as "Sudoers entry: <file>" over its commands.
+if [ "\$1 \$2" = "-n -ll" ]; then [ -e "$pb/rule" ] && printf 'Sudoers entry: %s\n    Commands:\n\t%s\n' "\$(cat "$pb/rulefile" 2>/dev/null || echo /etc/sudoers.d/0xide)" "\$(cat "$pb/rule")"; exit 0; fi
 if [ "\$1" = -n ]; then shift; exec "\$@"; fi
 exit 0
 STUB
@@ -4512,7 +4514,13 @@ STUB
             ok "a refusal by the helper is a failure, in the log and in status" || no "helper refusal: $rc $(pst)"
         echo "/usr/bin/papirus-folders -C *" > "$pb/rule"
         out="$(pst)"; rc=$?
-        [ "$rc" = 1 ] && grep -q 'older, wider sudo rule for papirus-folders' <<<"$out" && ok "status reports the old, wider rule as a problem" || no "old rule not reported: $rc $out"
+        [ "$rc" = 1 ] && grep -q 'the older, wider 0xIde rule is still installed; ./install --enable sudoers replaces it' <<<"$out" &&
+            ok "status reports 0xIde's own old, wider rule as a problem" || no "old rule not reported: $rc $out"
+        echo /etc/sudoers.d/caelestia-papirus > "$pb/rulefile"
+        out="$(pst)"; rc=$?
+        grep -q 'warning: /etc/sudoers.d/caelestia-papirus also grants papirus-folders itself' <<<"$out" &&
+            grep -q 'sudo rm /etc/sudoers.d/caelestia-papirus' <<<"$out" && ! grep -q 'replaces it' <<<"$out" &&
+            ok "a wide rule someone else installed is named by its file, not blamed on 0xIde" || no "foreign rule: $rc $out"
     fi
     : > "$pb/c/0xide/adapters.enabled"
     [ "$(pst)" = "papirus: not enabled" ] && ok "status says not enabled when it is not" || no "status disabled: $(pst)"

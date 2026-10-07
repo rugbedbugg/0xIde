@@ -146,6 +146,13 @@ ox_theme_result() {
         -e "s/^$1 \(FAILED (exit [0-9]*)\)\$/\1/p" "$OX_STATE/post-theme.log" 2>/dev/null | tail -n1
 }
 
+# The sudoers files that grant papirus-folders itself, with any option, rather
+# than through 0xIde's fixed helper; one per line, empty when none does.
+# sudo -ll names each entry's file, which /etc/sudoers.d cannot be read for.
+ox_wide_papirus_rules() {
+    sudo -n -ll 2>/dev/null | awk '/^Sudoers entry: /{f=$3} /^[[:space:]]+\/usr\/bin\/papirus-folders -C/{print f}' | sort -u
+}
+
 # True when a passwordless sudo rule exists for a command. Greps the rule list
 # rather than running the command, and matches NOPASSWD explicitly so a cached
 # sudo credential cannot make an absent rule look present.
