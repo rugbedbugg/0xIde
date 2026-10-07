@@ -151,6 +151,8 @@ fi
 host="${upload_endpoints[0]%%|*}"
 host="${host#*://}"
 host="${host%%/*}"
+# Before asking: agreeing to an upload that cannot happen is no use.
+command -v curl >/dev/null 2>&1 || die "curl is not installed, so the image cannot be uploaded. Nothing was sent."
 ask "Upload this region to ${host} and open Google Lens?" ||
     { note -u low "Search cancelled" "Nothing was uploaded."; exit 0; }
 
@@ -165,14 +167,24 @@ for spec in "${upload_endpoints[@]}"; do
         args+=(-F "$field")
     done
     # No --fail: the status and the body are both wanted, so that a refusal can
-    # say which host refused and with what, rather than "could not upload".
+    # say which host refused and with what, rather than "could not upload". A
+    # connection that never got an answer is not a refusal: curl's own error
+    # says what happened instead.
     name="${endpoint#*://}"; name="${name%%/*}"
+    curl_errors="$(mktemp)"
+    rc=0
     reply="$(curl --location --silent --show-error --max-time 20 \
-        --write-out $'\n%{http_code}' "${args[@]}" "$endpoint" 2>/dev/null || true)"
+        --write-out $'\n%{http_code}' "${args[@]}" "$endpoint" 2>"$curl_errors")" || rc=$?
+    problem="$(tail -n1 "$curl_errors")"
+    rm -f -- "$curl_errors"
     status="${reply##*$'\n'}"
     reply="${reply%$'\n'*}"
+    if [[ "$rc" -ne 0 && "$status" == 000 || -z "$status" ]]; then
+        reason="${name} could not be reached (${problem:-curl exited ${rc}})"
+        continue
+    fi
     if [[ "$status" != 2* ]]; then
-        reason="${name} refused it (HTTP ${status:-no reply})"
+        reason="${name} refused it (HTTP ${status})"
         continue
     fi
     # Some hosts answer with the URL, others with JSON containing it.
