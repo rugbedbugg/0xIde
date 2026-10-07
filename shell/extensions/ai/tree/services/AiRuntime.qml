@@ -9,27 +9,92 @@ Scope {
     id: root
 
     property var info: ({})
+    // The installer as it goes, for every place that shows it: the step it
+    // reported last (starting, waiting, source, build, download, verify), how
+    // it ended (installed, failed, cancelled; "" while running or before any),
+    // and times in ms, so a long step can be seen to be still going.
+    property string stage: ""
+    property string outcome: ""
+    property real bytes: 0
+    property real total: 0
+    property real stageSince: 0
+    property real lastEvent: 0
+    property real now: 0
     property string message: ""
     property string error: ""
     property string endpoint: ""
     property string operation: "install"
     property bool removeAfterStop: false
-    readonly property bool installing: worker.running
+    // From the click, not from when the process has started, which is later.
+    property bool launching: false
+    readonly property bool installing: worker.running || launching
+    readonly property bool checking: status.running
     readonly property string helper: Qt.resolvedUrl("../assets/ai/runtime.py").toString().replace("file://", "")
+    readonly property string log: info.destination ? info.destination + "/install.log" : ""
+    // Why an installation cannot start now, in words; "" when it can. Download
+    // is disabled exactly when this is set, and shows it.
+    readonly property string installBlocker: {
+        if (installing)
+            return qsTr("Already installing");
+        if (info.installed)
+            return qsTr("Already installed");
+        if (!info.destination)
+            return checking ? qsTr("Checking this computer...") : error || qsTr("Could not check this computer. Press Refresh.");
+        if ((info.missing ?? []).length > 0)
+            return qsTr("Install these first: %1").arg(info.missing.join(", "));
+        if ((info.freeBytes ?? 0) < (info.requiredBytes ?? 0))
+            return qsTr("Needs %1 GiB free for the model and its build, %2 GiB free in %3").arg(gib(info.requiredBytes)).arg(gib(info.freeBytes)).arg(info.destination);
+        return "";
+    }
 
     signal ready
 
+    function gib(bytes: real): string {
+        return ((bytes ?? 0) / 1073741824).toFixed(1);
+    }
+    function stageLabel(name: string): string {
+        return {
+            starting: qsTr("Starting the installer"),
+            waiting: qsTr("Waiting for the local model to stop"),
+            source: qsTr("Fetching the pinned BitNet source"),
+            build: qsTr("Building the CPU inference runtime"),
+            download: qsTr("Downloading the model"),
+            verify: qsTr("Checking that the model starts"),
+            cancelling: qsTr("Cancelling")
+        }[name] ?? name;
+    }
     function refresh(): void {
         status.running = true;
     }
     function install(): void {
-        if (worker.running || server.running)
+        if (installing)
             return;
+        // Said, not silently ignored: the button that called this is visible.
+        if (server.running) {
+            stage = "";
+            outcome = "failed";
+            error = qsTr("Stop the local model before installing it again");
+            return;
+        }
         error = "";
+        outcome = "";
+        bytes = 0;
+        total = 0;
+        stageSince = lastEvent = now = Date.now();
+        stage = "starting";
+        message = stageLabel(stage);
         operation = "install";
+        launching = true;
+        // Left over from the last run, it would hide a failure to start.
+        worker.didExit = false;
         worker.running = true;
     }
     function cancel(): void {
+        if (!installing)
+            return;
+        stage = "cancelling";
+        message = stageLabel(stage);
+        // Not started yet: it is signalled the moment it is.
         if (worker.running)
             worker.signal(15);
     }
@@ -62,17 +127,36 @@ Scope {
             stop();
             return;
         }
+        error = "";
+        outcome = "";
         operation = "uninstall";
+        worker.didExit = false;
         worker.running = true;
     }
     function event(line: string): void {
         try {
             const data = JSON.parse(line);
+            lastEvent = Date.now();
             if (data.error)
                 error = data.error;
-            message = data.message ?? data.stage ?? "";
-            if (data.stage === "download")
-                message = qsTr("Downloading model: %1 / %2 MiB").arg(Math.round(data.bytes / 1048576)).arg(Math.round(data.total / 1048576));
+            if (data.stage === "error" || data.stage === "cancelled" || data.stage === "installed") {
+                // How it ended. installed is only ever reported once the
+                // model has started and been moved into place.
+                if (operation === "install" && outcome !== "installed")
+                    outcome = data.stage === "error" ? "failed" : data.stage;
+                message = outcome === "installed" ? qsTr("Installed") : outcome === "cancelled" ? qsTr("Installation cancelled") : "";
+            } else if (data.stage === "removed") {
+                message = qsTr("Removed");
+            } else if (data.stage) {
+                if (data.stage !== stage)
+                    stageSince = lastEvent;
+                stage = data.stage;
+                message = stageLabel(stage);
+                if (stage === "download") {
+                    bytes = data.bytes ?? 0;
+                    total = data.total ?? 0;
+                }
+            }
             // Availability, never preference. Discovering that the local
             // model is installed says nothing about whether the user chose it,
             // and refresh() runs on every startup, so writing the preference
@@ -94,6 +178,14 @@ Scope {
             server.signal(15);
     }
 
+    // Only while installing: the elapsed time is what shows a long build has
+    // not stopped.
+    Timer {
+        interval: 1000
+        repeat: true
+        running: worker.running
+        onTriggered: root.now = Date.now()
+    }
     Timer {
         id: idle
 
@@ -138,18 +230,37 @@ Scope {
             onRead: data => root.event(data)
         }
         onRunningChanged: {
-            if (running)
+            root.launching = false;
+            if (running) {
                 didExit = false;
-            else
+                if (root.stage === "cancelling")
+                    signal(15);
+            } else {
                 Qt.callLater(() => {
-                    if (!worker.didExit)
+                    if (!worker.didExit) {
                         root.error = qsTr("Could not start the installer. Install uv first.");
+                        if (root.operation === "install")
+                            root.outcome = "failed";
+                    }
                 });
+            }
         }
         onExited: code => { // qmllint disable signal-handler-parameters
             didExit = true;
-            if (code !== 0 && code !== 130 && !root.error)
-                root.error = qsTr("Installer failed. See the installation log in %1.").arg(root.info.destination ?? "caelestia/ai");
+            // The exit decides what an install that did not report its end
+            // came to, so it never stays looking busy or successful.
+            if (root.operation === "install" && root.outcome !== "installed") {
+                if (code === 130 || root.outcome === "cancelled" || root.stage === "cancelling") {
+                    root.outcome = "cancelled";
+                    root.message = qsTr("Installation cancelled");
+                } else {
+                    root.outcome = "failed";
+                    if (!root.error)
+                        root.error = code === 0 ? qsTr("The installer ended without finishing") : qsTr("The installer stopped with exit code %1").arg(code);
+                }
+            } else if (code !== 0 && code !== 130 && !root.error) {
+                root.error = qsTr("Could not remove the local model (exit code %1)").arg(code);
+            }
             root.refresh();
         }
     }
