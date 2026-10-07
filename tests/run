@@ -3921,9 +3921,9 @@ out="$(PATH="$rd/bin" "$PY" "$OX_ROOT/shell/extensions/ocr/tree/assets/ocr/recog
     ok "the table recogniser names a missing Tesseract" || no "recognize.py without tesseract: $out"
 rm -rf "$rd"
 
-ox_step "Region search: OCR languages"
-# region_search.sh against a stand-in tesseract, so it is exact which
-# languages it reads in.
+ox_step "Region search: OCR languages and uploads"
+# region_search.sh against stand-ins for tesseract and curl, so every outcome
+# is exact: which languages it reads in, and what an upload failure is called.
 rq="$(mktemp -d)"
 mkdir -p "$rq/bin" "$rq/conf/caelestia" "$rq/conf/0xide" "$rq/run"
 for t in bash sh cat tail head grep sed tr paste jq mktemp rm base64 sleep; do ln -s "$(type -P "$t")" "$rq/bin/$t"; done
@@ -3973,6 +3973,21 @@ grep -q 'No text was found' "$rq/notified" && [ ! -e "$rq/opened" ] && ok "an em
 rm "$rq/bin/tesseract"; rs_run
 grep -q 'OCR requires Tesseract. Install tesseract first.' "$rq/notified" && ok "without Tesseract a text search says to install it" ||
     no "no tesseract: $(cat "$rq/notified" 2>/dev/null)"
+printf 'mode=host-upload\n' > "$rq/conf/0xide/region-search.conf"
+rs_run
+grep -q 'curl is not installed, so the image cannot be uploaded. Nothing was sent.' "$rq/notified" && [ ! -e "$rq/opened" ] &&
+    ok "without curl an upload says so, before asking" || no "no curl: $(cat "$rq/notified" 2>/dev/null)"
+ln -s "$rq/curl" "$rq/bin/curl"
+rs_run CURL_MODE=dns
+grep -q 'uguu.se could not be reached (curl: (6) Could not resolve host: uguu.se)' "$rq/notified" && ! grep -q refused "$rq/notified" &&
+    ok "a host that cannot be reached is not called a refusal" || no "dns failure: $(cat "$rq/notified" 2>/dev/null)"
+rs_run CURL_MODE=refuse
+grep -q 'uguu.se refused it (HTTP 403)' "$rq/notified" && ok "an HTTP refusal names the status" || no "refusal: $(cat "$rq/notified" 2>/dev/null)"
+rs_run CURL_MODE=ok FUZZEL_ANSWER=Cancel
+grep -q 'Search cancelled Nothing was uploaded.' "$rq/notified" && [ ! -e "$rq/opened" ] &&
+    ok "declining the upload sends nothing and says so" || no "cancel: $(cat "$rq/notified" 2>/dev/null)"
+rs_run CURL_MODE=ok
+grep -q 'uploadbyurl?url=https%3A%2F%2Fh.example%2Fa.png' "$rq/opened" && ok "an accepted upload opens Lens on the uploaded image" || no "upload ok"
 rm -rf "$rq"
 
 ox_step "Patch series order"
