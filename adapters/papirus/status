@@ -1,16 +1,35 @@
 #!/usr/bin/env bash
-# Reports whether Caelestia's own papirus-folders call can actually succeed.
+# Whether Papirus folder colours follow the scheme, and if not, why: from what
+# is installed, and from what the last theme change actually did.
 set -uo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
 
-ox_have papirus-folders || { echo "papirus: papirus-folders is not installed"; exit 1; }
+# Overridable only for the tests: the sudo rule names the fixed path alone.
+HELPER="${OX_PAPIRUS_HELPER:-/usr/local/libexec/0xide-papirus-folders}"
+RESULT="$OX_STATE/papirus.result"
 
-if ox_has_sudo_rule papirus-folders; then
-    echo "papirus: ok, folder colours track the scheme"
+if ! grep -qx papirus "$OX_CONFIG/adapters.enabled" 2>/dev/null; then
+    echo "papirus: not enabled"
     exit 0
 fi
-
-echo "papirus: folder colours will NOT track the scheme"
-echo "         papirus-folders needs root and no passwordless rule is in place."
-echo "         Install one with: ./install --enable sudoers"
-exit 1
+ox_have papirus-folders || { echo "papirus: enabled, but papirus-folders is not installed"; exit 1; }
+[ -d /usr/share/icons/Papirus ] || { echo "papirus: enabled, but the Papirus icon theme is not installed"; exit 1; }
+if ox_has_sudo_rule 'papirus-folders -C'; then
+    echo "papirus: warning: an older, wider sudo rule for papirus-folders itself is still installed"
+    echo "         ./install --enable sudoers replaces it with the fixed helper"
+fi
+if [ ! -x "$HELPER" ] || ! ox_has_sudo_rule "$HELPER"; then
+    echo "papirus: enabled, but folder colours will NOT track the scheme"
+    echo "         the 0xIde papirus helper and its sudo rule are not installed"
+    echo "         install them with: ./install --enable sudoers"
+    exit 1
+fi
+if [ ! -s "$RESULT" ]; then
+    echo "papirus: ready; folders are recoloured on the next theme change"
+    exit 0
+fi
+IFS=$'\t' read -r state words < "$RESULT"
+case "$state" in
+    applied) echo "papirus: ok, $words" ;;
+    *)       echo "papirus: last theme change: $words"; exit 1 ;;
+esac

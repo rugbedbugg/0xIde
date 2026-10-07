@@ -25,13 +25,17 @@ while IFS= read -r name; do
     [ -x "$apply" ] || apply="$OX_ROOT/system/$name/sync"
     [ -x "$apply" ] || continue
 
+    # Exit 3 is an adapter saying it cannot apply on this system, with its
+    # reason already in the log: not ok, and not a failure of the run either.
     start=$SECONDS
-    if "$apply" >>"$log" 2>&1; then
-        printf '%s ok (%ss)\n' "$name" "$((SECONDS - start))" >> "$log"
-    else
-        printf '%s FAILED (exit %s)\n' "$name" "$?" >> "$log"
-        failed=$((failed + 1))
-    fi
+    "$apply" >>"$log" 2>&1
+    rc=$?
+    case $rc in
+        0) printf '%s ok (%ss)\n' "$name" "$((SECONDS - start))" >> "$log" ;;
+        3) printf '%s not applied (see above)\n' "$name" >> "$log" ;;
+        *) printf '%s FAILED (exit %s)\n' "$name" "$rc" >> "$log"
+           failed=$((failed + 1)) ;;
+    esac
 done < "$ENABLED"
 
 # A failing adapter must never make `caelestia scheme set` look broken, so this

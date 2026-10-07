@@ -1,0 +1,102 @@
+#!/usr/bin/python3
+"""
+Privileged helper for the papirus adapter.
+
+Installed at: /usr/local/libexec/0xide-papirus-folders
+Owner: root:root
+Mode: 0755
+
+    sudo -n /usr/local/libexec/0xide-papirus-folders <colour>
+
+Recolours the folders of the system Papirus icon theme, and nothing else. A
+sudoers rule for papirus-folders itself would be wider than that: it also
+takes --theme <directory>, and makes symlinks and an icon cache in whatever
+directory that names, as root. Here the theme, the operation and the
+environment are fixed; the caller chooses only a colour, which has to be one
+papirus-folders lists for that theme.
+"""
+
+import os
+import pwd
+import re
+import subprocess
+import sys
+
+PAPIRUS_FOLDERS = "/usr/bin/papirus-folders"
+THEME = "Papirus"
+# A colour name as papirus-folders spells them: "blue", "palebrown", "bluegrey".
+COLOUR = re.compile(r"[a-z]+(?:-[a-z]+)*")
+# papirus-folders reads XDG_DATA_DIRS, XDG_DATA_HOME and HOME to find themes;
+# none of the caller's may reach it.
+ENV = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": "/root"}
+
+USAGE = """Usage: 0xide-papirus-folders <colour>
+
+Run through sudo by adapters/papirus. Sets the folder colour of the system
+Papirus icon theme to <colour>, one of those papirus-folders -l lists."""
+
+
+def refuse(message: str, code: int = 2) -> int:
+    print(f"0xide-papirus-folders: {message}", file=sys.stderr)
+    return code
+
+
+def colour_argument(argv: list[str]) -> str | None:
+    """The colour, if argv is exactly one well-formed colour name."""
+    if len(argv) != 1:
+        return None
+    colour = argv[0]
+    if len(colour) > 32 or not COLOUR.fullmatch(colour):
+        return None
+    return colour
+
+
+def caller() -> str | None:
+    """The user sudo ran this for, when sudo's own metadata agrees with itself."""
+    name = os.environ.get("SUDO_USER")
+    uid = os.environ.get("SUDO_UID")
+    if not name or not uid or not uid.isdigit() or int(uid) == 0:
+        return None
+    try:
+        entry = pwd.getpwnam(name)
+    except KeyError:
+        return None
+    return name if entry.pw_uid == int(uid) else None
+
+
+def colours(listing: str) -> set[str]:
+    """Colour names from papirus-folders -l, whose current one is marked '>'."""
+    found = set()
+    for line in listing.splitlines():
+        word = line.strip().removeprefix(">").strip()
+        if COLOUR.fullmatch(word):
+            found.add(word)
+    return found
+
+
+def main(argv: list[str]) -> int:
+    if argv == ["--help"]:
+        print(USAGE)
+        return 0
+    # Arguments first: nothing about the caller is read for a bad request.
+    colour = colour_argument(argv)
+    if colour is None:
+        return refuse("expected exactly one colour name, such as blue")
+    if os.geteuid() != 0:
+        return refuse("must be run through sudo", 1)
+    if caller() is None:
+        return refuse("not invoked through sudo by an ordinary user", 1)
+    if not os.access(PAPIRUS_FOLDERS, os.X_OK):
+        return refuse(f"{PAPIRUS_FOLDERS} is not installed", 1)
+    listed = subprocess.run([PAPIRUS_FOLDERS, "-l", "--theme", THEME], env=ENV, stdin=subprocess.DEVNULL,
+                            capture_output=True, text=True, check=False)
+    if listed.returncode != 0:
+        return refuse(f"the {THEME} icon theme was not found: {listed.stderr.strip()}", 1)
+    if colour not in colours(listed.stdout):
+        return refuse(f"{colour} is not a {THEME} folder colour")
+    return subprocess.run([PAPIRUS_FOLDERS, "-C", colour, "--theme", THEME, "-u"], env=ENV,
+                          stdin=subprocess.DEVNULL, check=False).returncode
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

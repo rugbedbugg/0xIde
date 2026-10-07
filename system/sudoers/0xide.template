@@ -1,8 +1,8 @@
-# Installed by 0xide. Scoped to one command, writing one set of paths.
+# Installed by 0xide. One fixed helper, for one operation.
 # @USER@ is substituted at install time; nothing here is committed with a
 # username in it.
 #
-# papirus-folders  recolours the Papirus folder icons under /usr/share/icons.
-#                  The papirus adapter calls it on every theme change, and it
-#                  cannot work without root.
-@USER@ ALL=(root) NOPASSWD: /usr/bin/papirus-folders -C *, /usr/bin/papirus-folders -C * -u
+# 0xide-papirus-folders  recolours the folders of the system Papirus icon
+#                        theme to one colour papirus-folders lists, and nothing
+#                        else: no other theme, directory or option.
+@USER@ ALL=(root) NOPASSWD: /usr/local/libexec/0xide-papirus-folders

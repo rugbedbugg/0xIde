@@ -4246,6 +4246,148 @@ fi
 grep -q 'wrapMode: Text.Wrap' "$OX_ROOT/shell/extensions/wallpaper-info/tree/components/WallpaperInfoOverlay.qml" &&
     ok "a delete failure is wrapped in the overlay, not cut to one line" || no "the delete failure is still elided"
 
+ox_step "Papirus: the privileged helper"
+# The only thing the sudo rule grants. It is driven here as an ordinary user,
+# with its root check and papirus-folders stood in for, so nothing can write.
+PH="$OX_ROOT/system/sudoers/0xide-papirus-folders"
+head -1 "$PH" | grep -qx '#!/usr/bin/python3' && ok "the helper runs the distribution interpreter" || no "the helper is not #!/usr/bin/python3"
+out="$(env -i PATH=/usr/bin "$PH" --help 2>&1)"; [ $? = 0 ] && grep -q '^Usage:' <<<"$out" && ok "--help prints usage" || no "--help failed"
+bad=""
+for args in "" "blue red" "--theme" "-t" "BLUE" "blue;id" 'blue$(id)' "../blue" "blue -t /tmp" "/tmp/x" "blue--" "-blue" "$(printf 'b%.0s' $(seq 40))"; do
+    # shellcheck disable=SC2086
+    env -i PATH=/usr/bin SUDO_USER="$(id -un)" SUDO_UID="$(id -u)" "$PH" $args >/dev/null 2>&1
+    [ $? = 2 ] || bad="$bad [$args]"
+done
+[ -z "$bad" ] && ok "anything but one plain colour name is refused, before sudo metadata is read" || no "accepted or mishandled:$bad"
+env -i PATH=/usr/bin "$PH" blue >/dev/null 2>&1; [ $? = 1 ] && ok "a valid colour run without root is refused" || no "the helper ran without root"
+if "$PY" - "$PH" <<'CHK'
+import ast, importlib.machinery, importlib.util, os, pwd, re, sys, tempfile
+loader = importlib.machinery.SourceFileLoader("helper", sys.argv[1])
+h = importlib.util.module_from_spec(importlib.util.spec_from_loader("helper", loader))
+loader.exec_module(h)
+bad = []
+def check(cond, what):
+    if not cond:
+        bad.append(what)
+me = pwd.getpwuid(os.getuid())
+for env, want, what in (({}, None, "no sudo metadata"),
+                        ({"SUDO_USER": me.pw_name}, None, "a user without a uid"),
+                        ({"SUDO_USER": me.pw_name, "SUDO_UID": "0"}, None, "uid 0 for an ordinary user"),
+                        ({"SUDO_USER": "root", "SUDO_UID": "0"}, None, "root itself"),
+                        ({"SUDO_USER": me.pw_name, "SUDO_UID": str(me.pw_uid + 1)}, None, "a uid that is not the user's"),
+                        ({"SUDO_USER": "no-such-user-0xide", "SUDO_UID": "1000"}, None, "an unknown user"),
+                        ({"SUDO_USER": me.pw_name, "SUDO_UID": str(me.pw_uid)}, me.pw_name, "the real caller")):
+    os.environ.clear(); os.environ.update(env)
+    check(h.caller() == want, f"caller() for {what}")
+check(h.colours("   adwaita\n > blue\n   bluegrey\n   palebrown\n") == {"adwaita", "blue", "bluegrey", "palebrown"}, "colours() parsing")
+check(h.colours("../x\n> blue;id\n  rm -rf\n") == set(), "colours() accepts junk")
+check(h.ENV == {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": "/root"}, "the environment is not fixed")
+src = open(sys.argv[1]).read()
+check(set(re.findall(r'os\.environ\.get\("([A-Z_]+)"\)', src)) == {"SUDO_USER", "SUDO_UID"}, "reads environment beyond sudo's")
+check("shell=True" not in src and "os.system" not in src, "uses a shell")
+# main() as root, against a stand-in papirus-folders that records how it ran.
+with tempfile.TemporaryDirectory() as d:
+    fake = f"{d}/papirus-folders"
+    open(fake, "w").write(f'#!/bin/sh\nprintf "%s|" "$@" >> {d}/args; env >> {d}/env; echo >> {d}/args\n'
+                          f'[ "$1" = -l ] && printf "   adwaita\\n > blue\\n   red\\n"\nexit 0\n')
+    os.chmod(fake, 0o755)
+    h.PAPIRUS_FOLDERS = fake
+    h.os.geteuid = lambda: 0
+    os.environ.clear(); os.environ.update({"SUDO_USER": me.pw_name, "SUDO_UID": str(me.pw_uid), "XDG_DATA_DIRS": "/tmp/evil", "HOME": "/tmp/evil"})
+    check(h.main(["red"]) == 0, "a listed colour is not applied")
+    calls = open(f"{d}/args").read().splitlines()
+    check(calls == ["-l|--theme|Papirus|", "-C|red|--theme|Papirus|-u|"], f"papirus-folders ran as {calls}")
+    envs = open(f"{d}/env").read()
+    check("/tmp/evil" not in envs and "HOME=/root" in envs, "the caller's environment reached papirus-folders")
+    check(h.main(["green"]) == 2, "an unlisted colour is not refused")
+    check(len(open(f"{d}/args").read().splitlines()) == 3, "an unlisted colour still ran -C")
+    os.environ["SUDO_UID"] = "0"
+    check(h.main(["red"]) == 1, "forged sudo metadata is not refused")
+for b in bad:
+    print(f"        helper {b}")
+sys.exit(1 if bad else 0)
+CHK
+then ok "the helper derives everything else itself: theme, options, environment and caller"
+else no "the helper's validation is wrong"; fi
+grep -v '^#' "$OX_ROOT/system/sudoers/0xide.template" | grep -v '^$' | grep -qx '@USER@ ALL=(root) NOPASSWD: /usr/local/libexec/0xide-papirus-folders' &&
+    [ "$(grep -vc '^#\|^$' "$OX_ROOT/system/sudoers/0xide.template")" = 1 ] &&
+    ok "the sudo rule grants the fixed helper and nothing else" || no "the sudo rule grants more than the helper"
+grep -rq 'papirus-folders -C \*' "$OX_ROOT/system" "$OX_ROOT/adapters" && no "the wide papirus-folders rule is still somewhere" ||
+    ok "no rule for papirus-folders itself is left"
+
+ox_step "Papirus: install, remove, apply and status"
+if ! ox_have visudo; then
+    skipt "visudo is missing"
+else
+    pb="$(mktemp -d)"
+    mkdir -p "$pb/bin" "$pb/cap" "$pb/c/0xide" "$pb/s/caelestia"
+    cat > "$pb/bin/sudo" <<STUB
+#!/bin/bash
+printf '%s\n' "\$*" >> "$pb/calls"
+if [ "\$1" = install ]; then dest="\${@: -1}"; src="\${@: -2:1}"; cp "\$src" "$pb/cap/\$(basename "\$dest")"; fi
+if [ "\$1 \$2" = "-n -l" ]; then [ -e "$pb/rule" ] && echo "    (root) NOPASSWD: \$(cat "$pb/rule")"; exit 0; fi
+if [ "\$1" = -n ]; then shift; exec "\$@"; fi
+exit 0
+STUB
+    chmod +x "$pb/bin/sudo"
+    pbenv() { env HOME="$pb" XDG_CONFIG_HOME="$pb/c" XDG_STATE_HOME="$pb/s" XDG_DATA_HOME="$pb/d" PATH="$pb/bin:$PATH" "$@"; }
+    out="$(pbenv env OX_ASSUME_YES=1 bash "$OX_ROOT/system/sudoers/install" 2>&1)"; rc=$?
+    h1="$(grep -n '^install -D -m 0755 -o root -g root .*/system/sudoers/0xide-papirus-folders /usr/local/libexec/0xide-papirus-folders$' "$pb/calls" | cut -d: -f1)"
+    r1="$(grep -n '^install -m 0440 -o root -g root .* /etc/sudoers.d/0xide$' "$pb/calls" | cut -d: -f1)"
+    [ "$rc" = 0 ] && [ -n "$h1" ] && [ -n "$r1" ] && [ "$h1" -lt "$r1" ] && cmp -s "$pb/cap/0xide-papirus-folders" "$PH" &&
+        ok "install puts the helper in place, from tracked source, before the rule that names it" ||
+        no "sudoers install: exit $rc, calls: $(tr '\n' ';' < "$pb/calls" 2>/dev/null)"
+    [ "$(grep -v '^#' "$pb/cap/0xide" | grep -v '^$')" = "$(id -un) ALL=(root) NOPASSWD: /usr/local/libexec/0xide-papirus-folders" ] &&
+        ok "the installed rule names the helper, for the running user only" || no "installed rule: $(grep -v '^#' "$pb/cap/0xide")"
+    grep -q '/usr/local/libexec/0xide-papirus-folders  (root:root 0755' <<<"$out" && grep -q 'syntax checked with visudo -c' <<<"$out" &&
+        ok "install prints both privileged changes and checks the rule first" || no "install output: $out"
+    : > "$pb/calls"
+    pbenv bash "$OX_ROOT/system/sudoers/remove" >/dev/null 2>&1
+    grep -qx 'rm -f -- /etc/sudoers.d/0xide /etc/sudoers.d/caelestia-mod' "$pb/calls" && grep -qx 'rm -f -- /usr/local/libexec/0xide-papirus-folders' "$pb/calls" &&
+        ok "remove takes back the rule and the helper" || no "sudoers remove: $(tr '\n' ';' < "$pb/calls")"
+
+    # apply and status, with a stand-in helper and papirus-folders.
+    printf '#!/bin/sh\necho "$@" > "%s/helped"; [ "$1" = bad ] && { echo "bad is not a Papirus folder colour" >&2; exit 2; }; exit 0\n' "$pb" > "$pb/helper"
+    printf '#!/bin/sh\nexit 0\n' > "$pb/bin/papirus-folders"
+    chmod +x "$pb/helper" "$pb/bin/papirus-folders"
+    printf '{"colours": {"primary": "4a90d9"}}\n' > "$pb/s/caelestia/scheme.json"
+    echo papirus > "$pb/c/0xide/adapters.enabled"
+    pst() { pbenv env OX_PAPIRUS_HELPER="$pb/helper" "$OX_ROOT/adapters/papirus/status"; }
+    pap() { pbenv env OX_PAPIRUS_HELPER="$pb/helper" "$OX_ROOT/adapters/papirus/apply"; }
+    hook() { pbenv env OX_PAPIRUS_HELPER="$pb/helper" "$OX_ROOT/orchestration/hooks/post-theme" >/dev/null 2>&1; cat "$pb/s/0xide/post-theme.log"; }
+    if [ ! -d /usr/share/icons/Papirus ]; then
+        out="$(pap)"; rc=$?
+        [ "$rc" = 3 ] && grep -q 'the Papirus icon theme is not installed' <<<"$out" &&
+            ok "without the Papirus theme, apply says so and does not claim success" || no "no Papirus theme: $rc $out"
+        skipt "the Papirus icon theme is not installed here, so the rest of apply is not driven"
+    elif ! "$(ox_python)" -c 'import caelestia.utils.theme' 2>/dev/null; then
+        skipt "caelestia-cli's Python module is missing, so its colour mapping cannot be captured"
+    else
+        out="$(pap)"; rc=$?
+        [ "$rc" = 3 ] && grep -q 'helper is not installed; install it with ./install --enable sudoers' <<<"$out" && [ ! -e "$pb/helped" ] &&
+            ok "without the helper's rule, apply says what to install and changes nothing" || no "no rule: $rc $out"
+        grep -qx 'papirus not applied (see above)' <<<"$(hook)" && ok "and the theme log says not applied, not ok" || no "post-theme: $(hook)"
+        grep -q 'will NOT track the scheme' <<<"$(pst)" && ok "status says folders will not follow the scheme" || no "status without rule: $(pst)"
+        echo "$pb/helper" > "$pb/rule"
+        out="$(pap)"; rc=$?
+        c="$(cat "$pb/helped" 2>/dev/null)"
+        [ "$rc" = 0 ] && [ -n "$c" ] && [[ "$c" =~ ^[a-z]+$ ]] && grep -q "folders recoloured $c" <<<"$out" &&
+            ok "with the rule, apply recolours through the helper with Caelestia's own colour ($c)" || no "with rule: $rc $out"
+        grep -qx "papirus: ok, folders recoloured $c" <<<"$(pst)" && ok "status reports what the last theme change did" || no "status after apply: $(pst)"
+        grep -qx 'papirus ok ([0-9]*s)' <<<"$(hook)" && ok "the theme log says ok only when it applied" || no "post-theme ok: $(hook)"
+        printf '#!/bin/sh\necho "bad is not a Papirus folder colour" >&2; exit 2\n' > "$pb/helper"
+        out="$(pap)"; rc=$?
+        [ "$rc" = 1 ] && grep -q 'last theme change: the helper refused or failed: bad is not a Papirus folder colour' <<<"$(pst)" &&
+            grep -q '^papirus FAILED (exit 1)$' <<<"$(hook)" &&
+            ok "a refusal by the helper is a failure, in the log and in status" || no "helper refusal: $rc $(pst)"
+        echo "/usr/bin/papirus-folders -C *" > "$pb/rule"
+        grep -q 'older, wider sudo rule for papirus-folders' <<<"$(pst)" && ok "status warns about the old, wider rule" || no "old rule not reported: $(pst)"
+    fi
+    : > "$pb/c/0xide/adapters.enabled"
+    [ "$(pst)" = "papirus: not enabled" ] && ok "status says not enabled when it is not" || no "status disabled: $(pst)"
+    rm -rf "$pb"
+fi
+
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"
 [ -z "$dups" ] && ok "every shell patch has its own number, so glob order is the series order" || no "duplicate patch numbers: $dups"
