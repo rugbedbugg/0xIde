@@ -873,6 +873,35 @@ PY
         [ "$listed" = "de en" ] && [ -z "$(find "$td/data/0xide/translate" -maxdepth 1 -name '*es*')" ] &&
         ok "a language that half installs is rolled back, and is not listed as installed" ||
         no "a half-installed language: exit $rc, installed: $listed, left: $(cd "$td/data/0xide/translate" && ls -d ./*es* 2>/dev/null | tr '\n' ' ')"
+
+    # Stopped from outside while the second direction downloads: a FIFO as
+    # Italian's way back blocks there until it is written to.
+    "$PY" - "$td" <<'PY'
+import json, os, shutil, sys
+td = sys.argv[1]
+shutil.copy(f"{td}/pkg/en_fr.zip", f"{td}/pkg/en_it.zip")
+os.mkfifo(f"{td}/pkg/it_en.fifo")
+index = json.load(open(f"{td}/index.json"))
+for a, b, link in (("en", "it", "en_it.zip"), ("it", "en", "it_en.fifo")):
+    index.append({"from_code": a, "to_code": b, "from_name": a, "to_name": b, "code": f"translate-{a}_{b}",
+                  "links": [f"file://{td}/pkg/{link}"]})
+json.dump(index, open(f"{td}/index.json", "w"))
+PY
+    listed() { tr_run status | "$PY" -c 'import json,sys; print(" ".join(json.loads(sys.stdin.read())["installed"]))'; }
+    # Python itself in the background, not a subshell, so the signal reaches it.
+    XDG_DATA_HOME="$td/data" "$PY" "$td/assets/translate.py" install it > "$td/term.out" 2>&1 &
+    tp=$!
+    for _ in $(seq 50); do [ -e "$td/data/0xide/translate/en_it" ] && break; sleep 0.1; done
+    sleep 0.3; kill -TERM "$tp"; wait "$tp"; rc=$?
+    [ "$rc" = 130 ] && grep -q '"stage": "cancelled"' "$td/term.out" && [ "$(listed)" = "de en" ] &&
+        [ -z "$(find "$td/data/0xide/translate" -maxdepth 1 -name '*it*')" ] &&
+        ok "an install stopped with SIGTERM rolls back what it added" || no "SIGTERM mid-install: $rc, installed: $(listed), $(cat "$td/term.out")"
+    XDG_DATA_HOME="$td/data" "$PY" "$td/assets/translate.py" install it > /dev/null 2>&1 &
+    tp=$!
+    for _ in $(seq 50); do [ -e "$td/data/0xide/translate/en_it" ] && break; sleep 0.1; done
+    sleep 0.3; kill -KILL "$tp"; wait "$tp" 2>/dev/null
+    [ -e "$td/data/0xide/translate/en_it/model/model.bin" ] && [ "$(listed)" = "de en" ] &&
+        ok "one direction left by a killed install is not listed as a language" || no "after SIGKILL: installed: $(listed)"
 fi
 rm -rf "$td"
 
