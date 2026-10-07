@@ -2361,9 +2361,44 @@ out="$(frinst 0 --only shell)"; rc=$?
 out="$(frinst 1 --only shell --dry-run)"; rc=$?
 [ "$rc" -eq 0 ] && ! grep -q STUB-RAN <<<"$out" && grep -q 'would run: shell/build.sh' <<<"$out" &&
     ok "a dry run neither builds the shell nor fails" || no "--dry-run with the shell exited $rc"
-out="$(frinst 1 --only firefox)"; rc=$?
-[ "$rc" -eq 0 ] && grep -q STUB-RAN <<<"$out" && grep -q 'Done' <<<"$out" &&
-    ok "a tolerated component failure still does not stop the install" || no "a firefox failure now stops ./install"
+out="$(frinst 1 --only firefox --only kde)"; rc=$?
+# Any other component that fails does not stop the ones after it, but the run
+# no longer ends in Done: it names what did not take effect and exits 1.
+[ "$rc" -eq 1 ] && grep -q STUB-RAN <<<"$out" && grep -q 'would enable adapter kde\|kde  \[theme adapter' <<<"$out" &&
+    grep -q 'Optional dependencies' <<<"$out" && grep -q 'these did not take effect: firefox ' <<<"$out" && ! grep -qx '.*Done.*' <<<"$out" &&
+    ok "a failed component does not stop the rest, but the run ends Not done, naming it, exit 1" ||
+    no "after a firefox failure ./install exited $rc: $(tail -3 <<<"$out" | tr '\n' ' ')"
+out="$(frinst 0 --only firefox)"; rc=$?
+[ "$rc" -eq 0 ] && grep -q 'Done' <<<"$out" && ! grep -q 'Not done' <<<"$out" &&
+    ok "a component that installs still ends in Done with exit 0" || no "a successful firefox install exited $rc"
+out="$(frinst 1 --only firefox --dry-run)"; rc=$?
+[ "$rc" -eq 0 ] && ! grep -q STUB-RAN <<<"$out" && grep -q 'Done' <<<"$out" &&
+    ok "a dry run does not count the steps it skips as failures" || no "a dry run of firefox exited $rc"
+
+# An override whose target cannot be updated is reported in a line, left as it
+# is, and counted, rather than a traceback followed by Done.
+mkdir -p "$fr/xdg/c/zed" "$fr/xdg/c/foot"
+printf '{ "theme": "x, "a": 1 }' > "$fr/xdg/c/zed/settings.json"
+cp "$fr/xdg/c/zed/settings.json" "$fr/zed.before"
+cp "$OX_ROOT/installer/apply_overlay.py" "$fr/repo/installer/"
+mkdir -p "$fr/repo/overrides/zed" "$fr/repo/overrides/foot"
+cp "$OX_ROOT/overrides/zed/overlay.jsonc" "$fr/repo/overrides/zed/"
+cp "$OX_ROOT/overrides/foot/overlay.conf" "$fr/repo/overrides/foot/"
+out="$(frinst 0 --only zed)"; rc=$?
+[ "$rc" -eq 1 ] && grep -q 'settings.json: could not be read as jsonc' <<<"$out" && ! grep -q Traceback <<<"$out" &&
+    grep -q 'these did not take effect: zed ' <<<"$out" && cmp -s "$fr/zed.before" "$fr/xdg/c/zed/settings.json" &&
+    ok "a Zed settings file it cannot read is left untouched and reported, exit 1" ||
+    no "a malformed Zed settings file: exit $rc, $(grep -m1 -E 'Traceback|could not' <<<"$out")"
+printf 'font=x\n' > "$fr/xdg/c/foot/foot.ini"; chmod 444 "$fr/xdg/c/foot/foot.ini"; chmod 555 "$fr/xdg/c/foot"
+out="$(frinst 0 --only foot)"; rc=$?
+chmod 755 "$fr/xdg/c/foot"
+[ "$rc" -eq 1 ] && grep -q 'foot.ini: could not be written' <<<"$out" && ! grep -q Traceback <<<"$out" &&
+    grep -q 'these did not take effect: foot ' <<<"$out" &&
+    ok "a foot.ini it cannot write is reported, exit 1" || no "a read-only foot.ini: exit $rc"
+rm -f "$fr/xdg/c/foot/foot.ini"
+out="$(frinst 0 --only foot)"; rc=$?
+[ "$rc" -eq 0 ] && grep -q 'does not exist, skipping' <<<"$out" && grep -q Done <<<"$out" &&
+    ok "an application that is not set up is still a skip, not a failure" || no "a missing foot.ini exited $rc"
 rm -rf "$fr"
 
 ox_step "Shell hand-off"

@@ -263,9 +263,15 @@ def main() -> int:
         print(f"{target}: does not exist, skipping", file=sys.stderr)
         return 0
 
-    original = target.read_text()
-    wanted = parse_overlay(overlay.read_text())
-    updated, changes = apply_jsonc(original, wanted) if style == "jsonc" else apply(original, wanted, style)
+    # As for --json, a target that cannot be read or scanned is left as it is
+    # and reported in one line, with exit 2, rather than as a traceback.
+    try:
+        original = target.read_text()
+        wanted = parse_overlay(overlay.read_text())
+        updated, changes = apply_jsonc(original, wanted) if style == "jsonc" else apply(original, wanted, style)
+    except (OSError, UnicodeDecodeError, ValueError, IndexError) as err:
+        print(f"{target}: could not be read as {style} ({err or type(err).__name__}); left untouched", file=sys.stderr)
+        return 2
 
     if not changes:
         print(f"{target.name}: already current")
@@ -275,7 +281,11 @@ def main() -> int:
             print(f"{target.name}: would set {change}")
         return 1
 
-    target.write_text(updated)
+    try:
+        target.write_text(updated)
+    except OSError as err:
+        print(f"{target}: could not be written ({err.strerror or err}); left untouched", file=sys.stderr)
+        return 2
     for change in changes:
         print(f"{target.name}: set {change}")
     return 0
