@@ -3768,6 +3768,9 @@ grep -qF 'onPressed: Keybinds.toggle()' "$KBH" && grep -qF 'name: "shortcuts"' "
 ! grep -qE 'implicitHeight: contentHeight|layout\.implicitHeight' "$KBH" &&
     ok "the card's size does not follow the list, which would build every row at once" ||
     no "the card's height follows the list's content"
+grep -qF 'visible: !Keybinds.annotated && !Keybinds.loading && !Keybinds.error && Keybinds.binds.length > 0' "$KBH" &&
+    grep -qF 'root.annotated = data.annotated !== false;' "$OX_ROOT/shell/extensions/shortcuts/tree/services/Keybinds.qml" &&
+    ok "binds without 0xIde's annotations are still listed, under a banner that says why" || no "missing annotations are not explained"
 grep -qF 'active: Keybinds.open' "$KBH" && ! grep -qE '\b(Timer|FileView|SocketServer)\b' "$KBH" "$OX_ROOT/shell/extensions/shortcuts/tree/services/Keybinds.qml" &&
     ok "18. no window exists while closed, and nothing in it runs on a timer" || no "the overlay keeps something running while closed"
 grep -qF 'hl.bind(vars[name], dispatcher, { description = "[0xIde] " .. description })' "$OX_ROOT/overrides/caelestia/hypr-user.lua" &&
