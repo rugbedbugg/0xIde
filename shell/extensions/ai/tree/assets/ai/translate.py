@@ -182,6 +182,11 @@ def route(source, target):
     return None
 
 
+def stage(name):
+    """Where a translation is, for the shell: on stderr, as stdout is the text."""
+    print(json.dumps({'stage': name}), file=sys.stderr, flush=True)
+
+
 def translate(source, target, text):
     chain = route(source, target)
     if chain is None:
@@ -193,12 +198,17 @@ def translate(source, target, text):
         except ImportError:
             # Run again with the pinned packages, in uv's cached environment.
             if os.environ.get('OXIDE_TRANSLATE_REEXEC'):
-                raise
+                raise RuntimeError('The offline translation runtime (ctranslate2, sentencepiece) '
+                                   'could not be prepared; see the error above') from None
+            # The first time, uv downloads the packages: tens of MB, with no
+            # byte count to show, so the shell says it is preparing instead.
+            stage('preparing')
             os.environ['OXIDE_TRANSLATE_REEXEC'] = '1'
             command = ['uv', 'run', '--no-project', '--python', MANIFEST['runtime']['python']]
             for package in MANIFEST['runtime']['packages']:
                 command += ['--with', package]
             os.execvp('uv', command + ['python', __file__, 'translate', source, target, text])
+    stage('translating')
     for pair in chain:
         text = translate_pair(pair, text)
     sys.stdout.write(text)
