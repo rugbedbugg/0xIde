@@ -133,15 +133,7 @@ overlay() {
 # An adapter names the commands it needs in its adapter.conf. Missing ones mean
 # the target application is not installed, which is a reason to skip it, not to
 # fail: a user who has no Spotify should still be able to run ./install.
-adapter_missing() {
-    local conf="$OX_ROOT/adapters/$1/adapter.conf" req cmd missing=""
-    [ -f "$conf" ] || return 0
-    req="$(ox_pin "$conf" requires)"
-    for cmd in ${req//,/ }; do
-        ox_have "$cmd" || missing="$missing $cmd"
-    done
-    printf '%s' "${missing# }"
-}
+adapter_missing() { ox_adapter_missing "$1"; }
 
 enable_adapter() {
     [ "$DRY" = 1 ] && { ox_log "would enable adapter $1"; return 0; }

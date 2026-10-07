@@ -1,20 +1,30 @@
 #!/usr/bin/env bash
-# Reports whether the recoloured cursor theme exists and follows the scheme.
+# Whether the recoloured cursor theme follows the scheme, and if not, why. Not
+# being enabled is not a broken installation, and is not reported as one.
 set -uo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
 
 theme="$XDG_DATA_HOME/icons/0xide-sweet"
+missing="$(ox_adapter_missing cursor)"
+if ! ox_adapter_enabled cursor; then
+    echo "cursor: not enabled${missing:+ (it needs $missing)}"
+    exit 0
+fi
+[ -z "$missing" ] || { echo "cursor: enabled, but $missing is not installed, so the theme cannot be rebuilt"; exit 1; }
+
 for d in "$XDG_DATA_HOME/icons" "$HOME/.icons" /usr/local/share/icons /usr/share/icons; do
     [ -d "$d/Sweet-cursors/cursors_scalable" ] && { src=1; break; }
 done
-
 if [ -z "${src:-}" ]; then
-    echo "cursor: Sweet is not installed, so there is nothing to recolour"
+    echo "cursor: enabled, but Sweet is not installed, so there is nothing to recolour"
     echo "        Install it with: yay -S sweet-cursors-git"
     exit 1
 fi
+case "$(ox_theme_result cursor)" in
+    FAILED*) echo "cursor: the last theme change failed to rebuild it; see $OX_STATE/post-theme.log"; exit 1 ;;
+esac
 if [ ! -r "$theme/index.theme" ]; then
-    echo "cursor: 0xide-sweet has not been built yet; it is built on the next theme change"
-    exit 1
+    echo "cursor: ready; 0xide-sweet is built on the next theme change"
+    exit 0
 fi
 echo "cursor: ok, 0xide-sweet follows the scheme"
