@@ -348,7 +348,10 @@ install_voice() {
     fi
 }
 main() {
-    while IFS= read -r line; do
+    # The list is read on its own descriptor: a component that asks before
+    # installing (sudoers, sddm) reads its answer from stdin, which must stay
+    # the terminal, not the next line of this list.
+    while IFS= read -r -u 3 line; do
         name="$(field "$line" 1)"; kind="$(field "$line" 2)"; default="$(field "$line" 3)"
         selected "$name" "$default" || continue
 
@@ -418,7 +421,7 @@ main() {
                 if [ "$DRY" = 1 ]; then OX_DRY_RUN=1 "$OX_ROOT/system/$name/install" || failed "$name"
                 else "$OX_ROOT/system/$name/install" || failed "$name"; fi ;;
         esac
-    done < <(components)
+    done 3< <(components)
 
     ox_step "Optional dependencies"
     "$OX_ROOT/installer/check_deps.sh" | grep -E '^\s+(MISSING|absent)' || ox_log "all present"
