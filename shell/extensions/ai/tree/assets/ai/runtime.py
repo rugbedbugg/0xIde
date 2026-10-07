@@ -276,6 +276,8 @@ def main():
                     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     break
                 except BlockingIOError:
+                    if attempt == 0 and action == 'install':
+                        emit(stage='waiting', message='Waiting for the local model to stop')
                     if attempt == 9:
                         raise RuntimeError('The local model is already running or being installed') from None
                     time.sleep(1)
@@ -293,6 +295,14 @@ def main():
         emit(stage='cancelled')
         return 130
     except Exception as error:
+        # The log the shell points at has to hold the reason, download
+        # failures included, not only the output of the build commands.
+        if action == 'install':
+            try:
+                with (ROOT / 'install.log').open('a') as log:
+                    log.write(f'install failed: {error}\n')
+            except OSError:
+                pass
         emit(stage='error', error=str(error))
         return 1
     finally:

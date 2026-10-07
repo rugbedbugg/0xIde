@@ -138,7 +138,7 @@ ColumnLayout {
         wrapMode: Text.Wrap
         color: Colours.palette.m3outline
         font: Tokens.font.label.large
-        text: AiRuntime.info.installed ? qsTr("Installed, %1 MiB").arg(Math.round((AiRuntime.info.diskBytes ?? 0) / 1048576)) : qsTr("Not installed")
+        text: AiRuntime.installing ? qsTr("Installing") : AiRuntime.info.installed ? qsTr("Installed, %1 MiB").arg(Math.round((AiRuntime.info.diskBytes ?? 0) / 1048576)) : qsTr("Not installed")
     }
     RowLayout {
         Layout.fillWidth: true
@@ -185,7 +185,7 @@ ColumnLayout {
     // paragraph about tools most people already have.
     StyledText {
         Layout.fillWidth: true
-        visible: !AiRuntime.info.installed && root.missing.length > 0
+        visible: !AiRuntime.info.installed && root.missing.length > 0 && !root.confirmInstall
         wrapMode: Text.Wrap
         color: Colours.palette.m3error
         font: Tokens.font.label.large
@@ -194,10 +194,10 @@ ColumnLayout {
 
     StyledText {
         Layout.fillWidth: true
-        visible: root.confirmInstall
+        visible: root.confirmInstall && !!AiRuntime.info.destination
         wrapMode: Text.Wrap
         font: Tokens.font.label.large
-        text: qsTr("Downloads %1 MiB into %2. %3 MiB free.").arg(Math.round((AiRuntime.info.downloadBytes ?? 0) / 1048576)).arg(AiRuntime.info.destination ?? "").arg(Math.round((AiRuntime.info.freeBytes ?? 0) / 1048576))
+        text: qsTr("Builds the runtime and downloads %1 MiB into %2. Needs %3 GiB free.").arg(Math.round((AiRuntime.info.downloadBytes ?? 0) / 1048576)).arg(AiRuntime.info.destination ?? "").arg(AiRuntime.gib(AiRuntime.info.requiredBytes))
     }
     RowLayout {
         visible: root.confirmInstall
@@ -206,7 +206,7 @@ ColumnLayout {
         TextButton {
             type: TextButton.Tonal
             text: qsTr("Download")
-            disabled: !AiRuntime.info.destination || root.missing.length > 0 || AiRuntime.info.freeBytes < AiRuntime.info.requiredBytes
+            disabled: !!AiRuntime.installBlocker
             onClicked: {
                 root.confirmInstall = false;
                 AiRuntime.install();
@@ -217,6 +217,20 @@ ColumnLayout {
             text: qsTr("Cancel")
             onClicked: root.confirmInstall = false
         }
+    }
+    // A disabled Download always says why.
+    StyledText {
+        Layout.fillWidth: true
+        visible: root.confirmInstall && !!AiRuntime.installBlocker
+        wrapMode: Text.Wrap
+        font: Tokens.font.label.large
+        color: Colours.palette.m3error
+        text: AiRuntime.installBlocker
+    }
+    AiInstallProgress {
+        id: progress
+
+        Layout.fillWidth: true
     }
 
     StyledText {
@@ -244,9 +258,10 @@ ColumnLayout {
             onClicked: root.confirmRemove = false
         }
     }
+    // Whatever is not the installer's: the status check, the server, removal.
     StyledText {
         Layout.fillWidth: true
-        visible: !!(AiRuntime.error || AiRuntime.message)
+        visible: !progress.shown && !(root.confirmInstall && AiRuntime.installBlocker) && !!(AiRuntime.error || AiRuntime.message)
         wrapMode: Text.Wrap
         font: Tokens.font.label.large
         color: AiRuntime.error ? Colours.palette.m3error : Colours.palette.m3outline

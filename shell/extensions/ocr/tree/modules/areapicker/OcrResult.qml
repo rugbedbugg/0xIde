@@ -360,9 +360,13 @@ Item {
             }
 
             // One banner shape for every message this card needs to show.
+            // With settings closed, it is also where an installation in
+            // progress stays visible.
             StyledRect {
+                readonly property bool installing: AiRuntime.installing && !root.showSettings
+
                 Layout.fillWidth: true
-                visible: !!root.notice || root.offerInstall
+                visible: !!root.notice || root.offerInstall || installing
                 radius: Tokens.rounding.medium
                 color: Colours.palette.m3tertiaryContainer
                 implicitHeight: banner.implicitHeight + Tokens.padding.medium * 2
@@ -376,8 +380,16 @@ Item {
                     anchors.margins: Tokens.padding.medium
                     spacing: Tokens.spacing.small
 
+                    AiInstallProgress {
+                        Layout.fillWidth: true
+                        visible: AiRuntime.installing && !root.showSettings
+                        textColour: Colours.palette.m3onTertiaryContainer
+                        subtleColour: Colours.palette.m3onTertiaryContainer
+                        accentColour: Colours.palette.m3onTertiaryContainer
+                    }
                     RowLayout {
                         Layout.fillWidth: true
+                        visible: !!root.notice || root.offerInstall
                         spacing: Tokens.spacing.small
 
                         MaterialIcon {

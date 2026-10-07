@@ -205,6 +205,11 @@ PageBase {
             icon: "memory"
             label: qsTr("Status")
             subtext: {
+                // The installer's own progress and errors are in full below.
+                if (AiRuntime.installing)
+                    return AiRuntime.stageLabel(AiRuntime.stage);
+                if (installProgress.shown)
+                    return root.installed ? qsTr("%1 MiB on disk").arg(root.mib(AiRuntime.info.diskBytes)) : qsTr("Not downloaded");
                 if (AiRuntime.error)
                     return AiRuntime.error;
                 if (AiRuntime.message)
@@ -215,6 +220,22 @@ PageBase {
             }
             value: AiRuntime.installing ? qsTr("Installing") : root.installed ? qsTr("Installed") : qsTr("Not installed")
             iconColour: AiRuntime.error ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
+        }
+
+        ConnectedRect {
+            Layout.fillWidth: true
+            visible: installProgress.shown
+            implicitHeight: installProgress.implicitHeight + Tokens.padding.medium * 2
+
+            AiInstallProgress {
+                id: installProgress
+
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: Tokens.padding.largeIncreased
+                anchors.rightMargin: Tokens.padding.largeIncreased
+            }
         }
 
         RowButton {
@@ -232,7 +253,7 @@ PageBase {
             label: qsTr("Install")
             header: qsTr("Install the local model?")
             acceptLabel: qsTr("Download")
-            acceptAllowed: !!AiRuntime.info.destination && root.missing.length === 0 && (AiRuntime.info.freeBytes ?? 0) >= (AiRuntime.info.requiredBytes ?? 0)
+            acceptAllowed: !AiRuntime.installBlocker
             onOpenChanged: {
                 if (open)
                     AiRuntime.refresh();
@@ -243,12 +264,9 @@ PageBase {
                 StyledText {
                     wrapMode: Text.Wrap
                     font: Tokens.font.body.small
-                    color: root.missing.length > 0 ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
-                    text: {
-                        if (root.missing.length > 0)
-                            return qsTr("Install first: %1").arg(root.missing.join(", "));
-                        return qsTr("Downloads %1 MiB into %2. %3 MiB free.").arg(root.mib(AiRuntime.info.downloadBytes)).arg(AiRuntime.info.destination ?? "").arg(root.mib(AiRuntime.info.freeBytes));
-                    }
+                    // A disabled Download always says why.
+                    color: AiRuntime.installBlocker ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
+                    text: AiRuntime.installBlocker || qsTr("Builds the runtime and downloads %1 MiB into %2. Needs %3 GiB free.").arg(root.mib(AiRuntime.info.downloadBytes)).arg(AiRuntime.info.destination ?? "").arg(AiRuntime.gib(AiRuntime.info.requiredBytes))
                 }
             }
         }

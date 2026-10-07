@@ -190,13 +190,19 @@ The local backend runs Microsoft's
 [`manifests/ai.toml`](manifests/ai.toml) pins both revisions and the model's SHA-256.
 
 Install it from **OCR & AI** in the shell's settings, or say yes when the AI panel offers
-it the first time you ask. The page lists any missing build tools before it starts, and
-shows progress while it runs. It then:
+it the first time you ask. If Download cannot be pressed, the reason is shown under it:
+missing build tools, too little disk, or the check still running. It then:
 
 1. checks for the tools above and about 4.1 GiB of free disk,
-2. downloads `ggml-model-i2_s.gguf`, about 1.1 GiB, and verifies its hash,
-3. builds BitNet.cpp for your CPU, which takes several minutes,
-4. starts the model once as a health check.
+2. fetches the pinned BitNet.cpp source,
+3. builds it for your CPU, which takes several minutes,
+4. downloads `ggml-model-i2_s.gguf`, about 1.1 GiB, and verifies its hash,
+5. starts the model once as a health check.
+
+Both places show the current step, the time spent on it, and a progress bar: the
+downloaded bytes while downloading, a moving bar for steps that report no amount. It keeps
+going if you close the panel, and the AI panel shows it in its banner. A failure shows the
+installer's own error, the step, and `install.log`; Cancel stops it and keeps nothing.
 
 Everything goes in `$XDG_DATA_HOME/0xide/ai` (`~/.local/share/0xide/ai`), and **Uninstall**
 on the same page deletes it. From a terminal, the same installer is:
