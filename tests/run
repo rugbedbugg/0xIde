@@ -4582,8 +4582,12 @@ line() { grep -E "^  $1: " <<<"$out" | head -1 | sed -E "s/^  $1: +//"; }
 out="$(stx "$OX_ROOT/install" --status 2>&1)"; rc=$?
 [ "$rc" = 1 ] && [ "$(line overrides)" = "not installed; run ./install --only overrides" ] &&
     ok "a fresh home: the overrides are reported missing, and status exits 1" || no "fresh overrides: $rc $(line overrides)"
+# The system components live outside the private home, so their line is only
+# known here when this machine has none of them.
+sys_ok=1
+[ -e /usr/local/libexec/0xide-papirus-folders ] || [ "$(line sudoers)" = "not installed (optional: ./install --enable sudoers)" ] || sys_ok=0
 [ "$(line voice)" = "not installed (optional: ./install --enable voice)" ] && [ "$(line shell)" = "not installed (optional: ./install --enable shell)" ] &&
-    [ "$(line sudoers)" = "not installed (optional: ./install --enable sudoers)" ] && [ "$(line kde)" = "not enabled" ] &&
+    [ "$sys_ok" = 1 ] && [ "$(line kde)" = "not enabled" ] &&
     ok "optional components that are off say so, without counting as broken" || no "fresh optional: $out"
 grep -q '^  foot: *not set up here (no ~/c/foot/foot.ini)' <<<"$(stx env HOME="$sx/h" "$OX_ROOT/install" --status 2>&1 | sed "s|$sx/h|~|g")" &&
     ok "an application that is not set up is not a problem" || no "foot without foot.ini: $(line foot)"
