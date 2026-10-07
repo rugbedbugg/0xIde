@@ -113,6 +113,23 @@ run() {
     "$@"
 }
 
+# Components that did not take effect. The rest still install, as before, but
+# the run ends by naming these and exits 1 rather than printing Done.
+declare -a FAILED=()
+failed() { FAILED+=("$1"); }
+
+# apply_overlay.py exits 0 when the target is current or was updated, 1 when a
+# dry run would change it, and 2 (or a crash) when it could not update it.
+overlay() {
+    local name="$1"; shift
+    "$(ox_python)" "$OX_ROOT/installer/apply_overlay.py" "$@" $CHECK
+    case $? in
+        0) ;;
+        1) [ "$DRY" = 1 ] || failed "$name" ;;
+        *) failed "$name" ;;
+    esac
+}
+
 # An adapter names the commands it needs in its adapter.conf. Missing ones mean
 # the target application is not installed, which is a reason to skip it, not to
 # fail: a user who has no Spotify should still be able to run ./install.
@@ -144,7 +161,8 @@ install_overrides() {
         "$OX_ROOT/overrides/caelestia/shell.json" "$OX_CAELCONF/shell.json" --json $CHECK
     case $? in
         0|1) ;;
-        *) ox_warn "shell.json was left as it is; fix it and run ./install --only overrides again" ;;
+        *) ox_warn "shell.json was left as it is; fix it and run ./install --only overrides again"
+           failed overrides ;;
     esac
     # cli.json and hypr-user.lua carry this checkout's path, so they are
     # rendered, not copied.
@@ -173,6 +191,11 @@ install_voice() {
     fi
     run ox_own "$dest"
     [ "$DRY" = 1 ] && return 0
+    if ! ox_have pactl; then
+        ox_warn "pactl is not installed, so the noise-suppressed microphone cannot be found or made the default; install it (libpulse) and run ./install --only voice again"
+        failed voice
+        return 0
+    fi
     local tries=0
     until pactl list short sources 2>/dev/null | grep -q '\b0xide_voice\b' || [ "$tries" -ge 40 ]; do
         sleep 0.25; tries=$((tries + 1))
@@ -181,6 +204,7 @@ install_voice() {
         ox_log "default microphone: noise suppressed"
     else
         ox_warn "the noise-suppressed microphone did not appear; see journalctl --user -u pipewire"
+        failed voice
     fi
 }
 
@@ -199,20 +223,14 @@ main() {
         case "$kind:$name" in
             overrides:overrides) install_overrides ;;
             overrides:foot)
-                "$(ox_python)" "$OX_ROOT/installer/apply_overlay.py" \
-                    "$OX_ROOT/overrides/foot/overlay.conf" "$XDG_CONFIG_HOME/foot/foot.ini" \
-                    --ini $CHECK || true ;;
+                overlay foot "$OX_ROOT/overrides/foot/overlay.conf" "$XDG_CONFIG_HOME/foot/foot.ini" --ini ;;
             overrides:starship)
-                "$(ox_python)" "$OX_ROOT/installer/apply_overlay.py" \
-                    "$OX_ROOT/overrides/starship/overlay.toml" "$XDG_CONFIG_HOME/starship.toml" \
-                    --toml $CHECK || true ;;
+                overlay starship "$OX_ROOT/overrides/starship/overlay.toml" "$XDG_CONFIG_HOME/starship.toml" --toml ;;
             overrides:zed)
-                "$(ox_python)" "$OX_ROOT/installer/apply_overlay.py" \
-                    "$OX_ROOT/overrides/zed/overlay.jsonc" "$XDG_CONFIG_HOME/zed/settings.json" \
-                    --jsonc $CHECK || true ;;
+                overlay zed "$OX_ROOT/overrides/zed/overlay.jsonc" "$XDG_CONFIG_HOME/zed/settings.json" --jsonc ;;
             overrides:voice) install_voice ;;
             overrides:firefox)
-                run "$OX_ROOT/overrides/firefox/install" || true ;;
+                run "$OX_ROOT/overrides/firefox/install" || { [ "$DRY" = 1 ] || failed firefox; } ;;
             shell:*)
                 # Unlike an adapter, a shell that did not build is not a skip:
                 # stop here, with its error the last thing on screen, so it is
@@ -240,18 +258,29 @@ main() {
                     ox_log "skipped: needs $missing"
                     continue
                 fi
-                [ -x "$OX_ROOT/adapters/$name/install" ] && run "$OX_ROOT/adapters/$name/install"
+                # An adapter whose setup failed is not enabled.
+                if [ -x "$OX_ROOT/adapters/$name/install" ] && ! run "$OX_ROOT/adapters/$name/install" &&
+                    [ "$DRY" != 1 ]; then
+                    failed "$name"
+                    continue
+                fi
                 [ -x "$OX_ROOT/adapters/$name/apply" ] && enable_adapter "$name"
                 : ;;
             system:*)
                 if [ "$DRY" = 1 ]; then ox_log "would run $OX_ROOT/system/$name/install (it will ask first)"
-                else "$OX_ROOT/system/$name/install"; fi ;;
+                else "$OX_ROOT/system/$name/install" || failed "$name"; fi ;;
         esac
     done < <(components)
 
     ox_step "Optional dependencies"
     "$OX_ROOT/installer/check_deps.sh" | grep -E '^\s+(MISSING|absent)' || ox_log "all present"
 
+    if [ ${#FAILED[@]} -gt 0 ]; then
+        ox_step "Not done"
+        ox_log "these did not take effect: ${FAILED[*]} (see the messages under each above)"
+        ox_log "fix them, then run ./install --only <name> for each"
+        exit 1
+    fi
     ox_step "Done"
     ox_log "check it with: ./install --status"
 }
