@@ -121,6 +121,7 @@ Scope {
         error = "";
         // Left over from the last run, it would hide a server that never started.
         server.didExit = false;
+        server.launch++;
         server.running = true;
     }
     function release(): void {
@@ -295,6 +296,10 @@ Scope {
 
         property bool didExit: false
 
+        // Which launch this is: a restart starts the next one before the last
+        // one's end has been looked at, and that must not judge the new one.
+        property int launch: 0
+
         command: ["uv", "run", "--no-project", "--python", "3.13", root.helper, "serve", "--owner", String(Quickshell.processId)]
         stdout: SplitParser {
             onRead: line => {
@@ -317,8 +322,9 @@ Scope {
                 didExit = false;
             } else {
                 root.stopping = false;
+                const launch = server.launch;
                 Qt.callLater(() => {
-                    if (!server.didExit)
+                    if (launch === server.launch && !server.didExit)
                         root.error = qsTr("Could not start local AI. Install uv first.");
                 });
             }

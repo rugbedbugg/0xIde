@@ -4551,6 +4551,44 @@ for f in "$OX_ROOT/shell/extensions/ai/tree/modules/nexus/pages/AiPage.qml" "$OX
         bad="$bad $(basename "$f")"
 done
 [ -z "$bad" ] && ok "Stop server is offered only while a server is starting or running" || no "Stop server shown without a server in:$bad"
+if ox_have qs; then
+    nx="$(mktemp -d)"
+    mkdir -p "$nx/cfg/services" "$nx/bin" "$nx/run"
+    cp "$OX_ROOT/shell/extensions/ai/tree/services/AiRuntime.qml" "$nx/cfg/services/"
+    cat > "$nx/cfg/shell.qml" <<'QML'
+import QtQuick
+import Quickshell
+import qs.services
+
+ShellRoot {
+    property var r: ({})
+    Timer {
+        interval: 400
+        repeat: true
+        running: true
+        property int n: 0
+        onTriggered: {
+            n++;
+            if (n === 1) {
+                AiRuntime.start();
+            } else if (n === 3) {
+                r.first = AiRuntime.error.startsWith("Could not start local AI") && AiRuntime.serverState === "";
+                AiRuntime.error = "";
+                AiRuntime.start();
+            } else if (n === 5) {
+                r.again = AiRuntime.error.startsWith("Could not start local AI");
+                console.log("RESULT " + JSON.stringify(r));
+                Qt.quit();
+            }
+        }
+    }
+}
+QML
+    res="$(cd "$nx" && timeout 30 env PATH="$nx/bin" XDG_RUNTIME_DIR="$nx/run" QT_QPA_PLATFORM=offscreen "$(command -v qs)" -p "$nx/cfg/shell.qml" 2>&1 | sed -n 's/.*RESULT //p')"
+    [[ "$res" == *'"first":true'* && "$res" == *'"again":true'* ]] &&
+        ok "a server that cannot start is reported every time, not only the first" || no "server start failure: $res"
+    rm -rf "$nx"
+fi
 
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"
