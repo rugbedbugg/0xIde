@@ -25,6 +25,15 @@ fail() {
     note -u critical "Dictation failed" "$1"
     exit 1
 }
+# Running, and not a zombie: an orphaned listener that has exited stays one
+# until something reaps it, and kill -0 still succeeds on it.
+alive() {
+    [ -n "$1" ] && [ -r "/proc/$1/stat" ] || return 1
+    local stat
+    stat="$(cat "/proc/$1/stat" 2>/dev/null)" || return 1
+    stat="${stat##*) }"
+    [ "${stat%% *}" != Z ]
+}
 replace_id() { [ -s "$idfile" ] && printf -- '-r\n%s\n' "$(cat "$idfile")"; }
 # The listener's last error, if it logged one.
 last_error() { grep -o '"error": "[^"]*"' "$state/listener.log" 2>/dev/null | tail -1 | cut -d'"' -f4 || true; }
@@ -35,7 +44,7 @@ last_error() { grep -o '"error": "[^"]*"' "$state/listener.log" 2>/dev/null | ta
 # file away first, so that is not reported as a failure.
 watch_listener() {
     local listener="$1" reason
-    while kill -0 "$listener" 2>/dev/null; do sleep 1; done
+    while alive "$listener"; do sleep 1; done
     [ "$(cat "$pidfile" 2>/dev/null)" = "$listener" ] || return 0
     reason="$(last_error)"
     mapfile -t replace < <(replace_id)
@@ -47,12 +56,12 @@ mkdir -p "$state"
 chmod 700 "$state"
 
 # Off: the listener finishes the phrase in progress, types it, and exits.
-if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
+if [ -f "$pidfile" ] && alive "$(cat "$pidfile")"; then
     listener="$(cat "$pidfile")"
     mv -f -- "$pidfile" "$stopping"
     kill -TERM "$listener" 2>/dev/null || true
     for _ in $(seq 100); do
-        kill -0 "$listener" 2>/dev/null || break
+        alive "$listener" || break
         sleep 0.1
     done
     rm -f -- "$stopping"
@@ -64,7 +73,7 @@ fi
 
 # On, unless the last listener is still typing its final phrase: two at once
 # would type over each other.
-if [ -f "$stopping" ] && kill -0 "$(cat "$stopping")" 2>/dev/null; then
+if [ -f "$stopping" ] && alive "$(cat "$stopping")"; then
     note -u low "Dictation is still stopping" "It is typing the last phrase. Press the key again in a moment."
     exit 0
 fi
@@ -97,7 +106,7 @@ note -p -t 0 "Dictation on" "Speak; each phrase is typed as you pause. Press the
 sleep 3
 # Pressed again meanwhile: that press turned it off, and said so.
 [ -f "$pidfile" ] || exit 0
-if ! kill -0 "$(cat "$pidfile")" 2>/dev/null; then
+if ! alive "$(cat "$pidfile")"; then
     reason="$(last_error)"
     mapfile -t replace < <(replace_id)
     rm -f -- "$pidfile" "$idfile"
