@@ -138,7 +138,7 @@ ColumnLayout {
         wrapMode: Text.Wrap
         color: Colours.palette.m3outline
         font: Tokens.font.label.large
-        text: AiRuntime.installing ? qsTr("Installing") : AiRuntime.info.installed ? qsTr("Installed, %1 MiB").arg(Math.round((AiRuntime.info.diskBytes ?? 0) / 1048576)) : qsTr("Not installed")
+        text: AiRuntime.installing ? qsTr("Installing") : AiRuntime.serverLabel || (AiRuntime.info.installed ? qsTr("Installed, %1 MiB; starts when you ask").arg(Math.round((AiRuntime.info.diskBytes ?? 0) / 1048576)) : qsTr("Not installed"))
     }
     RowLayout {
         Layout.fillWidth: true
@@ -166,7 +166,7 @@ ColumnLayout {
         }
         TextButton {
             type: TextButton.Text
-            visible: !!AiRuntime.info.installed
+            visible: AiRuntime.serverState === "running" || AiRuntime.serverState === "starting"
             text: qsTr("Stop server")
             onClicked: AiRuntime.stop()
         }

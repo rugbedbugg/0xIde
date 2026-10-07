@@ -232,7 +232,15 @@ PageBase {
                     return qsTr("Install first: %1").arg(root.missing.join(", "));
                 return root.installed ? qsTr("%1 MiB on disk").arg(root.mib(AiRuntime.info.diskBytes)) : qsTr("Not downloaded");
             }
-            value: AiRuntime.installing ? qsTr("Installing") : root.installed ? qsTr("Installed") : qsTr("Not installed")
+            value: {
+                if (AiRuntime.installing)
+                    return qsTr("Installing");
+                if (AiRuntime.serverState === "running")
+                    return qsTr("Running");
+                if (AiRuntime.serverState)
+                    return AiRuntime.serverState === "stopping" ? qsTr("Stopping") : qsTr("Starting");
+                return root.installed ? qsTr("Installed") : qsTr("Not installed");
+            }
             iconColour: AiRuntime.error ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
         }
 
@@ -285,11 +293,12 @@ PageBase {
             }
         }
 
+        // Only while a server runs: there is nothing to stop otherwise.
         RowButton {
-            visible: root.installed && !AiRuntime.installing
+            visible: AiRuntime.serverState === "running" || AiRuntime.serverState === "starting"
             icon: "stop_circle"
             text: qsTr("Stop server")
-            subtext: qsTr("It starts again the next time you ask")
+            subtext: AiRuntime.serverLabel + qsTr(". It starts again the next time you ask")
             onClicked: AiRuntime.stop()
         }
 
