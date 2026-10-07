@@ -662,9 +662,16 @@ Item {
                             font: Tokens.font.label.large
                             text: {
                                 if (root.localMode)
-                                    return root.localError || (Translator.translating ? qsTr("Translating on this computer...") : qsTr("Translation, %1 to %2").arg(Translator.name(GlobalConfig.ai.translateFrom)).arg(Translator.name(GlobalConfig.ai.translateLanguage)));
+                                    return root.localError || Translator.translationLabel || qsTr("Translation, %1 to %2").arg(Translator.name(GlobalConfig.ai.translateFrom)).arg(Translator.name(GlobalConfig.ai.translateLanguage));
                                 return root.waiting ? qsTr("Starting the local model...") : request.error || (request.status === "stopped" ? qsTr("Stopped. Partial response kept.") : request.status === "loading" ? qsTr("Generating...") : qsTr("AI response"));
                             }
+                        }
+                        // No amount is known while the runtime is prepared or
+                        // the text translated, so it moves without claiming one.
+                        StyledProgressBar {
+                            Layout.preferredWidth: 72
+                            visible: root.localMode && Translator.translating
+                            indeterminate: true
                         }
                     }
                     StyledRect {

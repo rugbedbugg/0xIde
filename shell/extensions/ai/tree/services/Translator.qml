@@ -21,7 +21,16 @@ Scope {
     property string operation: ""
     property string language: ""
     readonly property bool working: worker.running
-    readonly property bool translating: translation.running
+    // From the call, not from when the process has started, which is later.
+    readonly property bool translating: translation.running || translationStage !== ""
+    // Where the translation in flight is: starting, preparing (the runtime
+    // packages, downloaded the first time) or translating; "" when none is.
+    property string translationStage: ""
+    readonly property string translationLabel: ({
+            starting: qsTr("Starting offline translation…"),
+            preparing: qsTr("Preparing the offline translation runtime; the first time downloads it…"),
+            translating: qsTr("Translating on this computer…")
+        })[translationStage] ?? ""
     readonly property string helper: Qt.resolvedUrl("../assets/ai/translate.py").toString().replace("file://", "")
 
     signal translated(string text)
@@ -58,14 +67,21 @@ Scope {
         return !!from && !!to && from !== to && installed.includes(from) && installed.includes(to);
     }
     function translate(text: string, from: string, to: string): void {
-        if (translation.running)
+        if (translating)
             return;
         translation.command = ["uv", "run", "--no-project", "--python", "3.13", root.helper, "translate", from, to, text];
+        translationStage = "starting";
+        translation.problem = "";
+        translation.didExit = false;
+        translation.cancelPending = false;
         translation.running = true;
     }
     function cancel(): void {
         if (translation.running)
             translation.signal(15);
+        else if (translationStage)
+            // Not started yet: stopped the moment it is.
+            translation.cancelPending = true;
     }
     function event(line: string): void {
         try {
@@ -130,14 +146,19 @@ Scope {
         // result is reported once all three have.
         property int exitCode: -1
         property int streamsDone: 0
+        // The last line on stderr that is not a stage: the reason it failed.
+        property string problem: ""
+        property bool didExit: false
+        property bool cancelPending: false
 
         function settle(): void {
-            if (exitCode < 0 || streamsDone < 2)
+            if (exitCode < 0 || streamsDone < 1)
                 return;
+            root.translationStage = "";
             if (exitCode === 0)
                 root.translated(output.text);
-            else if (exitCode !== 143)
-                root.failed(problems.text.trim().split("\n").pop() || qsTr("Translation failed"));
+            else if (exitCode !== 143 && !cancelPending)
+                root.failed(problem || qsTr("Translation failed"));
         }
 
         stdout: StdioCollector {
@@ -148,19 +169,38 @@ Scope {
                 translation.settle();
             }
         }
-        stderr: StdioCollector {
-            id: problems
-
-            onStreamFinished: {
-                translation.streamsDone++;
-                translation.settle();
+        // Read as it comes, for the stages; QProcess delivers it all before
+        // the exit, so the reason is in place when settle() runs.
+        stderr: SplitParser {
+            onRead: line => {
+                try {
+                    const data = JSON.parse(line);
+                    if (data.stage) {
+                        root.translationStage = data.stage;
+                        return;
+                    }
+                } catch (e) {}
+                if (line.trim())
+                    translation.problem = line.trim();
             }
         }
-        onRunningChanged: if (running) {
-            exitCode = -1;
-            streamsDone = 0;
+        onRunningChanged: {
+            if (running) {
+                exitCode = -1;
+                streamsDone = 0;
+                if (cancelPending)
+                    signal(15);
+                return;
+            }
+            Qt.callLater(() => {
+                if (!translation.didExit && root.translationStage) {
+                    root.translationStage = "";
+                    root.failed(qsTr("Could not start offline translation. Install uv first."));
+                }
+            });
         }
         onExited: code => { // qmllint disable signal-handler-parameters
+            didExit = true;
             exitCode = code;
             settle();
         }

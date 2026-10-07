@@ -4619,7 +4619,7 @@ QML
     rm -rf "$nx"
 fi
 
-ox_step "Translation: explicit intent"
+ox_step "Translation: explicit intent and visible preparation"
 page="$OX_ROOT/shell/extensions/ai/tree/modules/nexus/pages/AiPage.qml"
 "$PY" - "$page" <<'CHK' && ok "adding or removing a language happens on Enter only, never on focus loss or closing" || no "a language row still acts on editingFinished"
 import re, sys
@@ -4630,6 +4630,110 @@ for row in ("addLanguage", "removeLanguage"):
     assert re.search(r"function onAccepted\(\): void \{[^}]*%s\.field\.text" % row, src, re.S), row
     assert re.search(r"target: %s\.field" % row, src), row
 CHK
+if ox_have qs; then
+    tx="$(mktemp -d)"
+    mkdir -p "$tx/cfg/services" "$tx/cfg/assets/ai" "$tx/bin" "$tx/run"
+    cp "$OX_ROOT/shell/extensions/ai/tree/services/Translator.qml" "$tx/cfg/services/"
+    printf '#!/bin/sh\nshift 4\nexec "%s" "$@"\n' "$PY" > "$tx/bin/uv"; chmod +x "$tx/bin/uv"
+    cat > "$tx/cfg/assets/ai/translate.py" <<'MOCK'
+import json, sys, time
+if sys.argv[1] == "status":
+    print(json.dumps({"stage": "status", "installed": ["de", "en"], "available": []})); sys.exit(0)
+stage = lambda s: print(json.dumps({"stage": s}), file=sys.stderr, flush=True)
+if sys.argv[4] == "fail":
+    stage("preparing"); time.sleep(0.6)
+    print("error: Failed to download ctranslate2==4.8.2: network unreachable", file=sys.stderr); sys.exit(2)
+stage("preparing"); time.sleep(0.6); stage("translating"); time.sleep(0.6)
+sys.stdout.write("Hallo"); sys.exit(0)
+MOCK
+    cat > "$tx/cfg/shell.qml" <<QML
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import qs.services
+
+ShellRoot {
+    id: h
+
+    property var r: ({})
+    property var seen: []
+    property int phase
+    property real since: Date.now()
+
+    function next(): void {
+        phase++;
+        since = Date.now();
+    }
+
+    Connections {
+        function onTranslationStageChanged(): void {
+            if (Translator.translationStage)
+                h.seen.push(Translator.translationStage);
+        }
+        function onTranslated(text: string): void {
+            h.r.result = text;
+        }
+        function onFailed(error: string): void {
+            h.r.failure = error;
+        }
+        target: Translator
+    }
+    Process { id: sh; property bool done; command: ["$(type -P chmod)", "-x", "$tx/bin/uv"]; onExited: done = true }
+
+    Timer {
+        interval: 100
+        repeat: true
+        running: true
+        onTriggered: {
+            const r = h.r;
+            const waited = Date.now() - h.since;
+            if (h.phase === 0) {
+                Translator.translate("Hello", "en", "de");
+                r.immediate = Translator.translating && Translator.translationLabel === "Starting offline translation…";
+                h.next();
+            } else if (h.phase === 1 && Translator.translationStage === "preparing") {
+                r.preparingLabel = Translator.translationLabel.startsWith("Preparing the offline translation runtime");
+                h.next();
+            } else if (h.phase === 2 && !Translator.translating && waited > 300) {
+                r.stages = h.seen.join() === "starting,preparing,translating";
+                r.done = r.result === "Hallo" && Translator.translationStage === "";
+                Translator.translate("fail", "en", "de");
+                h.next();
+            } else if (h.phase === 3 && !Translator.translating && waited > 300) {
+                r.realError = r.failure === "error: Failed to download ctranslate2==4.8.2: network unreachable";
+                r.failure = "";
+                sh.running = true;
+                h.next();
+            } else if (h.phase === 4 && sh.done) {
+                Translator.translate("Hello", "en", "de");
+                h.next();
+            } else if (h.phase === 5 && waited > 800) {
+                r.noUv = r.failure === "Could not start offline translation. Install uv first." && Translator.translationStage === "";
+                console.log("RESULT " + JSON.stringify(r));
+                Qt.quit();
+            } else if (waited > 15000) {
+                console.log("RESULT " + JSON.stringify(Object.assign(r, {stuck: h.phase})));
+                Qt.quit();
+            }
+        }
+    }
+}
+QML
+    res="$(cd "$tx" && timeout 60 env PATH="$tx/bin" XDG_RUNTIME_DIR="$tx/run" QT_QPA_PLATFORM=offscreen \
+        "$(command -v qs)" -p "$tx/cfg/shell.qml" 2>&1 | sed -n 's/.*RESULT //p' | tail -1)"
+    for c in "immediate:a translation shows that it started at once" \
+             "preparingLabel:preparing the runtime says so, as a step, without a percentage" \
+             "stages:every step is shown in order" \
+             "done:the result arrives and the step clears" \
+             "realError:a runtime that could not be prepared shows uv's own error" \
+             "noUv:without uv it says so instead of hanging"; do
+        key="${c%%:*}"
+        case "$res" in *"\"$key\":true"*) ok "${c#*:}" ;; *) no "${c#*:} ($res)" ;; esac
+    done
+    rm -rf "$tx"
+else
+    skipt "qs is not installed"
+fi
 
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"
