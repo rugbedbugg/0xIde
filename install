@@ -309,10 +309,15 @@ install_overrides() {
 # starts, so it is restarted when the file changes, and the new source is made
 # the default so every application records through it.
 install_voice() {
-    local dest="$XDG_CONFIG_HOME/pipewire/pipewire.conf.d/60-0xide-voice.conf"
+    local dest="$XDG_CONFIG_HOME/pipewire/pipewire.conf.d/60-0xide-voice.conf" err previous
     if run ox_install_file "$dest" 644 < "$OX_ROOT/overrides/pipewire/60-0xide-voice.conf"; then
         ox_log "60-0xide-voice.conf"
-        systemctl --user restart pipewire pipewire-pulse wireplumber 2>/dev/null || true
+        # PipeWire reads drop-ins only when it starts.
+        if ! err="$(systemctl --user restart pipewire pipewire-pulse wireplumber 2>&1)"; then
+            ox_warn "PipeWire could not be restarted, so the noise-suppressed microphone is not loaded: ${err:-systemctl failed}"
+            failed voice
+            return 0
+        fi
     fi
     run ox_own "$dest"
     [ "$DRY" = 1 ] && return 0
@@ -325,14 +330,22 @@ install_voice() {
     until pactl list short sources 2>/dev/null | grep -q '\b0xide_voice\b' || [ "$tries" -ge 40 ]; do
         sleep 0.25; tries=$((tries + 1))
     done
-    if pactl set-default-source 0xide_voice 2>/dev/null; then
-        ox_log "default microphone: noise suppressed"
+    if ! pactl list short sources 2>/dev/null | grep -q '\b0xide_voice\b'; then
+        ox_warn "the noise-suppressed microphone did not appear in PipeWire; see journalctl --user -u pipewire"
+        failed voice
+        return 0
+    fi
+    # Said, so it can be chosen again: this changes which microphone every
+    # application records from.
+    previous="$(pactl get-default-source 2>/dev/null)"
+    [ "$previous" = 0xide_voice ] && { ox_log "default microphone: noise suppressed (already)"; return 0; }
+    if err="$(pactl set-default-source 0xide_voice 2>&1)"; then
+        ox_log "default microphone: noise suppressed (it was ${previous:-unknown}; pactl set-default-source ${previous:-<name>} goes back)"
     else
-        ox_warn "the noise-suppressed microphone did not appear; see journalctl --user -u pipewire"
+        ox_warn "the noise-suppressed microphone is there, but could not be made the default: ${err:-pactl failed}"
         failed voice
     fi
 }
-
 main() {
     while IFS= read -r line; do
         name="$(field "$line" 1)"; kind="$(field "$line" 2)"; default="$(field "$line" 3)"
