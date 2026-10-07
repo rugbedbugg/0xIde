@@ -55,6 +55,12 @@ PageBase {
             return Translator.statusError || Translator.error || qsTr("The language list has not loaded yet");
         return qsTr("No offline translation model for \"%1\"").arg(value.trim());
     }
+    // The answer to the latest name typed replaces the one before, whichever
+    // kind it was; the row shows an error ahead of a message.
+    function tellLanguage(error: string, message: string): void {
+        Translator.error = error;
+        Translator.message = message;
+    }
 
     title: qsTr("OCR & AI")
 
@@ -312,9 +318,9 @@ PageBase {
                 if (code && !Translator.installed.includes(code))
                     Translator.install(code);
                 else if (code)
-                    Translator.message = qsTr("%1 is already installed").arg(Translator.name(code));
+                    root.tellLanguage("", qsTr("%1 is already installed").arg(Translator.name(code)));
                 else if (value.trim())
-                    Translator.error = root.unknownLanguage(value);
+                    root.tellLanguage(root.unknownLanguage(value), "");
             }
         }
 
@@ -329,9 +335,9 @@ PageBase {
                 if (code && Translator.installed.includes(code))
                     Translator.remove(code);
                 else if (code)
-                    Translator.message = qsTr("%1 is not installed").arg(Translator.name(code));
+                    root.tellLanguage("", qsTr("%1 is not installed").arg(Translator.name(code)));
                 else if (value.trim())
-                    Translator.error = root.unknownLanguage(value);
+                    root.tellLanguage(root.unknownLanguage(value), "");
             }
         }
 

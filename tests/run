@@ -2588,9 +2588,10 @@ else
     skipt "qs is not installed"
 fi
 page="$OX_ROOT/shell/extensions/ai/tree/modules/nexus/pages/AiPage.qml"
-[ "$(grep -c 'Translator.error = root.unknownLanguage(value)' "$page")" = 2 ] &&
+[ "$(grep -c 'root.tellLanguage(root.unknownLanguage(value), "")' "$page")" = 2 ] &&
     grep -q 'No offline translation model for' "$page" && grep -q 'is already installed' "$page" &&
     grep -q 'is not installed").arg(Translator.name(code))' "$page" &&
+    [ "$(grep -c 'root.tellLanguage("", ' "$page")" = 2 ] &&
     ok "a language name that adds or removes nothing says why" || no "a language name can still be ignored without a word"
 
 ox_step "Patch series order"
