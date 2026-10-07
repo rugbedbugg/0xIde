@@ -33,6 +33,13 @@ Scope {
     readonly property bool installing: worker.running || launching
     readonly property bool checking: status.running
     readonly property bool serving: server.running
+    // The model server as it is, not as installed: "" when none runs.
+    readonly property string serverState: !server.running ? "" : stopping ? "stopping" : endpoint ? "running" : "starting"
+    readonly property string serverLabel: ({
+            starting: qsTr("Starting the local model"),
+            running: qsTr("Running; unloads itself after five minutes unused"),
+            stopping: qsTr("Stopping the local model")
+        })[serverState] ?? ""
     readonly property int serverPid: server.processId ?? 0
     readonly property string helper: Qt.resolvedUrl("../assets/ai/runtime.py").toString().replace("file://", "")
     readonly property string log: info.destination ? info.destination + "/install.log" : ""
@@ -112,6 +119,8 @@ Scope {
         if (server.running)
             return;
         error = "";
+        // Left over from the last run, it would hide a server that never started.
+        server.didExit = false;
         server.running = true;
     }
     function release(): void {

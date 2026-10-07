@@ -2730,22 +2730,24 @@ ShellRoot {
         onTriggered: {
             n++;
             if (n === 2) {
-                r.notStartedByLooking = !AiRuntime.serving;
+                r.notStartedByLooking = !AiRuntime.serving && AiRuntime.serverState === "";
                 AiRuntime.restart();
                 r.restartNeedsServer = !AiRuntime.serving;
                 AiRuntime.start();
+            } else if (n === 3) {
+                r.stateRunning = AiRuntime.serverState === "running";
             } else if (n === 5) {
                 r.ready = AiRuntime.serving && AiRuntime.endpoint !== "" && AiRuntime.serverPid > 0;
                 first = AiRuntime.serverPid;
                 AiRuntime.restart();
-                r.stopping = AiRuntime.stopping && AiRuntime.endpoint === "" && AiRuntime.serving;
+                r.stopping = AiRuntime.stopping && AiRuntime.endpoint === "" && AiRuntime.serving && AiRuntime.serverState === "stopping";
                 AiRuntime.restart();
             } else if (n === 10) {
                 r.restarted = AiRuntime.serving && !AiRuntime.stopping && AiRuntime.endpoint !== "" && AiRuntime.serverPid > 0 && AiRuntime.serverPid !== first;
                 r.noError = AiRuntime.error === "";
                 AiRuntime.stop();
             } else if (n === 14) {
-                r.unloaded = !AiRuntime.serving && !AiRuntime.stopping && AiRuntime.endpoint === "";
+                r.unloaded = !AiRuntime.serving && !AiRuntime.stopping && AiRuntime.endpoint === "" && AiRuntime.serverState === "";
                 AiRuntime.start();
             } else if (n === 18) {
                 AiRuntime.restart();
@@ -2772,6 +2774,7 @@ r = json.loads(sys.argv[1])
 r["serves"] = int(sys.argv[2])
 want = {
     "notStartedByLooking": (True, "the local AI is not started by being looked at"),
+    "stateRunning": (True, "the server state reads running once it is ready"),
     "restartNeedsServer": (True, "Restart does nothing when no server runs"),
     "ready": (True, "a started server is ready with an endpoint and a PID"),
     "stopping": (True, "Restart first stops it, through the existing stop()"),
@@ -2791,7 +2794,7 @@ for k, (v, what) in want.items():
 sys.exit(bad)
 CHK
         n=$?
-        pass=$((pass + 9 - n)); fail=$((fail + n))
+        pass=$((pass + 10 - n)); fail=$((fail + n))
     fi
     rm -rf "$ax"
 fi
@@ -4540,6 +4543,14 @@ dups="$(grep -oE '^  (ok|MISSING|absent) +[^ ]+' <<<"$cd_out" | awk '{print $2}'
     ok "only the installer's own tools are required; an adapter's are optional" || no "check_deps with nothing installed: $rc $(grep MISSING <<<"$cd_out" | tr '\n' ' ')"
 grep -qE 'spotify|firefox|zed' <<<"$(grep -oE '^  (ok|MISSING|absent) +[^ ]+' <<<"$cd_out")" &&
     no "a themed application is listed as a dependency" || ok "applications an adapter themes are not listed as dependencies"
+
+ox_step "Local AI: server actions follow the server"
+bad=""
+for f in "$OX_ROOT/shell/extensions/ai/tree/modules/nexus/pages/AiPage.qml" "$OX_ROOT/shell/extensions/ai/tree/modules/areapicker/AiSettings.qml"; do
+    awk '/Stop server/{print prev2; print prev} {prev2=prev; prev=$0}' "$f" | grep -q 'visible: AiRuntime.serverState === "running" || AiRuntime.serverState === "starting"' ||
+        bad="$bad $(basename "$f")"
+done
+[ -z "$bad" ] && ok "Stop server is offered only while a server is starting or running" || no "Stop server shown without a server in:$bad"
 
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"
