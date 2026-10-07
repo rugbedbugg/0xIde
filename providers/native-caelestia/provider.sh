@@ -43,7 +43,7 @@ native_caelestia_describe_leave() {
 # PIDs of running Caelestia shell instances. `qs list` prints a plain notice
 # rather than JSON when there are none, which jq rejects: that is also none.
 _nc_pids() {
-    ox_cmd_runner qs -c caelestia list -j 2>/dev/null | jq -r '.[]?.pid' 2>/dev/null
+    ox_cmd_runner qs -c caelestia list -j 2>/dev/null | ox_strip_qt_locale_warning | jq -r '.[]?.pid' 2>/dev/null
 }
 _nc_running() { [ -n "$(_nc_pids)" ]; }
 

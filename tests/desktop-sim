@@ -109,6 +109,8 @@ case "$*" in
     "command -v "*)
         grep -qx "$3" "$DP_SIM/installed" 2>/dev/null ;;
     "qs -c caelestia list -j")
+        # As Quickshell prints it under the C locale, on stdout before the JSON.
+        [ -e "$DP_SIM/c-locale" ] && printf '\033[33m  WARN\033[0m: Detected locale "C" with character encoding "ANSI_X3.4-1968", which is not UTF-8.\nQt depends on a UTF-8 locale, and has switched to "C.UTF-8" instead.\nIf this causes problems, reconfigure your locale. See the locale(1) manual\nfor more information.\n'
         if [ -e "$DP_SIM/caelestia" ]; then echo '[{"pid": 100, "id": "sim"}]'
         else echo "No running instances for caelestia"; fi ;;
     "caelestia shell -d")

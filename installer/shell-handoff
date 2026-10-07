@@ -43,6 +43,7 @@ all_instances() {
     local out
     ox_have qs || { echo '[]'; return 0; }
     out="$(qs list --all -j 2>/dev/null)" || return 1
+    out="$(ox_strip_qt_locale_warning <<<"$out")"
     case "$out" in "No running instances"*) echo '[]'; return 0 ;; esac
     jq -ce 'if type == "array" then . else error end' <<<"$out" 2>/dev/null
 }
