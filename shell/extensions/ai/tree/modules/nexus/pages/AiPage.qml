@@ -400,15 +400,18 @@ PageBase {
             icon: "mic"
             label: qsTr("Speech model")
             subtext: {
+                // The installer's own progress and outcome are shown below.
+                if (speechProgress.shown)
+                    return qsTr("SUPER + SHIFT + D turns dictation on and off");
                 if (Speech.error || Speech.statusError)
                     return Speech.error || Speech.statusError;
                 if (Speech.message)
                     return Speech.message;
                 if ((Speech.info.missing ?? []).length > 0)
-                    return qsTr("Install first: %1").arg(Speech.info.missing.join(", "));
+                    return qsTr("Dictation needs: %1").arg(Speech.info.missing.join(", "));
                 return qsTr("SUPER + SHIFT + D turns dictation on and off; each phrase is typed where you are as you pause");
             }
-            value: Speech.working ? qsTr("Working") : Speech.info.installed ? qsTr("Installed") : qsTr("Not installed")
+            value: Speech.installing ? qsTr("Installing") : Speech.working ? qsTr("Removing") : Speech.info.installed ? qsTr("Installed") : qsTr("Not installed")
             iconColour: Speech.error || Speech.statusError ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
         }
 
@@ -424,6 +427,32 @@ PageBase {
                 if (field.valid && code !== GlobalConfig.ai.dictationLanguage)
                     GlobalConfig.ai.dictationLanguage = code;
             }
+        }
+
+        ConnectedRect {
+            Layout.fillWidth: true
+            visible: speechProgress.shown
+            implicitHeight: speechProgress.implicitHeight + Tokens.padding.medium * 2
+
+            InstallProgress {
+                id: speechProgress
+
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: Tokens.padding.largeIncreased
+                anchors.rightMargin: Tokens.padding.largeIncreased
+                runtime: Speech
+                what: qsTr("Speech model")
+                installedHint: (Speech.info.missing ?? []).length ? qsTr("Dictation still needs: %1").arg(Speech.info.missing.join(", ")) : ""
+            }
+        }
+
+        RowButton {
+            visible: Speech.installing
+            icon: "close"
+            text: qsTr("Cancel installation")
+            onClicked: Speech.cancel()
         }
 
         DialogRowButton {

@@ -64,20 +64,26 @@ def install():
     partial = MODEL.with_name(MODEL.name + '.partial')
     digest, count, last = hashlib.sha256(), 0, 0.0
     request = urllib.request.Request(url, headers={'User-Agent': '0xide-speech/1'})
-    with urllib.request.urlopen(request, timeout=60) as response, partial.open('wb') as output:
-        while block := response.read(1024 * 1024):
-            count += len(block)
-            if count > MANIFEST['bytes']:
-                raise RuntimeError('Download exceeds the expected model size')
-            output.write(block)
-            digest.update(block)
-            if time.monotonic() - last > .25:
-                emit(stage='download', bytes=count, total=MANIFEST['bytes'])
-                last = time.monotonic()
-    if count != MANIFEST['bytes'] or digest.hexdigest() != MANIFEST['sha256']:
+    emit(stage='download', bytes=0, total=MANIFEST['bytes'])
+    # Failed, cancelled or wrong, a download leaves nothing behind.
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response, partial.open('wb') as output:
+            while block := response.read(1024 * 1024):
+                count += len(block)
+                if count > MANIFEST['bytes']:
+                    raise RuntimeError('Download exceeds the expected model size')
+                output.write(block)
+                digest.update(block)
+                if time.monotonic() - last > .25:
+                    emit(stage='download', bytes=count, total=MANIFEST['bytes'])
+                    last = time.monotonic()
+        emit(stage='download', bytes=count, total=MANIFEST['bytes'])
+        emit(stage='verify')
+        if count != MANIFEST['bytes'] or digest.hexdigest() != MANIFEST['sha256']:
+            raise RuntimeError('The downloaded model does not match its pinned hash')
+        partial.rename(MODEL)
+    finally:
         partial.unlink(missing_ok=True)
-        raise RuntimeError('The downloaded model does not match its pinned hash')
-    partial.rename(MODEL)
     emit(stage='installed', **status())
 
 
@@ -334,6 +340,10 @@ def listen(language):
     emit(stage='stopped')
 
 
+def terminate(signum=None, frame=None):
+    raise KeyboardInterrupt
+
+
 def main():
     action = sys.argv[1] if len(sys.argv) > 1 else ''
     if action not in ('status', 'install', 'remove', 'listen'):
@@ -347,6 +357,8 @@ def main():
             emit(stage='error', error=str(error))
             return 1
         return 0
+    # Stopped from outside, an install still leaves no partial download.
+    signal.signal(signal.SIGTERM, terminate)
     try:
         if action == 'status':
             emit(stage='status', **status())

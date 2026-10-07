@@ -3494,8 +3494,8 @@ for f in "$AIS" "$AIP" "$OX_ROOT/shell/extensions/ocr/tree/modules/areapicker/Oc
     grep -q 'AiInstallProgress {' "$f" && n=$((n+1))
 done
 [ "$n" = 3 ] && ok "the Ask AI card, its settings and Nexus all show AiInstallProgress" || no "only $n of 3 surfaces show the install progress"
-PROG="$OX_ROOT/shell/extensions/ai/tree/components/AiInstallProgress.qml"
-grep -q 'indeterminate: !root.downloading' "$PROG" && grep -q 'AiRuntime.bytes / AiRuntime.total' "$PROG" &&
+PROG="$OX_ROOT/shell/extensions/ai/tree/components/InstallProgress.qml"
+grep -q 'indeterminate: !root.downloading' "$PROG" && grep -q 'root.runtime.bytes / root.runtime.total' "$PROG" &&
     ok "only the download shows a fraction, from bytes; other steps are indeterminate" || no "the progress bar may show a made-up fraction"
 ! grep -q 'caelestia/ai' "$OX_ROOT/shell/extensions/ai/tree/services/AiRuntime.qml" &&
     ok "no error points at the pre-rename caelestia/ai directory" || no "AiRuntime still names caelestia/ai"
@@ -3518,7 +3518,18 @@ if mode == "slow":
     time.sleep(3)
 info = {"installed": False, "model": "ggml-base.bin", "downloadBytes": 147951465,
         "freeBytes": 1e8 if mode == "disk" else 9e11, "destination": "/x/0xide/speech", "missing": []}
-print(json.dumps(dict(info, stage="status")), flush=True)
+emit = lambda **e: print(json.dumps(e), flush=True)
+if sys.argv[1] == "install":
+    import signal
+    signal.signal(signal.SIGTERM, lambda *_: (emit(stage="cancelled"), sys.exit(130)))
+    time.sleep(0.4)
+    for b in (0, 50000000, 147951465):
+        emit(stage="download", bytes=b, total=147951465); time.sleep(0.3 if mode != "dlslow" else 5)
+    if mode == "dlfail":
+        emit(stage="error", error="The downloaded model does not match its pinned hash"); sys.exit(1)
+    emit(stage="verify"); time.sleep(0.2)
+    emit(stage="installed", **dict(info, installed=True)); sys.exit(0)
+emit(stage="status", **info)
 MOCK
     cat > "$sx/cfg/shell.qml" <<QML
 import QtQuick
@@ -3587,6 +3598,25 @@ ShellRoot {
                 h.next();
             } else if (h.phase === 7 && !Speech.checking && waited > 500) {
                 r.recovers = Speech.installBlocker === "" && Speech.statusError === "";
+                Speech.install();
+                r.immediate = Speech.installing && Speech.stage === "starting" && Speech.outcome === "";
+                h.next();
+            } else if (h.phase === 8 && !Speech.installing && waited > 300) {
+                r.installed = Speech.outcome === "installed" && Speech.bytes === 147951465 && Speech.error === "";
+                h.put("dlfail");
+                Speech.install();
+                h.next();
+            } else if (h.phase === 9 && !Speech.installing && waited > 300) {
+                r.failed = Speech.outcome === "failed" && Speech.error === "The downloaded model does not match its pinned hash";
+                h.put("dlslow");
+                Speech.install();
+                h.next();
+            } else if (h.phase === 10 && Speech.stage === "download") {
+                Speech.cancel();
+                r.cancelling = Speech.installing && Speech.stage === "cancelling";
+                h.next();
+            } else if (h.phase === 11 && !Speech.installing && waited > 300) {
+                r.cancelled = Speech.outcome === "cancelled";
                 console.log("RESULT " + JSON.stringify(r));
                 Qt.quit();
             } else if (waited > 15000) {
@@ -3608,7 +3638,12 @@ QML
                  "blockChecking:while the status is read, that is the reason" \
                  "noUv:without uv, that is the reason" \
                  "noUvInstall:an installer that cannot start says so" \
-                 "recovers:a status that works again clears the reason"; do
+                 "recovers:a status that works again clears the reason" \
+                 "immediate:Download shows a step at once" \
+                 "installed:a finished download ends as installed, with its byte count" \
+                 "failed:a failed download ends as failed, with its own reason" \
+                 "cancelling:Cancel shows at once" \
+                 "cancelled:a cancelled download ends as cancelled"; do
             key="${c%%:*}"
             case "$res" in
                 *"\"$key\":true"*) ok "${c#*:}" ;;
@@ -4766,7 +4801,7 @@ else
     skipt "qs is not installed"
 fi
 
-ox_step "Dictation: the listener fails visibly"
+ox_step "Dictation: the listener and the model download fail visibly"
 dx="$(mktemp -d)"
 mkdir -p "$dx/bin" "$dx/a" "$dx/data/0xide/speech"
 cp "$OX_ROOT/shell/extensions/ai/tree/assets/dictation/speech.py" "$dx/a/"
@@ -4791,6 +4826,29 @@ out="$(cd "$dx/a" && PATH="$dx/bin:$PATH" XDG_DATA_HOME="$dx/data" "$PY" -c 'imp
 [ "$(grep -c '"error": "Could not type: Compositor does not support the virtual keyboard protocol"' <<<"$out")" = 2 ] &&
     [ "$(grep -c 'Dictation could not type' "$dx/notified" 2>/dev/null)" = 1 ] &&
     ok "text that cannot be typed is reported, once on screen and every time in the log" || no "typing failure: $out / $(cat "$dx/notified" 2>/dev/null)"
+cat > "$dx/slow.py" <<'PY'
+import sys, time, urllib.request
+sys.path.insert(0, sys.argv[1])
+import speech
+speech.MANIFEST['bytes'] = 10**9
+class Slow:
+    headers = {}
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def read(self, n):
+        time.sleep(0.1); return b"x" * 1024
+urllib.request.urlopen = lambda *a, **k: Slow()
+sys.argv = ["speech.py", "install"]
+sys.exit(speech.main())
+PY
+rm -f "$dx/data/0xide/speech/m.bin"
+XDG_DATA_HOME="$dx/data" "$PY" "$dx/slow.py" "$dx/a" > "$dx/install.out" 2>&1 &
+ip=$!
+for _ in $(seq 50); do [ -e "$dx/data/0xide/speech/m.bin.partial" ] && break; sleep 0.1; done
+sleep 0.3; kill -TERM "$ip"; wait "$ip"; rc=$?
+[ "$rc" = 130 ] && grep -q '"stage": "cancelled"' "$dx/install.out" && [ -z "$(find "$dx/data/0xide/speech" -name 'm.bin*')" ] &&
+    ok "a cancelled model download leaves no partial file" || no "download cancel: $rc $(ls "$dx/data/0xide/speech") $(tail -2 "$dx/install.out")"
+grep -q '"stage": "download", "bytes": 0' "$dx/install.out" && ok "the download is shown from its first byte" || no "no download event before data"
 rm -rf "$dx"
 
 ox_step "Patch series order"
