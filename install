@@ -68,14 +68,148 @@ if [ "$MODE" = list ]; then
 fi
 
 if [ "$MODE" = status ]; then
+    # One line per component: installed or not, enabled or not, working or
+    # not, and why. A preference alone is never reported as working.
+    problems=0
+    say() { printf '  %-10s %s\n' "$1:" "$2"; }
+    bad() { say "$1" "$2"; problems=$((problems + 1)); }
+
+    # Exactly what ./install would write, compared with what is there.
+    rendered_matches() {
+        local dest="$1" src="$2" render="${3:-}"
+        [ -e "$dest" ] || return 2
+        if [ -n "$render" ]; then cmp -s "$dest" <(ox_render_path @OX_ROOT@ "$OX_ROOT" < "$src")
+        else cmp -s "$dest" "$src"; fi
+    }
+    status_overrides() {
+        local f stale="" missing=0 r
+        for f in hypr-vars.lua:caelestia/hypr-vars.lua: hypr-user.lua:caelestia/hypr-user.lua:render \
+                 cli.json:caelestia/cli.json:render user-config.fish:fish/user-config.fish:; do
+            IFS=: read -r name src render <<<"$f"
+            rendered_matches "$OX_CAELCONF/$name" "$OX_ROOT/overrides/$src" "$render"; r=$?
+            [ "$r" = 2 ] && missing=$((missing + 1))
+            [ "$r" != 0 ] && stale="$stale $name"
+        done
+        "$(ox_python)" "$OX_ROOT/installer/apply_overlay.py" "$OX_ROOT/overrides/caelestia/shell.json" \
+            "$OX_CAELCONF/shell.json" --json --check >/dev/null 2>&1 || stale="$stale shell.json"
+        if [ "$missing" = 4 ]; then bad overrides "not installed; run ./install --only overrides"
+        elif [ -n "$stale" ]; then bad overrides "out of date:$stale; run ./install --only overrides"
+        else say overrides "ok"; fi
+    }
+    # An overlay on another application's own config file.
+    status_overlay() {
+        local name="$1" overlay="$2" target="$3" style="$4" rc
+        if [ ! -e "$target" ]; then say "$name" "not set up here (no ${target/#$HOME/\~}); nothing to apply"; return; fi
+        "$(ox_python)" "$OX_ROOT/installer/apply_overlay.py" "$overlay" "$target" "$style" --check >/dev/null 2>&1; rc=$?
+        case $rc in
+            0) say "$name" "ok" ;;
+            1) bad "$name" "not applied to ${target/#$HOME/\~}; run ./install --only $name" ;;
+            *) bad "$name" "${target/#$HOME/\~} cannot be read; fix it, then run ./install --only $name" ;;
+        esac
+    }
+    status_firefox() {
+        local src="$XDG_STATE_HOME/caelestia/dots/firefox" profile n=0 stale=0
+        [ -r "$src/userChrome.css" ] || { say firefox "no Caelestia dots checkout at ${src/#$HOME/\~}; nothing to apply"; return; }
+        for profile in "$HOME/.mozilla/firefox"/*.default*/ "$XDG_CONFIG_HOME/mozilla/firefox"/*.default*/; do
+            [ -d "$profile" ] || continue
+            n=$((n + 1))
+            cmp -s "$profile/chrome/userChrome.css" "$src/userChrome.css" || stale=$((stale + 1))
+        done
+        if [ "$n" = 0 ]; then say firefox "no Firefox profile yet; start Firefox once, then run ./install --only firefox"
+        elif [ "$stale" -gt 0 ]; then bad firefox "not applied in $stale of $n profile(s); run ./install --only firefox"
+        else say firefox "ok in $n profile(s)"; fi
+    }
+    status_voice() {
+        local conf="$XDG_CONFIG_HOME/pipewire/pipewire.conf.d/60-0xide-voice.conf" def
+        [ -e "$conf" ] || { say voice "not installed (optional: ./install --enable voice)"; return; }
+        cmp -s "$conf" "$OX_ROOT/overrides/pipewire/60-0xide-voice.conf" || { bad voice "out of date; run ./install --only voice"; return; }
+        ox_have pactl || { bad voice "installed, but pactl is not installed, so it cannot be checked"; return; }
+        pactl list short sources 2>/dev/null | grep -q '\b0xide_voice\b' ||
+            { bad voice "installed, but PipeWire has no 0xide_voice source; see journalctl --user -u pipewire"; return; }
+        def="$(pactl get-default-source 2>/dev/null)"
+        [ "$def" = 0xide_voice ] && say voice "ok, the default microphone is noise-suppressed" ||
+            bad voice "installed, but the default microphone is ${def:-unknown}; run ./install --only voice"
+    }
+    # An adapter's own status where it has one; otherwise whether it is
+    # enabled, can run, and what the last theme change did with it.
+    status_adapter() {
+        local name="$1" st="$OX_ROOT/adapters/$1/status" missing last why line out rc
+        if [ -x "$st" ]; then
+            out="$("$st" 2>&1)" && rc=0 || rc=$?
+            # Its own words, set out like every other line; non-zero is a problem.
+            while IFS= read -r line; do
+                case "$line" in
+                    "$name: "*) printf '  %-10s %s\n' "$name:" "${line#"$name: "}" ;;
+                    *) printf '  %-10s %s\n' "" "${line#"${line%%[![:space:]]*}"}" ;;
+                esac
+            done <<<"$out"
+            [ "$rc" = 0 ] || problems=$((problems + 1))
+            return
+        fi
+        missing="$(ox_adapter_missing "$name")"
+        if ! ox_adapter_enabled "$name"; then say "$name" "not enabled${missing:+ (it needs $missing)}"; return; fi
+        [ -z "$missing" ] || { bad "$name" "enabled, but $missing is not installed"; return; }
+        last="$(ox_theme_result "$name")"
+        case "$last" in
+            ok) say "$name" "ok" ;;
+            "not applied")
+                why="$(grep -B1 -x "$name not applied (see above)" "$OX_STATE/post-theme.log" | head -1)"
+                say "$name" "enabled; not applied at the last theme change: ${why#"$name: "}" ;;
+            FAILED*) bad "$name" "the last theme change $last; see $OX_STATE/post-theme.log" ;;
+            *) say "$name" "enabled; it runs on the next theme change" ;;
+        esac
+    }
+    status_sudoers() {
+        local helper=/usr/local/libexec/0xide-papirus-folders
+        if [ -x "$helper" ] && ox_has_sudo_rule "$helper"; then say sudoers "ok, the papirus helper and its rule are installed"
+        elif ox_has_sudo_rule 'papirus-folders -C'; then bad sudoers "an older, wider rule for papirus-folders is installed; ./install --enable sudoers replaces it"
+        elif [ -e "$helper" ]; then bad sudoers "the papirus helper is installed but its rule is not; run ./install --enable sudoers"
+        else say sudoers "not installed (optional: ./install --enable sudoers)"; fi
+    }
+    status_sddm() {
+        local dir=/usr/share/sddm/themes/0xide helper=/usr/local/libexec/0xide-sddm-sync last
+        [ -d "$dir" ] || { say sddm "not installed (optional: ./install --enable sddm)"; return; }
+        grep -qx 'Current=0xide' /etc/sddm.conf.d/zz-0xide.conf 2>/dev/null ||
+            { bad sddm "the theme is installed, but SDDM is not set to use it; run ./install --enable sddm"; return; }
+        { [ -x "$helper" ] && ox_has_sudo_rule "$helper"; } ||
+            { bad sddm "installed, but its sync helper or rule is missing, so it will not follow the desktop; run ./install --enable sddm"; return; }
+        last="$(ox_theme_result sddm)"
+        case "$last" in
+            FAILED*) bad sddm "installed; the last theme change $last; see $OX_STATE/post-theme.log" ;;
+            *) say sddm "ok, the login screen follows the desktop" ;;
+        esac
+    }
+    status_shell() {
+        local running
+        if [ ! -e "$OX_SHELLDIR/shell.qml" ]; then say shell "not installed (optional: ./install --enable shell)"; return; fi
+        grep -q "QML_IMPORT_PATH=$OX_QMLDIR\$" "$OX_SHELLDIR/shell.qml" ||
+            { bad shell "installed, but its plugin import path is not this repository's; run ./install --only shell"; return; }
+        if ox_have qs; then
+            running="$(qs list --all -j 2>/dev/null | ox_strip_qt_locale_warning |
+                jq --arg p "$OX_SHELLDIR/shell.qml" '[.[]? | select(.config_path == $p)] | length' 2>/dev/null)"
+            case "${running:-0}" in
+                0) say shell "installed, plugin -> $OX_QMLDIR; not running" ;;
+                1) say shell "ok, installed and running" ;;
+                *) bad shell "installed, but $running copies are running; ./installer/shell-handoff restart" ;;
+            esac
+        else say shell "installed, plugin -> $OX_QMLDIR"; fi
+    }
+
     ox_step "Components"
     while IFS= read -r line; do
-        name="$(field "$line" 1)"
-        st="$OX_ROOT/adapters/$name/status"
-        if [ -x "$st" ]; then "$st" || true
-        elif grep -qx "$name" "$OX_CONFIG/adapters.enabled" 2>/dev/null; then
-            echo "$name: enabled"
-        fi
+        name="$(field "$line" 1)"; kind="$(field "$line" 2)"
+        case "$kind:$name" in
+            overrides:overrides) status_overrides ;;
+            overrides:foot)      status_overlay foot "$OX_ROOT/overrides/foot/overlay.conf" "$XDG_CONFIG_HOME/foot/foot.ini" --ini ;;
+            overrides:starship)  status_overlay starship "$OX_ROOT/overrides/starship/overlay.toml" "$XDG_CONFIG_HOME/starship.toml" --toml ;;
+            overrides:zed)       status_overlay zed "$OX_ROOT/overrides/zed/overlay.jsonc" "$XDG_CONFIG_HOME/zed/settings.json" --jsonc ;;
+            overrides:firefox)   status_firefox ;;
+            overrides:voice)     status_voice ;;
+            shell:*)             status_shell ;;
+            adapter:*)           status_adapter "$name" ;;
+            system:sudoers)      status_sudoers ;;
+            system:sddm)         status_sddm ;;
+        esac
     done < <(components)
 
     ox_step "Theme hook"
@@ -83,23 +217,16 @@ if [ "$MODE" = status ]; then
     if [ "$hook" = "$OX_ROOT/orchestration/hooks/post-theme" ]; then
         echo "  postHook -> this repository"
     elif [ -n "$hook" ]; then
-        echo "  postHook -> $hook  (not this repository)"
+        echo "  postHook -> $hook  (not this repository)"; problems=$((problems + 1))
     else
-        echo "  postHook not set; adapters will not run on a theme change"
+        echo "  postHook not set; adapters will not run on a theme change"; problems=$((problems + 1))
     fi
-    [ -s "$OX_STATE/post-theme.log" ] && { ox_step "Last theme run"; sed 's/^/  /' "$OX_STATE/post-theme.log"; }
 
-    ox_step "Shell"
-    if [ -e "$OX_SHELLDIR/shell.qml" ]; then
-        want="$OX_QMLDIR"
-        if grep -q "QML_IMPORT_PATH=$want\$" "$OX_SHELLDIR/shell.qml"; then
-            echo "  installed, plugin -> $want"
-        else
-            echo "  installed, but its plugin import path is not this repository's"
-        fi
-    else
-        echo "  not installed"
+    if [ "$problems" -gt 0 ]; then
+        ox_step "$problems component(s) need attention (above)"
+        exit 1
     fi
+    ox_step "Everything installed is working"
     exit 0
 fi
 
