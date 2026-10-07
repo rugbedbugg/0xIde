@@ -4495,7 +4495,9 @@ STUB
         [ "$rc" = 3 ] && grep -q 'helper is not installed; install it with ./install --enable sudoers' <<<"$out" && [ ! -e "$pb/helped" ] &&
             ok "without the helper's rule, apply says what to install and changes nothing" || no "no rule: $rc $out"
         grep -qx 'papirus not applied (see above)' <<<"$(hook)" && ok "and the theme log says not applied, not ok" || no "post-theme: $(hook)"
-        grep -q 'will NOT track the scheme' <<<"$(pst)" && ok "status says folders will not follow the scheme" || no "status without rule: $(pst)"
+        out="$(pst)"; rc=$?
+        [ "$rc" = 0 ] && grep -q 'inactive: folder colours do NOT track the scheme' <<<"$out" &&
+            ok "status says folders will not follow the scheme, as inactive rather than broken" || no "status without rule: $rc $out"
         echo "$pb/helper" > "$pb/rule"
         out="$(pap)"; rc=$?
         c="$(cat "$pb/helped" 2>/dev/null)"
@@ -4509,7 +4511,8 @@ STUB
             grep -q '^papirus FAILED (exit 1)$' <<<"$(hook)" &&
             ok "a refusal by the helper is a failure, in the log and in status" || no "helper refusal: $rc $(pst)"
         echo "/usr/bin/papirus-folders -C *" > "$pb/rule"
-        grep -q 'older, wider sudo rule for papirus-folders' <<<"$(pst)" && ok "status warns about the old, wider rule" || no "old rule not reported: $(pst)"
+        out="$(pst)"; rc=$?
+        [ "$rc" = 1 ] && grep -q 'older, wider sudo rule for papirus-folders' <<<"$out" && ok "status reports the old, wider rule as a problem" || no "old rule not reported: $rc $out"
     fi
     : > "$pb/c/0xide/adapters.enabled"
     [ "$(pst)" = "papirus: not enabled" ] && ok "status says not enabled when it is not" || no "status disabled: $(pst)"
