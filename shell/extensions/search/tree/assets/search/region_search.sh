@@ -51,7 +51,6 @@ lens_upload="https://lens.google.com/v3/upload"
 upload_endpoints=(
     "https://uguu.se/upload|files[]=@"
 )
-ocr_languages="eng"
 
 conf="${XDG_CONFIG_HOME:-$HOME/.config}/0xide/region-search.conf"
 # shellcheck disable=SC1090
@@ -83,17 +82,27 @@ ask() {
 
 # --- mode: text (no image egress) --------------------------------------------
 if [[ "$mode" == "text" ]]; then
-    command -v tesseract >/dev/null 2>&1 || die "tesseract is not installed, so the region cannot be read locally."
-    # Tesseract's own reason, such as a language whose data is not installed.
+    command -v tesseract >/dev/null 2>&1 || die "OCR requires Tesseract. Install tesseract first."
+    # The languages the shell's OCR uses (OCR & AI settings), so both read the
+    # same; empty there means every installed one.
+    installed="$(tesseract --list-langs 2>/dev/null | tail -n +2 | grep -vx osd || true)"
+    [[ -n "$installed" ]] || die "Tesseract has no language data. Install one, e.g. tesseract-data-eng."
+    ocr_languages="$(jq -r '.ai.ocrLanguages // ""' "${XDG_CONFIG_HOME:-$HOME/.config}/caelestia/shell.json" 2>/dev/null || true)"
+    ocr_languages="${ocr_languages//[[:space:]]/}"
+    [[ -n "$ocr_languages" ]] || ocr_languages="$(paste -sd+ <<<"$installed")"
+    missing=()
+    IFS=+ read -ra wanted <<<"$ocr_languages"
+    for code in "${wanted[@]}"; do
+        grep -qxF -- "$code" <<<"$installed" || missing+=("$code")
+    done
+    [[ ${#missing[@]} -eq 0 ]] ||
+        die "Tesseract has no data for $(IFS=,; echo "${missing[*]}" | sed 's/,/, /g'). Install it (e.g. tesseract-data-${missing[0]}) or change the OCR languages."
+    # Tesseract's own reason for anything else, such as an unreadable image.
     # Under set -e a failure here otherwise ended the search with no message.
     errors="$(mktemp)"
     trap 'rm -f -- "$image" "$errors"' EXIT
-    if ! raw="$(tesseract "$image" - -l "$ocr_languages" 2>"$errors")"; then
-        language="$(sed -n "s/^Failed loading language '\(.*\)'$/\1/p" "$errors" | head -n1)"
-        [[ -z "$language" ]] ||
-            die "Tesseract has no data for the language '${language}'. Install it, or set ocr_languages in ${conf}."
+    raw="$(tesseract "$image" - -l "$ocr_languages" 2>"$errors")" ||
         die "Tesseract could not read the region: $(tail -n1 "$errors")"
-    fi
     text="$(printf '%s' "$raw" | tr '\n' ' ' | tr -s ' ')"
     text="${text#"${text%%[![:space:]]*}"}"
     text="${text%"${text##*[![:space:]]}"}"

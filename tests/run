@@ -304,16 +304,16 @@ STUB
 printf '%s\n' "\$@" >> "$sdir/notified"
 STUB
     rm -f "$sdir/opened" "$sdir/notified"
-    mkdir -p "$sdir/conf/0xide"
-    printf 'ocr_languages=zzz\n' > "$sdir/conf/0xide/region-search.conf"
+    mkdir -p "$sdir/conf/caelestia"
+    printf '{"ai":{"ocrLanguages":"zzz"}}\n' > "$sdir/conf/caelestia/shell.json"
     cp "$sdir/probe.png" "$sdir/nolang.png"
     PATH="$sdir/bin:$PATH" XDG_CONFIG_HOME="$sdir/conf" \
         bash "$rs" "$sdir/nolang.png" rectangle >/dev/null 2>&1; rc=$?
-    grep -q "no data for the language 'zzz'" "$sdir/notified" 2>/dev/null && [ "$rc" = 1 ] && [ ! -s "$sdir/opened" ] &&
+    grep -q "Tesseract has no data for zzz." "$sdir/notified" 2>/dev/null && [ "$rc" = 1 ] && [ ! -s "$sdir/opened" ] &&
         ok "a language Tesseract cannot load is named, and nothing is searched" ||
         no "a Tesseract failure was not reported (exit $rc, notified: $(tr '\n' ' ' < "$sdir/notified" 2>/dev/null))"
     [ -e "$sdir/nolang.png" ] && no "the failed capture was not removed" || ok "the failed capture is removed"
-    rm -f "$sdir/conf/0xide/region-search.conf" "$sdir/notified"
+    rm -f "$sdir/conf/caelestia/shell.json" "$sdir/notified"
     printf '#!/bin/sh\nexit 0\n' > "$sdir/bin/notify-send"
 
     # A drawn circle takes the visual path, which has to ask before uploading.
@@ -3920,6 +3920,60 @@ out="$(PATH="$rd/bin" "$PY" "$OX_ROOT/shell/extensions/ocr/tree/assets/ocr/recog
 [[ "$out" == *'"error": "OCR requires Tesseract. Install tesseract first."'* ]] &&
     ok "the table recogniser names a missing Tesseract" || no "recognize.py without tesseract: $out"
 rm -rf "$rd"
+
+ox_step "Region search: OCR languages"
+# region_search.sh against a stand-in tesseract, so it is exact which
+# languages it reads in.
+rq="$(mktemp -d)"
+mkdir -p "$rq/bin" "$rq/conf/caelestia" "$rq/conf/0xide" "$rq/run"
+for t in bash sh cat tail head grep sed tr paste jq mktemp rm base64 sleep; do ln -s "$(type -P "$t")" "$rq/bin/$t"; done
+cat > "$rq/tesseract" <<STUB
+#!/bin/sh
+if [ "\$1" = --list-langs ]; then printf 'List of available languages (3):\neng\nfra\nosd\n'; exit 0; fi
+printf '%s\n' "\$*" > "$rq/tess-args"
+[ -n "\$TESS_FAIL" ] && { printf 'Error in pixRead\nImage file %s cannot be read!\n' "\$1" >&2; exit 1; }
+[ -n "\$TESS_EMPTY" ] && exit 0
+echo "Bonjour le monde"
+STUB
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/notified"\n' "$rq" > "$rq/bin/notify-send"
+printf '#!/bin/sh\nprintf "%%s" "$1" > "%s/opened"\n' "$rq" > "$rq/bin/xdg-open"
+printf '#!/bin/sh\ncat >/dev/null\nprintf "%%s\\n" "${FUZZEL_ANSWER:-Send the image}"\n' > "$rq/bin/fuzzel"
+cat > "$rq/curl" <<'STUB'
+#!/bin/sh
+case "$CURL_MODE" in
+    dns) echo "curl: (6) Could not resolve host: uguu.se" >&2; printf '\n000'; exit 6 ;;
+    refuse) printf 'Forbidden\n403' ;;
+    ok) printf 'https://h.example/a.png\n200' ;;
+esac
+STUB
+chmod +x "$rq/tesseract" "$rq/curl" "$rq/bin/notify-send" "$rq/bin/xdg-open" "$rq/bin/fuzzel"
+magick -size 40x20 xc:white "$rq/img.png" 2>/dev/null || printf 'x' > "$rq/img.png"
+rs_run() { # [env assignments...] -- gesture
+    rm -f "$rq/notified" "$rq/opened" "$rq/tess-args"; cp "$rq/img.png" "$rq/cap.png"
+    env PATH="$rq/bin" XDG_CONFIG_HOME="$rq/conf" XDG_RUNTIME_DIR="$rq/run" "$@" bash "$rs" "$rq/cap.png" "${GESTURE:-rectangle}" >/dev/null 2>&1
+}
+langs() { printf '{"ai":{"ocrLanguages":"%s"}}\n' "$1" > "$rq/conf/caelestia/shell.json"; }
+ln -s "$rq/tesseract" "$rq/bin/tesseract"
+langs ""; rs_run
+grep -q -- '-l eng+fra$' "$rq/tess-args" && grep -q 'Bonjour' "$rq/opened" &&
+    ok "with no OCR languages set, a text search reads every installed one" || no "unset languages read: $(cat "$rq/tess-args" 2>/dev/null)"
+langs "fra"; rs_run
+grep -q -- '-l fra$' "$rq/tess-args" && ok "it reads the languages the OCR settings name, not always English" ||
+    no "configured fra read: $(cat "$rq/tess-args" 2>/dev/null)"
+langs "eng+fra"; rs_run
+grep -q -- '-l eng+fra$' "$rq/tess-args" && ok "several configured languages are read together" || no "eng+fra read: $(cat "$rq/tess-args" 2>/dev/null)"
+langs "eng+deu"; rs_run
+grep -q 'Tesseract has no data for deu. Install it (e.g. tesseract-data-deu)' "$rq/notified" && [ ! -e "$rq/tess-args" ] && [ ! -e "$rq/opened" ] &&
+    ok "a configured language without data is named before anything is read" || no "missing deu: $(cat "$rq/notified" 2>/dev/null)"
+langs ""; rs_run TESS_FAIL=1
+grep -q 'Tesseract could not read the region: Image file .* cannot be read!' "$rq/notified" && [ ! -e "$rq/opened" ] &&
+    ok "an image Tesseract cannot read is reported with its reason" || no "unreadable image: $(cat "$rq/notified" 2>/dev/null)"
+rs_run TESS_EMPTY=1
+grep -q 'No text was found' "$rq/notified" && [ ! -e "$rq/opened" ] && ok "an empty result says nothing was found" || no "empty result"
+rm "$rq/bin/tesseract"; rs_run
+grep -q 'OCR requires Tesseract. Install tesseract first.' "$rq/notified" && ok "without Tesseract a text search says to install it" ||
+    no "no tesseract: $(cat "$rq/notified" 2>/dev/null)"
+rm -rf "$rq"
 
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"
