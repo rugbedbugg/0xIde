@@ -15,6 +15,9 @@ Scope {
     property var available: []
     property string message: ""
     property string error: ""
+    // Why the language list could not be read, kept apart from error so that
+    // a later check that works clears it.
+    property string statusError: ""
     property string operation: ""
     property string language: ""
     readonly property bool working: worker.running
@@ -24,7 +27,12 @@ Scope {
     signal translated(string text)
     signal failed(string error)
 
+    // didExit is reset at each launch: one that never starts reports no exit,
+    // and the last run's would hide that.
     function refresh(): void {
+        if (status.running)
+            return;
+        status.didExit = false;
         status.running = true;
     }
     function install(code: string): void {
@@ -66,8 +74,10 @@ Scope {
                 error = data.error;
             if (data.installed)
                 installed = data.installed;
-            if (data.available?.length)
+            if (data.available?.length) {
                 available = data.available;
+                statusError = "";
+            }
             if (data.stage === "download")
                 message = qsTr("Downloading %1: %2 / %3 MiB").arg(data.package).arg(Math.round(data.bytes / 1048576)).arg(Math.round(data.total / 1048576));
             else if (data.stage === "installed" || data.stage === "removed")
@@ -82,9 +92,22 @@ Scope {
     Process {
         id: status
 
+        property bool didExit: false
+
         command: ["uv", "run", "--no-project", "--python", "3.13", root.helper, "status"]
         stdout: SplitParser {
             onRead: data => root.event(data)
+        }
+        // A command that cannot be started never reports an exit.
+        onRunningChanged: {
+            if (!running)
+                Qt.callLater(() => {
+                    if (!status.didExit)
+                        root.statusError = qsTr("Could not load the language list. Install uv first.");
+                });
+        }
+        onExited: { // qmllint disable signal-handler-parameters
+            didExit = true;
         }
     }
     Process {

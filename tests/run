@@ -2517,6 +2517,82 @@ rm -rf "$ho"
 ! grep -qE '\b(pkill|killall)\b|kill -9|SIGKILL|--pid "\$' "$OX_ROOT/installer/shell-handoff" &&
     ok "the hand-off stops instances only by id, never by process name or signal" || no "shell-handoff kills by name or signal"
 
+ox_step "Translation languages: why a name does nothing"
+# The real Translator in a private Quickshell, with a stand-in helper. Without
+# uv the language list never loaded, and every name typed under Add a language
+# then did nothing at all.
+if ox_have qs; then
+    lx="$(mktemp -d)"
+    mkdir -p "$lx/cfg/services" "$lx/cfg/assets/ai" "$lx/bin" "$lx/xdg"
+    cp "$OX_ROOT/shell/extensions/ai/tree/services/Translator.qml" "$lx/cfg/services/"
+    printf '#!/bin/sh\nshift 4\nexec "%s" "$@"\n' "$PY" > "$lx/bin/uv"
+    printf 'import json\nprint(json.dumps({"stage": "status", "installed": [], "available": [{"code": "fr", "name": "French"}]}), flush=True)\n' \
+        > "$lx/cfg/assets/ai/translate.py"
+    cat > "$lx/cfg/shell.qml" <<QML
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import qs.services
+
+ShellRoot {
+    id: h
+
+    property var r: ({})
+    property int phase
+    property real since: Date.now()
+
+    function next(): void {
+        phase++;
+        since = Date.now();
+    }
+
+    // The singleton is created, and checks the list, when first used.
+    Component.onCompleted: Translator.refresh()
+
+    Process { id: chmod; property bool done; onExited: done = true }
+
+    Timer {
+        interval: 100
+        repeat: true
+        running: true
+        onTriggered: {
+            const r = h.r;
+            const waited = Date.now() - h.since;
+            if (h.phase === 0 && waited > 1000) {
+                r.noUv = Translator.statusError === "Could not load the language list. Install uv first." && !Translator.available.length;
+                chmod.command = ["$(command -v chmod)", "+x", "$lx/bin/uv"];
+                chmod.running = true;
+                h.next();
+            } else if (h.phase === 1 && chmod.done) {
+                Translator.refresh();
+                h.next();
+            } else if (h.phase === 2 && waited > 1000) {
+                r.recovers = Translator.statusError === "" && Translator.available.length === 1;
+                console.log("RESULT " + JSON.stringify(r));
+                Qt.quit();
+            } else if (waited > 15000) {
+                console.log("RESULT " + JSON.stringify(Object.assign(r, {stuck: h.phase})));
+                Qt.quit();
+            }
+        }
+    }
+}
+QML
+    # uv is there but not executable, as on a machine without it, until phase 1.
+    res="$(cd "$lx" && timeout 60 env PATH="$lx/bin" XDG_RUNTIME_DIR="$lx/xdg" QT_QPA_PLATFORM=offscreen \
+        "$(command -v qs)" -p "$lx/cfg/shell.qml" 2>&1 | sed -n 's/.*RESULT //p' | tail -1)"
+    case "$res" in *'"noUv":true'*) ok "without uv, the language list says why it is empty" ;; *) no "without uv the language list gave no reason ($res)" ;; esac
+    case "$res" in *'"recovers":true'*) ok "a list that loads again clears the reason" ;; *) no "the reason outlived a working list ($res)" ;; esac
+    rm -rf "$lx"
+else
+    skipt "qs is not installed"
+fi
+page="$OX_ROOT/shell/extensions/ai/tree/modules/nexus/pages/AiPage.qml"
+[ "$(grep -c 'Translator.error = root.unknownLanguage(value)' "$page")" = 2 ] &&
+    grep -q 'No offline translation model for' "$page" && grep -q 'is already installed' "$page" &&
+    grep -q 'is not installed").arg(Translator.name(code))' "$page" &&
+    ok "a language name that adds or removes nothing says why" || no "a language name can still be ignored without a word"
+
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"
 [ -z "$dups" ] && ok "every shell patch has its own number, so glob order is the series order" || no "duplicate patch numbers: $dups"
