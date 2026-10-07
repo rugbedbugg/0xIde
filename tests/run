@@ -4619,6 +4619,18 @@ QML
     rm -rf "$nx"
 fi
 
+ox_step "Translation: explicit intent"
+page="$OX_ROOT/shell/extensions/ai/tree/modules/nexus/pages/AiPage.qml"
+"$PY" - "$page" <<'CHK' && ok "adding or removing a language happens on Enter only, never on focus loss or closing" || no "a language row still acts on editingFinished"
+import re, sys
+src = open(sys.argv[1]).read()
+for row in ("addLanguage", "removeLanguage"):
+    body = re.search(r"TextFieldRow \{\s*id: %s\b(.*?)\n        \}" % row, src, re.S).group(1)
+    assert "onEditingFinished" not in body, row
+    assert re.search(r"function onAccepted\(\): void \{[^}]*%s\.field\.text" % row, src, re.S), row
+    assert re.search(r"target: %s\.field" % row, src), row
+CHK
+
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"
 [ -z "$dups" ] && ok "every shell patch has its own number, so glob order is the series order" || no "duplicate patch numbers: $dups"
