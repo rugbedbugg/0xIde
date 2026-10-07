@@ -95,6 +95,21 @@ if [ ${#legacy_present[@]} -gt 0 ]; then
 fi
 echo
 
+# The rule is checked before anything is installed, so a rule visudo refuses
+# leaves the system as it was. A name containing a "." is ignored by sudo's
+# includedir, so the staged copy is inert until renamed.
+staged="$(mktemp)"
+trap 'rm -f "$staged"' EXIT
+printf '# 0xIde SDDM theme sync, one fixed helper\n%s\n' "$SUDOERS_RULE" > "$staged"
+visudo -cf "$staged" >/dev/null || ox_die "the generated sudoers rule failed visudo validation; nothing was installed"
+ox_log "rule syntax checked with visudo -c"
+
+# ./install --dry-run: the exact changes above, and no more.
+if [ "${OX_DRY_RUN:-0}" = 1 ]; then
+    ox_log "dry run: nothing was installed"
+    exit 0
+fi
+
 if [ "${OX_ASSUME_YES:-0}" != 1 ]; then
     printf 'Install it? [y/N] '
     read -r reply
@@ -144,12 +159,7 @@ fi
 sudo install -D -m 0755 -o root -g root "$HELPER_SRC" "$HELPER_DEST"
 ox_log "installed privileged helper to $HELPER_DEST"
 
-# The rule is checked before it is installed. A name containing a "." is
-# ignored by sudo's includedir, so the staged copy is inert until renamed.
-staged="$(mktemp)"
-trap 'rm -f "$staged"' EXIT
-printf '# 0xIde SDDM theme sync, one fixed helper\n%s\n' "$SUDOERS_RULE" > "$staged"
-visudo -cf "$staged" >/dev/null || ox_die "generated sudoers rule failed visudo validation"
+# The rule, checked above before anything was installed.
 sudo install -m 0440 -o root -g root "$staged" "$SUDOERS_FILE"
 ox_log "installed sudoers rule: $SUDOERS_RULE"
 
