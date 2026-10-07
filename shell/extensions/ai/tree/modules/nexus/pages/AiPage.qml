@@ -49,6 +49,19 @@ PageBase {
         return Translator.available.find(l => l.code === wanted || l.name.toLowerCase() === wanted)?.code ?? "";
     }
 
+    // Why a typed language matched nothing: the list itself may not be loaded.
+    function unknownLanguage(value: string): string {
+        if (!Translator.available.length)
+            return Translator.statusError || Translator.error || qsTr("The language list has not loaded yet");
+        return qsTr("No offline translation model for \"%1\"").arg(value.trim());
+    }
+    // The answer to the latest name typed replaces the one before, whichever
+    // kind it was; the row shows an error ahead of a message.
+    function tellLanguage(error: string, message: string): void {
+        Translator.error = error;
+        Translator.message = message;
+    }
+
     title: qsTr("OCR & AI")
 
     Component.onCompleted: {
@@ -307,9 +320,9 @@ PageBase {
             first: true
             icon: "translate"
             label: qsTr("Installed languages")
-            subtext: Translator.error || Translator.message || qsTr("Translate runs offline between these")
+            subtext: Translator.error || Translator.statusError || Translator.message || qsTr("Translate runs offline between these")
             value: Translator.working ? qsTr("Working") : Translator.installed.map(code => Translator.name(code)).join(", ") || qsTr("None")
-            iconColour: Translator.error ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
+            iconColour: Translator.error || Translator.statusError ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
         }
 
         TextFieldRow {
@@ -317,10 +330,15 @@ PageBase {
             subtext: qsTr("Name or code, e.g. French. About 160 MB each")
             placeholderText: qsTr("Language")
             value: ""
+            // A name that leads nowhere says why, under Installed languages.
             onEditingFinished: value => {
                 const code = root.languageCode(value);
                 if (code && !Translator.installed.includes(code))
                     Translator.install(code);
+                else if (code)
+                    root.tellLanguage("", qsTr("%1 is already installed").arg(Translator.name(code)));
+                else if (value.trim())
+                    root.tellLanguage(root.unknownLanguage(value), "");
             }
         }
 
@@ -334,6 +352,10 @@ PageBase {
                 const code = root.languageCode(value);
                 if (code && Translator.installed.includes(code))
                     Translator.remove(code);
+                else if (code)
+                    root.tellLanguage("", qsTr("%1 is not installed").arg(Translator.name(code)));
+                else if (value.trim())
+                    root.tellLanguage(root.unknownLanguage(value), "");
             }
         }
 

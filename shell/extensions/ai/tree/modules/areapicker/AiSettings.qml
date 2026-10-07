@@ -352,11 +352,11 @@ ColumnLayout {
     }
     StyledText {
         Layout.fillWidth: true
-        visible: !!(Translator.error || Translator.message || Translator.working)
+        visible: !!(Translator.error || Translator.statusError || Translator.message || Translator.working)
         wrapMode: Text.Wrap
         font: Tokens.font.label.large
-        color: Translator.error ? Colours.palette.m3error : Colours.palette.m3outline
-        text: Translator.error || Translator.message || qsTr("Working...")
+        color: Translator.error || Translator.statusError ? Colours.palette.m3error : Colours.palette.m3outline
+        text: Translator.error || Translator.statusError || Translator.message || qsTr("Working...")
     }
 
     StyledText {
