@@ -18,11 +18,15 @@ if ox_has_sudo_rule 'papirus-folders -C'; then
     echo "papirus: warning: an older, wider sudo rule for papirus-folders itself is still installed"
     echo "         ./install --enable sudoers replaces it with the fixed helper"
 fi
+# The helper is opt-in (it needs root), so without it the adapter is inactive,
+# not broken: said plainly, but not counted as a fault. An older, wider rule
+# still in place is a fault, and so is a theme change that failed.
+old_rule=0
+ox_has_sudo_rule 'papirus-folders -C' && old_rule=1
 if [ ! -x "$HELPER" ] || ! ox_has_sudo_rule "$HELPER"; then
-    echo "papirus: enabled, but folder colours will NOT track the scheme"
-    echo "         the 0xIde papirus helper and its sudo rule are not installed"
-    echo "         install them with: ./install --enable sudoers"
-    exit 1
+    echo "papirus: inactive: folder colours do NOT track the scheme until the 0xIde"
+    echo "         papirus helper is installed, with: ./install --enable sudoers"
+    exit "$old_rule"
 fi
 if [ ! -s "$RESULT" ]; then
     echo "papirus: ready; folders are recoloured on the next theme change"
