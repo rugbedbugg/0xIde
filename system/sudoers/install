@@ -12,11 +12,9 @@ helper=/usr/local/libexec/0xide-papirus-folders
 
 [ "$(id -u)" -ne 0 ] || ox_die "do not run this installer as root; run as your normal user"
 [ -x "$helper_src" ] || ox_die "helper source $helper_src not found or not executable"
-staged="$OX_STATE/0xide.sudoers"
-
-mkdir -p "$OX_STATE"
-# The previous run left its copy read-only (0440), which cannot be written over.
-rm -f -- "$staged"
+# Staged in a temporary file, so a dry run or a refusal leaves nothing behind.
+staged="$(mktemp)"
+trap 'rm -f -- "$staged"' EXIT
 sed "s|@USER@|$(id -un)|g" "$here/0xide.template" > "$staged"
 chmod 0440 "$staged"
 
@@ -36,6 +34,12 @@ if ! visudo -c -f "$staged" >/dev/null; then
     ox_die "the generated rule is not valid sudoers syntax; nothing was installed"
 fi
 ox_log "syntax checked with visudo -c"
+
+# ./install --dry-run: the exact changes above, and no more.
+if [ "${OX_DRY_RUN:-0}" = 1 ]; then
+    ox_log "dry run: nothing was installed"
+    exit 0
+fi
 
 if [ "${OX_ASSUME_YES:-0}" != 1 ]; then
     printf 'Install it? [y/N] '

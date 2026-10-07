@@ -413,7 +413,9 @@ main() {
                 [ -x "$OX_ROOT/adapters/$name/apply" ] && enable_adapter "$name"
                 : ;;
             system:*)
-                if [ "$DRY" = 1 ]; then ox_log "would run $OX_ROOT/system/$name/install (it will ask first)"
+                # A dry run prints the component's exact privileged changes and
+                # checks its rule, then stops before any of them.
+                if [ "$DRY" = 1 ]; then OX_DRY_RUN=1 "$OX_ROOT/system/$name/install" || failed "$name"
                 else "$OX_ROOT/system/$name/install" || failed "$name"; fi ;;
         esac
     done < <(components)
