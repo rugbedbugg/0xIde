@@ -103,6 +103,28 @@ ox_own() {
 }
 
 
+# Quickshell's CLI, run under a non-UTF-8 locale (an SSH session, cron, a bare
+# systemd unit), prints Qt's locale warning on stdout ahead of its JSON:
+#
+#     \e[33m  WARN\e[0m: Detected locale "C" with character encoding "ANSI_X3.4-1968", which is not UTF-8.
+#     Qt depends on a UTF-8 locale, and has switched to "C.UTF-8" instead.
+#     If this causes problems, reconfigure your locale. See the locale(1) manual
+#     for more information.
+#
+# This removes exactly that block, and only at the start. Anything else, an
+# unknown warning or malformed JSON included, passes through to the parser
+# and fails there.
+ox_strip_qt_locale_warning() {
+    awk '
+        NR == 1 { if ($0 ~ /WARN.*: Detected locale ".*" with character encoding ".*", which is not UTF-8\.$/) { held = $0; next } }
+        NR == 2 && held != "" { if ($0 ~ /^Qt depends on a UTF-8 locale, and has switched to ".*" instead\.$/) { held = held "\n" $0; next } }
+        NR == 3 && held ~ /\n/ { if ($0 == "If this causes problems, reconfigure your locale. See the locale(1) manual") { held = held "\n" $0; next } }
+        NR == 4 && held ~ /\n.*\n/ { if ($0 == "for more information.") { held = ""; done = 1; next } }
+        { if (held != "" && !done) { print held; held = "" } done = 1; print }
+        END { if (held != "" && !done) print held }
+    '
+}
+
 # True when a passwordless sudo rule exists for a command. Greps the rule list
 # rather than running the command, and matches NOPASSWD explicitly so a cached
 # sudo credential cannot make an absent rule look present.

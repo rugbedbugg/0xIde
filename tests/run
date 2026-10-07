@@ -1983,6 +1983,12 @@ dp_set caelestia >/dev/null 2>&1; rc=$?
 [ "$(dp_win 0xf6 4)" = 1 ] && ! dp_calls | grep -q 0xf6 && ok "a window floated by its own rule is left alone" || no "mpv: $(dp_winline 0xf6)"
 [ -z "$(dp_ledger)" ] && ok "the ledger is empty again" || no "ledger: $(dp_ledger)"
 dpx "$OX_ROOT/0xide" profile status | grep -qx 'caelestia: in effect' && ok "status: Caelestia is in effect" || no "status: $(dpx "$OX_ROOT/0xide" profile status)"
+# Over SSH under the C locale, qs puts Qt's warning before its JSON; the shell
+# is still running and still in effect.
+touch "$DPT/case/sim/c-locale"
+dpx "$OX_ROOT/0xide" profile status | grep -qx 'caelestia: in effect' &&
+    ok "under the C locale the running shell is still found" || no "C-locale status: $(dpx "$OX_ROOT/0xide" profile status)"
+rm -f "$DPT/case/sim/c-locale"
 # And back to XP: its own snapshot puts foot where XP left it.
 dp_set windows-xp >/dev/null 2>&1; rc=$?
 [ "$rc" = 0 ] && [ "$(dp_win 0xa1 2) $(dp_win 0xa1 4) $(dp_win 0xa1 7) $(dp_win 0xa1 8)" = "3 1 400 300" ] &&
@@ -2968,6 +2974,9 @@ st="$QS_STATE"
 put() { jq "$@" "$st" > "$st.t" && mv "$st.t" "$st"; }
 case "$*" in
     "list --all -j")
+        # Quickshell under the C locale: Qt's warning on stdout, before the JSON.
+        [ -n "${QS_C_LOCALE:-}" ] && printf '\033[33m  WARN\033[0m: Detected locale "C" with character encoding "ANSI_X3.4-1968", which is not UTF-8.\nQt depends on a UTF-8 locale, and has switched to "C.UTF-8" instead.\nIf this causes problems, reconfigure your locale. See the locale(1) manual\nfor more information.\n'
+        [ -n "${QS_GARBAGE:-}" ] && { echo "not json"; exit 0; }
         if [ "$(jq length "$st")" = 0 ]; then echo 'No running instances for "x"'; else cat "$st"; fi ;;
     "kill -i "*)
         id="$3"
@@ -3016,6 +3025,22 @@ else
         no "first install: exit $rc, now: $(caelestia_now), calls: $(tr '\n' ';' < "$ho/calls")"
     other_intact && ok "first install: another Quickshell configuration is left running as it was" ||
         no "first install touched another configuration"
+
+    # Over SSH or from cron, under the C locale, Qt's warning comes first on
+    # stdout. It is not the shell list, and must not hide it; anything else
+    # that is not JSON still fails.
+    seed "$(inst sys1 101 "$SYSQ")" "$OTH"
+    before="$(hoenv env QS_C_LOCALE=1 "$H" capture)"
+    [ "$(jq -c '[.[].id]' <<<"$before")" = '["sys1"]' ] &&
+        ok "under the C locale, capture still finds exactly the system Caelestia shell" || no "C-locale capture: $before"
+    out="$(hoenv env QS_C_LOCALE=1 "$H" handoff "$before" 2>&1)"; rc=$?
+    [ "$rc" -eq 0 ] && [ "$(caelestia_now)" = "new1@$USRQ" ] && [ "$(kills)" = 1 ] &&
+        ok "and the C-locale hand-off stops it by id and leaves one user shell" ||
+        no "C-locale hand-off: exit $rc, now: $(caelestia_now)"
+    seed "$(inst sys1 101 "$SYSQ")"
+    out="$(hoenv env QS_C_LOCALE=1 QS_GARBAGE=1 "$H" capture 2>&1)"; rc=$?
+    [ "$rc" -ne 0 ] && grep -q 'could not list the running Quickshell instances' <<<"$out" &&
+        ok "output that is not JSON after the warning still fails capture" || no "garbage after the warning: exit $rc, $out"
 
     # 2. update: the 0xIde shell already running is replaced the same way.
     seed "$(inst usr1 102 "$USRQ")" "$OTH"
@@ -3989,6 +4014,20 @@ grep -q 'Search cancelled Nothing was uploaded.' "$rq/notified" && [ ! -e "$rq/o
 rs_run CURL_MODE=ok
 grep -q 'uploadbyurl?url=https%3A%2F%2Fh.example%2Fa.png' "$rq/opened" && ok "an accepted upload opens Lens on the uploaded image" || no "upload ok"
 rm -rf "$rq"
+
+ox_step "Quickshell JSON under the C locale"
+# The warning exactly as Quickshell 0.2 printed it on stdout over SSH.
+qw="$(printf '\033[33m  WARN\033[0m: Detected locale "C" with character encoding "ANSI_X3.4-1968", which is not UTF-8.\nQt depends on a UTF-8 locale, and has switched to "C.UTF-8" instead.\nIf this causes problems, reconfigure your locale. See the locale(1) manual\nfor more information.')"
+[ "$(printf '%s\n[{"pid": 7}]\n' "$qw" | ox_strip_qt_locale_warning | jq -c '.[0].pid')" = 7 ] &&
+    ok "the locale warning before JSON is removed" || no "the locale warning is not removed"
+[ "$(printf '[{"pid": 7}]\n' | ox_strip_qt_locale_warning | jq -c '.[0].pid')" = 7 ] &&
+    ok "JSON without the warning passes unchanged" || no "plain JSON was changed"
+printf '%s\nnot json\n' "$qw" | ox_strip_qt_locale_warning | jq . >/dev/null 2>&1 &&
+    no "garbage after the warning parsed as JSON" || ok "garbage after the warning still fails to parse"
+[ "$(printf '%s\nsomething else\n[]\n' "$(head -1 <<<"$qw")" | ox_strip_qt_locale_warning | head -1)" = "$(head -1 <<<"$qw")" ] &&
+    ok "a block that is not exactly Qt's warning is left for the parser to reject" || no "a partial warning was removed"
+printf '[1]\n%s\n' "$qw" | ox_strip_qt_locale_warning | grep -q 'Detected locale' &&
+    ok "the warning is only removed from the start" || no "a warning after the JSON was removed"
 
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"
