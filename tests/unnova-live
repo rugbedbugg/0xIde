@@ -1,0 +1,133 @@
+#!/usr/bin/env -S uv run --no-project --python 3.13 python
+"""Opt-in Wayland UI verification. Only this harness's children receive signals."""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import shutil
+import shlex
+import subprocess
+import tempfile
+import time
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--controls", action="store_true", help="test runtime controls in an unmapped window with mock services")
+args = parser.parse_args()
+
+repo = Path(__file__).resolve().parent.parent
+source = repo / "build/shell-src"
+plugin = repo / "build/plugin-install/lib/qt6/qml"
+if not os.environ.get("WAYLAND_DISPLAY") or not plugin.is_dir():
+    raise SystemExit("Needs a Wayland session and shell/build.sh --no-install")
+
+output = Path(tempfile.mkdtemp(prefix="unnova-live-"))
+print(f"Live verification artifacts: {output}", flush=True)
+shutil.copytree(source, output / "shell", ignore=shutil.ignore_patterns(".git", "plugin", "__pycache__"))
+# The temporary shell shares the compositor with the user's real shell. Suppress
+# only desktop-wide rule/binding writers in this disposable copy, retaining real
+# monitor queries, focus handling, rendering, process services and interactions.
+for service, method in [("Colours", "reloadHyprRules"), ("Hypr", "reloadDynamicConfs")]:
+    path = output / "shell/services" / f"{service}.qml"
+    text = path.read_text()
+    signature = f"function {method}(): void {{"
+    if text.count(signature) != 1:
+        raise SystemExit(f"Cannot isolate {service}.{method}; review the live harness")
+    path.write_text(text.replace(signature, signature + "\n        return; // Live-test desktop isolation."))
+qml = (repo / ("tests/unnova_controls.qml" if args.controls else "tests/unnova_live.qml")).read_text().replace("@PLUGIN_QML@", str(plugin))
+(output / "shell/shell.qml").write_text(qml)
+env = os.environ.copy()
+# Reuse the host's pinned interpreter while keeping helper state/cache private.
+# Changing XDG_DATA_HOME otherwise hides uv's managed Python installations.
+env.setdefault("UV_PYTHON_INSTALL_DIR", subprocess.check_output(["uv", "python", "dir"], text=True).strip())
+env["UV_PYTHON_DOWNLOADS"] = "never"
+uv = shutil.which("uv")
+if uv and "/mise/shims/" in uv:
+    # Resolve before isolating XDG state; a mise shim would lose its trust cache.
+    resolved = subprocess.run(["mise", "which", "uv"], capture_output=True, text=True)
+    fallback = os.pathsep.join(p for p in env.get("PATH", "").split(os.pathsep) if Path(p) != Path(uv).parent)
+    uv = resolved.stdout.strip() if resolved.returncode == 0 else shutil.which("uv", path=fallback)
+    if not uv:
+        raise SystemExit("Cannot resolve uv outside its mise shim")
+bindir = output / "bin"
+bindir.mkdir()
+if uv:
+    (bindir / "uv").symlink_to(uv)
+env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+for key, name in [("XDG_CONFIG_HOME", "config"), ("XDG_STATE_HOME", "state"),
+                  ("XDG_DATA_HOME", "data"), ("XDG_CACHE_HOME", "cache")]:
+    env[key] = str(output / "xdg" / name)
+    Path(env[key]).mkdir(parents=True)
+# Use the existing colours as read-only input; all test state stays isolated.
+scheme = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "caelestia/scheme.json"
+if scheme.is_file():
+    target = Path(env["XDG_STATE_HOME"]) / "caelestia/scheme.json"
+    target.parent.mkdir(parents=True)
+    shutil.copyfile(scheme, target)
+# A fresh state directory otherwise makes Wallpapers apply its fallback through
+# the real CLI, which changes desktop themes and launches Chromium policy refresh.
+# Seed the read-only wallpaper input; this test never changes the wallpaper.
+wallpaper = Path(env["XDG_STATE_HOME"]) / "caelestia/wallpaper/path.txt"
+wallpaper.parent.mkdir(parents=True)
+wallpaper.write_text(str(output / "shell/assets/wallpaper.webp") + "\n")
+# Keep unexpected shell initialization from escaping the UI test's scope.
+cli = shutil.which("caelestia")
+if cli:
+    guard = bindir / "caelestia"
+    guard.write_text("#!/bin/sh\n"
+                     f'if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then exec {shlex.quote(cli)} "$@"; fi\n'
+                     'printf \'%s\\n\' "$@" >> "$UNNOVA_TEST_OUTPUT/cli-invocations"\nexit 1\n')
+    guard.chmod(0o755)
+if args.controls:
+    # No helper may escape the mocks, even if a default service is accidentally
+    # instantiated. Reject before it can download, delete or start a model.
+    guard = bindir / "uv"
+    guard.unlink(missing_ok=True)
+    guard.write_text("#!/bin/sh\n"
+                     'printf \'%s\\n\' "$@" >> "$UNNOVA_TEST_OUTPUT/helper-invocations"\nexit 1\n')
+    guard.chmod(0o755)
+env.update(QT_QPA_PLATFORM="wayland", NO_COLOR="1", UNNOVA_TEST_OUTPUT=str(output))
+
+phases = {}
+results = {}
+costs = []
+warnings = []
+with (output / "log").open("w") as log:
+    process = subprocess.Popen(["qs", "-p", str(output / "shell")], stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT, text=True, env=env)
+    for line in process.stdout:
+        log.write(line)
+        log.flush()
+        if "PHASE " in line:
+            event = json.loads(line.split("PHASE ", 1)[1])
+            pid = event["pid"]
+            fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+            status = Path(f"/proc/{pid}/status").read_text().splitlines()
+            event.update(time=time.monotonic(), ticks=int(fields[11]) + int(fields[12]),
+                         rss_kib=int(next(x for x in status if x.startswith("VmRSS:")).split()[1]))
+            phases[event["name"]] = event
+        if "RESULTS " in line:
+            results = json.loads(line.split("RESULTS ", 1)[1])
+        if "COSTS " in line:
+            costs = json.loads(line.split("COSTS ", 1)[1])
+        if "FAIL " in line or " ERROR" in line or " WARN" in line:
+            warnings.append(line.strip())
+            print(line.strip(), flush=True)
+    rc = process.wait()
+
+measurements = []
+for phase in ("visible", "hidden"):
+    a, b = phases.get(phase + "-start"), phases.get(phase + "-end")
+    if a and b:
+        measurements.append(dict(phase=phase,
+            cpu_percent=100 * (b["ticks"] - a["ticks"]) / os.sysconf("SC_CLK_TCK") / (b["time"] - a["time"]),
+            rss_start_kib=a["rss_kib"], rss_end_kib=b["rss_kib"],
+            samples=b["samples"] - a["samples"], processes=b["count"]))
+completed = bool(results)
+if args.controls:
+    results["no real model helper called"] = not (output / "helper-invocations").exists()
+results["no desktop CLI side effects"] = not (output / "cli-invocations").exists()
+report = dict(results=results, measurements=measurements, sample_ms=costs, warnings=warnings)
+(output / "results.json").write_text(json.dumps(report, indent=2))
+print(json.dumps(report, indent=2))
+raise SystemExit(0 if rc == 0 and completed and all(results.values()) and not warnings else 1)

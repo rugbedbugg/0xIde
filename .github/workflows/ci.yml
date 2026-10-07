@@ -43,7 +43,7 @@ jobs:
           key: pacman-${{ hashFiles('.github/workflows/ci.yml') }}
       - name: Install dependencies
         run: |
-          pacman -Syu --noconfirm --needed git rsync python jq lua sudo diffutils sddm qt6-declarative \
+          pacman -Syu --noconfirm --needed git rsync python jq lua sudo diffutils sddm qt6-declarative gcc \
               tesseract tesseract-data-eng imagemagick fontconfig ttf-dejavu \
               librsvg xorg-xcursorgen hyprcursor
       - uses: actions/checkout@v4

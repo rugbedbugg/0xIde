@@ -1,0 +1,30 @@
+From 06514b3c09483dfaf752328b8af108b5d999226a Mon Sep 17 00:00:00 2001
+From: Oxide 1-6 <yes.par781@gmail.com>
+Date: Fri, 2 Oct 2026 11:33:54 +0530
+Subject: [PATCH] plugin: register UnNova's process service
+
+Adds the two sources that shell/plugin/src/ provides to the services
+module. shell/build.sh copies them into the tree before this patch is
+applied, like the AI types.
+
+  Caelestia.Services  Processes   processes visible to this user, read
+                                  from /proc once a second while a
+                                  ServiceRef holds it; signals only the
+                                  exact process a PID and start time name
+---
+ plugin/src/Caelestia/Services/CMakeLists.txt | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/plugin/src/Caelestia/Services/CMakeLists.txt b/plugin/src/Caelestia/Services/CMakeLists.txt
+index cffd62e8..0d655b4f 100644
+--- a/plugin/src/Caelestia/Services/CMakeLists.txt
++++ b/plugin/src/Caelestia/Services/CMakeLists.txt
+@@ -19,6 +19,8 @@ qml_module(caelestia-services
+         lyrics.cpp
+         sessionmanager.cpp
+         networkusage.cpp
++        procfs.cpp
++        processes.cpp
+         hyprdevices.cpp
+         hyprextras.cpp
+     LIBRARIES

@@ -1,0 +1,165 @@
+Subject: [PATCH] components: share Nexus surface chrome with UnNova
+
+Extract the existing border and corner control without changing Nexus geometry or actions.
+
+diff --git a/components/SurfaceChrome.qml b/components/SurfaceChrome.qml
+new file mode 100644
+--- /dev/null
++++ b/components/SurfaceChrome.qml
+@@ -0,0 +1,73 @@
++pragma ComponentBehavior: Bound
++
++import QtQuick
++import Caelestia.Blobs
++import Caelestia.Config
++import qs.components.controls
++import qs.services
++
++// Nexus's surface border and integrated window/popup control. Content stays
++// outside the chrome so callers retain their own layout and close lifecycle.
++Item {
++    id: root
++
++    property color colour: Colours.tPalette.m3surfaceContainerLow
++    property real leftInset: Tokens.padding.medium
++    property bool isWindow: true
++    readonly property real cornerWidth: windowBtnRect.width
++
++    signal activated
++
++    BlobGroup {
++        id: blobGroup
++
++        smoothing: root.Tokens.rounding.medium
++        color: root.colour
++    }
++
++    BlobInvertedRect {
++        anchors.fill: parent
++        group: blobGroup
++        opacity: root.colour.a
++        radius: Tokens.rounding.large
++
++        borderLeft: root.leftInset
++        borderRight: Tokens.padding.medium
++        borderTop: Tokens.padding.medium
++        borderBottom: Tokens.padding.medium
++    }
++
++    BlobRect {
++        id: windowBtnRect
++
++        anchors.right: parent.right
++        anchors.top: parent.top
++        anchors.margins: root.isWindow ? 0 : Tokens.padding.extraSmall
++
++        group: blobGroup
++        opacity: root.colour.a
++        radius: Tokens.rounding.medium
++
++        implicitWidth: windowBtn.implicitWidth + (root.isWindow ? Tokens.padding.extraSmall : Tokens.padding.small) * 2
++        implicitHeight: windowBtn.implicitHeight + (root.isWindow ? Tokens.padding.extraSmall : Tokens.padding.small)
++    }
++
++    IconButton {
++        id: windowBtn
++
++        anchors.centerIn: windowBtnRect
++        icon: root.isWindow ? "close" : "pip"
++        type: IconButton.Text
++        label.fill: 0
++        inactiveOnColour: hovered ? root.isWindow ? Colours.palette.m3error : Colours.palette.m3primary : Colours.palette.m3onSurfaceVariant
++        stateLayer.opacity: 0
++        onClicked: root.activated()
++
++        label.scale: pressed ? 0.8 : 1
++        label.renderType: Text.QtRendering
++
++        Behavior on label.scale {
++            Anim {}
++        }
++    }
++}
+diff --git a/modules/nexus/Nexus.qml b/modules/nexus/Nexus.qml
+--- a/modules/nexus/Nexus.qml
++++ b/modules/nexus/Nexus.qml
+@@ -1,11 +1,9 @@
+ pragma ComponentBehavior: Bound
+
+ import QtQuick
+-import Caelestia.Blobs
+ import Caelestia.Config
+ import qs.components
+-import qs.components.controls
+ import qs.services
+ import qs.modules.nexus
+
+ Item {
+@@ -30,62 +28,17 @@
+     TapHandler {
+         onTapped: root.focus = true
+     }
+
+-    BlobGroup {
+-        id: blobGroup
+-
+-        smoothing: root.Tokens.rounding.medium
+-        color: root.blobColour
+-    }
+-
+-    BlobInvertedRect {
++    SurfaceChrome {
+         anchors.fill: parent
+-        group: blobGroup
+-        opacity: root.blobColour.a
+-        radius: Tokens.rounding.large
+-
+-        borderLeft: navPane.width + navPane.anchors.margins * 2
+-        borderRight: Tokens.padding.medium
+-        borderTop: Tokens.padding.medium
+-        borderBottom: Tokens.padding.medium
+-    }
+-
+-    BlobRect {
+-        id: windowBtnRect
+-
+-        anchors.right: parent.right
+-        anchors.top: parent.top
+-        anchors.margins: root.nState.isWindow ? 0 : Tokens.padding.extraSmall
+-
+-        group: blobGroup
+-        opacity: root.blobColour.a
+-        radius: Tokens.rounding.medium
+-
+-        implicitWidth: windowBtn.implicitWidth + (root.nState.isWindow ? Tokens.padding.extraSmall : Tokens.padding.small) * 2
+-        implicitHeight: windowBtn.implicitHeight + (root.nState.isWindow ? Tokens.padding.extraSmall : Tokens.padding.small)
+-    }
+-
+-    IconButton {
+-        id: windowBtn
+-
+-        anchors.centerIn: windowBtnRect
+-        icon: nState.isWindow ? "close" : "pip"
+-        type: IconButton.Text
+-        label.fill: 0
+-        inactiveOnColour: hovered ? nState.isWindow ? Colours.palette.m3error : Colours.palette.m3primary : Colours.palette.m3onSurfaceVariant
+-        stateLayer.opacity: 0
+-        onClicked: {
++        colour: root.blobColour
++        leftInset: navPane.width + navPane.anchors.margins * 2
++        isWindow: root.nState.isWindow
++        onActivated: {
+             if (!nState.isWindow)
+                 WindowFactory.create();
+             root.close();
+-        }
+-
+-        label.scale: pressed ? 0.8 : 1
+-        label.renderType: Text.QtRendering
+-
+-        Behavior on label.scale {
+-            Anim {}
+         }
+     }
+
+     NavPane {
