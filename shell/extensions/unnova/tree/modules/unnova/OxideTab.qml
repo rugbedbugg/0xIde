@@ -134,6 +134,7 @@ StyledFlickable {
                 U.translationLanguages(Translator.installed.filter(c => c !== "en").map(c => Translator.name(c))),
                 GlobalConfig.ai.translateFrom && GlobalConfig.ai.translateLanguage ? qsTr("Selected: %1 → %2").arg(Translator.name(GlobalConfig.ai.translateFrom)).arg(Translator.name(GlobalConfig.ai.translateLanguage)) : qsTr("Selected: no language pair configured"),
                 qsTr("Runs per request; no background runtime to unload"),
+                Translator.translating ? Translator.translationLabel : "",
                 Translator.working ? Translator.message : "",
                 Translator.error
             ]
