@@ -27,8 +27,10 @@ ShellRoot {
         property bool serving: false
         property bool stopping: false
         property bool installing: false
+        property string operation: "install"
         property string endpoint: ""
         function start() { test.record("start"); }
+        function cancel() { test.record("cancelInstall"); }
         function stop() { test.record("stop"); }
         function restart() { test.record("restart"); }
     }
@@ -55,45 +57,50 @@ ShellRoot {
         running: true
         onTriggered: {
             try {
-                const toggle = named("aiStartStop"), restart = named("aiRestart"), cancel = named("translationCancel");
+                const start = named("aiStart"), unload = named("aiUnload"), restart = named("aiRestart"),
+                      cancelAi = named("aiCancel"), cancel = named("translationCancel");
+                const shown = () => [start, unload, restart, cancelAi].filter(b => b.visible).map(b => b.objectName).join();
                 check("opening controls starts no work", calls.length === 0);
-                check("installed stopped AI offers Start", toggle.text === "Start" && !toggle.disabled && restart.disabled);
-                toggle.clicked();
+                check("installed stopped AI offers only Start", shown() === "aiStart");
+                start.clicked();
                 check("Start delegates once to existing runtime", calls.join() === "start");
                 ai.serving = true;
-                check("starting server offers Unload but not Restart", toggle.text === "Unload" && !toggle.disabled && restart.disabled);
+                check("starting server offers Unload but not Restart", shown() === "aiUnload");
                 restart.clicked();
                 check("Restart is rejected before endpoint ready", calls.length === 1);
-                toggle.clicked();
+                unload.clicked();
                 check("Unload delegates while starting", calls.join() === "start,stop");
                 ai.endpoint = "http://test";
+                check("a ready server offers Unload and Restart", shown() === "aiUnload,aiRestart");
                 restart.clicked();
-                check("ready server Restart delegates", !restart.disabled && calls.join() === "start,stop,restart");
+                check("ready server Restart delegates", calls.join() === "start,stop,restart");
                 ai.stopping = true;
-                toggle.clicked(); restart.clicked();
-                check("stopping rejects stale clicks", toggle.disabled && restart.disabled && calls.length === 3);
+                unload.clicked(); restart.clicked();
+                check("stopping offers nothing and rejects stale clicks", shown() === "" && calls.length === 3);
                 ai.stopping = false; ai.installing = true;
-                toggle.clicked(); restart.clicked();
-                check("model operation rejects runtime clicks", toggle.disabled && restart.disabled && calls.length === 3);
+                start.clicked(); unload.clicked(); restart.clicked();
+                check("installing offers only Cancel and rejects runtime clicks", shown() === "aiCancel" && calls.length === 3);
+                cancelAi.clicked();
+                check("Cancel installation delegates once", calls.join() === "start,stop,restart,cancelInstall");
                 ai.serving = false; ai.endpoint = "";
-                toggle.clicked();
-                check("installing model cannot start server", toggle.disabled && calls.length === 3);
+                start.clicked();
+                check("installing model cannot start server", calls.length === 4);
                 ai.installing = false; ai.info = {installed: false};
-                toggle.clicked();
-                check("missing model cannot start server", toggle.disabled && calls.length === 3);
+                start.clicked();
+                check("missing model offers nothing and cannot start", shown() === "" && calls.length === 4);
                 ai.info = {};
-                toggle.clicked();
-                check("unknown installation cannot start server", toggle.disabled && calls.length === 3);
+                start.clicked();
+                check("unknown installation offers nothing", shown() === "" && calls.length === 4);
                 ai.info = {installed: true};
-                check("Start re-enables after installation is known", !toggle.disabled);
+                check("Start returns once installation is known", shown() === "aiStart");
                 cancel.clicked();
-                check("idle translation cannot be cancelled", cancel.disabled && calls.length === 3);
+                check("idle translation shows no cancel and rejects a click", !cancel.visible && calls.length === 4);
                 translation.translating = true;
                 cancel.clicked();
-                check("active translation cancellation delegates once", !cancel.disabled && calls.join() === "start,stop,restart,cancel");
+                check("active translation cancellation is shown and delegates once", cancel.visible && calls.join() === "start,stop,restart,cancelInstall,cancel");
                 translation.translating = false;
                 cancel.clicked();
-                check("finished translation rejects stale cancellation", cancel.disabled && calls.length === 4);
+                check("finished translation hides cancel and rejects stale cancellation", !cancel.visible && calls.length === 5);
                 console.log("RESULTS " + JSON.stringify(results));
             } catch (e) {
                 console.log("FAIL " + e);
