@@ -4145,6 +4145,107 @@ fi
 grep -q 'This shell closes' "$OX_ROOT/shell/extensions/desktop-profile/tree/modules/nexus/pages/ThemePage.qml" &&
     no "the switch dialog still says this shell closes" || ok "the switch dialog does not claim the shell closes"
 
+ox_step "Wallpaper delete: what happened to the file"
+# The real WallpaperInfo service and real gio, on disposable files only. The
+# fixtures live under the home file system, which has a Trash; their Trash is
+# a private XDG_DATA_HOME, never the user's.
+if ox_have qs && ox_have gio; then
+    wx="$(mktemp -d "$HOME/.cache/0xide-wallpaper-test.XXXXXX")"
+    mkdir -p "$wx/cfg/services" "$wx/data" "$wx/run" "$wx/ro" "$wx/bin"
+    cp "$OX_ROOT/shell/extensions/wallpaper-info/tree/services/WallpaperInfo.qml" "$wx/cfg/services/"
+    : > "$wx/ok.png"; : > "$wx/ro/locked.png"; chmod 555 "$wx/ro"
+    tmpfile=""
+    [ "$(findmnt -T /tmp -no FSTYPE 2>/dev/null)" = tmpfs ] && { tmpfile="$(mktemp /tmp/0xide-wallpaper-test.XXXXXX.png)"; }
+    ln -s "$(type -P gio)" "$wx/bin/gio"
+    cat > "$wx/cfg/shell.qml" <<QML
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import qs.services
+
+ShellRoot {
+    id: h
+
+    property var r: ({})
+    property int phase
+    property real since: Date.now()
+    readonly property var cases: [["ok", "$wx/ok.png"], ["missing", "$wx/gone.png"], ["denied", "$wx/ro/locked.png"], ["tmpfs", "$tmpfile"], ["noGio", "$wx/ok2.png"]]
+
+    function next(): void {
+        phase++;
+        since = Date.now();
+    }
+
+    Process { id: hide; property bool done; command: ["$(type -P rm)", "$wx/bin/gio"]; onExited: done = true }
+
+    Timer {
+        interval: 100
+        repeat: true
+        running: true
+        onTriggered: {
+            const W = WallpaperInfo;
+            const waited = Date.now() - h.since;
+            if (h.phase >= h.cases.length * 2) {
+                console.log("RESULT " + JSON.stringify(h.r));
+                Qt.quit();
+                return;
+            }
+            const c = h.cases[Math.floor(h.phase / 2)];
+            if (h.phase % 2 === 0) {
+                if (!c[1]) { h.phase += 2; return; }
+                if (c[0] === "noGio" && !hide.done) { if (!hide.running) hide.running = true; return; }
+                W.openPath = c[1];
+                W.trash();
+                h.next();
+            } else if (!W.trashing && waited > 200) {
+                h.r[c[0]] = { error: W.trashError, open: W.openPath !== "" };
+                h.next();
+            } else if (waited > 10000) {
+                h.r[c[0]] = { stuck: true };
+                h.next();
+            }
+        }
+    }
+}
+QML
+    res="$(cd "$wx" && timeout 60 env PATH="$wx/bin" XDG_DATA_HOME="$wx/data" XDG_RUNTIME_DIR="$wx/run" QT_QPA_PLATFORM=offscreen \
+        "$(command -v qs)" -p "$wx/cfg/shell.qml" 2>&1 | sed -n 's/.*RESULT //p' | tail -1)"
+    chmod 755 "$wx/ro"
+    "$PY" - "$res" "$wx" "$tmpfile" <<'CHK'
+import json, os, sys
+r, wx, tmp = json.loads(sys.argv[1] or "{}"), sys.argv[2], sys.argv[3]
+def check(cond, what, got):
+    print(f"  \033[32mok\033[0m    {what}" if cond else f"  \033[31mFAIL\033[0m  {what} (got {got!r})")
+    return 0 if cond else 1
+bad = 0
+ok = r.get("ok", {})
+bad += check(ok.get("error") == "" and not ok.get("open") and not os.path.exists(f"{wx}/ok.png")
+             and os.listdir(f"{wx}/data/Trash/files") == ["ok.png"],
+             "a normal delete moves the file to the Trash and closes the overlay", ok)
+for key, words, what in (("missing", "No such file or directory", "a file already gone says so"),
+                         ("denied", "Permission denied", "a file it may not move says permission was denied")):
+    e = r.get(key, {}).get("error", "")
+    bad += check(e.startswith(words) and "gio:" not in e and "file://" not in e and r[key]["open"],
+                 f"{what}, without gio's prefix, and the overlay stays", r.get(key))
+bad += check(os.path.exists(f"{wx}/ro/locked.png"), "the file it could not move is still there", "missing")
+if tmp:
+    e = r.get("tmpfs", {}).get("error", "")
+    bad += check("not supported" in e and "file://" not in e and os.path.exists(tmp),
+                 "a file system without a Trash is reported and the file kept", r.get("tmpfs"))
+e = r.get("noGio", {}).get("error", "")
+bad += check(e == "gio is not installed, so nothing was moved to the Trash", "without gio it says so instead of Moving… forever", r.get("noGio"))
+sys.exit(bad)
+CHK
+    n=$?; t=$([ -n "$tmpfile" ] && echo 6 || echo 5)
+    pass=$((pass + t - n)); fail=$((fail + n))
+    [ -n "$tmpfile" ] && rm -f -- "$tmpfile"
+    rm -rf "$wx"
+else
+    skipt "the wallpaper delete checks need qs and gio"
+fi
+grep -q 'wrapMode: Text.Wrap' "$OX_ROOT/shell/extensions/wallpaper-info/tree/components/WallpaperInfoOverlay.qml" &&
+    ok "a delete failure is wrapped in the overlay, not cut to one line" || no "the delete failure is still elided"
+
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"
 [ -z "$dups" ] && ok "every shell patch has its own number, so glob order is the series order" || no "duplicate patch numbers: $dups"

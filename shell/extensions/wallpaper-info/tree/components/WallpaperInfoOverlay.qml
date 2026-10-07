@@ -91,6 +91,9 @@ Item {
             Layout.fillWidth: true
             visible: text !== ""
             horizontalAlignment: Text.AlignHCenter
+            // The reason a delete failed is the point: wrapped, not cut off.
+            wrapMode: Text.Wrap
+            maximumLineCount: 4
             elide: Text.ElideRight
             color: Colours.palette.m3error
             font: Tokens.font.label.small
