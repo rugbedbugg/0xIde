@@ -4482,6 +4482,36 @@ out="$(stx "$OX_ROOT/install" --status 2>&1)"
 [ "$(line voice)" = "ok, the default microphone is noise-suppressed" ] && ok "working voice is ok" || no "voice ok: $(line voice)"
 rm -rf "$sx"
 
+ox_step "Voice: every way it can fail is named"
+vx="$(mktemp -d)"
+mkdir -p "$vx/bin"
+cat > "$vx/bin/pactl" <<STUB
+#!/bin/sh
+case "\$1" in
+    list) [ -e "$vx/src" ] && printf '7\t0xide_voice\tPipeWire\n' ;;
+    get-default-source) cat "$vx/default" 2>/dev/null ;;
+    set-default-source) [ -e "$vx/nodefault" ] && { echo "Failure: No such entity" >&2; exit 1; }; echo "\$2" > "$vx/default" ;;
+esac
+STUB
+printf '#!/bin/sh\n[ -e "%s/norestart" ] && { echo "Failed to connect to bus" >&2; exit 1; }; exit 0\n' "$vx" > "$vx/bin/systemctl"
+chmod +x "$vx/bin/"*
+vrun() { rm -rf "$vx/h"; env HOME="$vx/h" XDG_CONFIG_HOME="$vx/h/c" XDG_STATE_HOME="$vx/h/s" XDG_DATA_HOME="$vx/h/d" \
+    PATH="$vx/bin:$PATH" "$OX_ROOT/install" --only voice 2>&1; }
+touch "$vx/norestart"; out="$(vrun)"; rc=$?
+[ "$rc" = 1 ] && grep -q 'PipeWire could not be restarted, so the noise-suppressed microphone is not loaded: Failed to connect to bus' <<<"$out" &&
+    ok "a PipeWire restart that fails is reported, not swallowed" || no "restart failure: $rc $out"
+rm "$vx/norestart"; out="$(vrun)"; rc=$?
+[ "$rc" = 1 ] && grep -q 'did not appear in PipeWire' <<<"$out" && ! grep -q '^.*Done' <<<"$out" &&
+    ok "a source that never appears is not Done" || no "no source: $rc"
+touch "$vx/src" "$vx/nodefault"; echo alsa_input.mic > "$vx/default"; out="$(vrun)"; rc=$?
+[ "$rc" = 1 ] && grep -q 'is there, but could not be made the default: Failure: No such entity' <<<"$out" &&
+    [ "$(cat "$vx/default")" = alsa_input.mic ] &&
+    ok "failing to switch the default is reported, and the old default is left" || no "default switch failure: $rc $out"
+rm "$vx/nodefault"; out="$(vrun)"; rc=$?
+[ "$rc" = 0 ] && grep -q 'it was alsa_input.mic; pactl set-default-source alsa_input.mic goes back' <<<"$out" &&
+    ok "a working switch says which microphone it replaced and how to go back" || no "voice ok: $rc $out"
+rm -rf "$vx"
+
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"
 [ -z "$dups" ] && ok "every shell patch has its own number, so glob order is the series order" || no "duplicate patch numbers: $dups"
