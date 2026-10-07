@@ -127,18 +127,27 @@ dpm_execute_plan() {
 
     mkdir -p "$OX_STATE" || return 1
     exec 9>"$DPM_LOCK"
+    # A refusal is said where it is seen, as a failed switch is: the shell
+    # starts switches in the background, where stderr reaches no one.
     if ! flock -n 9; then
         exec 9>&-
         echo "fail: another profile switch is running" >&2
+        _dpm_notify -u critical "Desktop not switched" "Another desktop switch is still running. Nothing was changed."
         return 1
     fi
 
     # Planned under the lock, so it starts from the profile that is really active.
     current="$(dp_get_active_profile)"
-    if ! plan="$(dpm_build_plan "$target")"; then
+    local why
+    why="$(mktemp)"
+    if ! plan="$(dpm_build_plan "$target" 2>"$why")"; then
         exec 9>&-
+        cat "$why" >&2
+        _dpm_notify -u critical "Desktop not switched" "$(sed -n '1s/^fail: //p' "$why"). Nothing was changed."
+        rm -f -- "$why"
         return 1
     fi
+    rm -f -- "$why"
     if [ -z "$plan" ]; then
         exec 9>&-
         echo "$target is already the active profile"

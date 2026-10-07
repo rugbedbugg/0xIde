@@ -122,7 +122,7 @@ case "$*" in
         read -r pid exe < "$DP_SIM/owner"
         printf 'PID=%s\nPPID=1\nComm=%s\nExe=%s\n' "$pid" "$(basename "$exe")" "$exe" ;;
     "notify-send "*)
-        : ;;
+        printf '%s\n' "$*" >> "$DP_SIM/notified" ;;
     *)
         printf 'UNEXPECTED %s\n' "$*" >> "$DP_SIM/calls"
         exit 99 ;;

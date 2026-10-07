@@ -165,7 +165,8 @@ StyledFlickable {
             status: U.profileState(DesktopProfiles.active)
             statusColour: DesktopProfiles.active ? Colours.palette.m3primary : Colours.palette.m3outline
             lines: [
-                DesktopProfiles.active?.description ?? qsTr("Waiting for the active profile"),
+                DesktopProfiles.switching ? qsTr("Switching to %1…").arg(DesktopProfiles.name(DesktopProfiles.switchingTo)) : "",
+                DesktopProfiles.error ? DesktopProfiles.error : DesktopProfiles.active?.description ?? qsTr("Reading the desktop profiles…"),
                 qsTr("Profile selection is managed in Settings")
             ]
         }
