@@ -922,7 +922,14 @@ while True:
     time.sleep(0.1)
 STUB
 for tool in whisper-server pw-record wtype; do printf '#!/bin/sh\n' > "$td/bin/$tool"; done
-printf '#!/bin/sh\nprintf "Mute: %%s\\n" "$(cat "%s/muted")"\n' "$td" > "$td/bin/pactl"
+cat > "$td/bin/pactl" <<STUB
+#!/bin/sh
+case "\$1" in
+    get-source-mute) printf 'Mute: %s\n' "\$(cat "$td/muted")" ;;
+    get-default-source) [ -e "$td/nomic" ] || echo alsa_input.mic ;;
+    list) [ -e "$td/nomic" ] || printf '5\talsa_input.mic\tPipeWire\n' ;;
+esac
+STUB
 cat > "$td/bin/notify-send" <<STUB
 #!/bin/sh
 printf '%s\n' "\$*" >> "$td/notify.log"
@@ -938,6 +945,20 @@ echo yes > "$td/muted"
 dictate
 grep -q 'microphone is muted' "$td/notify.log" && [ ! -e "$td/run/0xide-dictation/listener.pid" ] &&
     ok "a muted microphone is refused rather than recorded as silence" || no "a muted microphone was not refused"
+touch "$td/nomic"; : > "$td/notify.log"
+dictate
+grep -q 'No microphone is available: PipeWire has no input to record from' "$td/notify.log" && [ ! -e "$td/run/0xide-dictation/listener.pid" ] &&
+    ok "no microphone at all is refused, not shown as dictation on" || no "no microphone: $(cat "$td/notify.log")"
+rm "$td/nomic"
+mv "$td/bin/wtype" "$td/wtype.away"; mv "$td/bin/pw-record" "$td/pw-record.away"; : > "$td/notify.log"
+# This machine's own wtype and pw-record must not be found either.
+mkdir -p "$td/base"
+for t in bash sh mkdir chmod cat grep kill sed cut jq setsid sleep seq mv rm tail dirname tr; do ln -sf "$(type -P "$t")" "$td/base/$t"; done
+PATH="$td/bin:$td/base" XDG_RUNTIME_DIR="$td/run" XDG_DATA_HOME="$td/data" XDG_CONFIG_HOME="$td/conf" \
+    "$(type -P bash)" "$td/assets/dictate.sh" >/dev/null 2>&1
+grep -q 'Dictation needs pw-record (package pipewire-audio), wtype (package wtype), which are not installed.' "$td/notify.log" &&
+    ok "missing tools are all named, each with its package" || no "missing tools: $(cat "$td/notify.log")"
+mv "$td/wtype.away" "$td/bin/wtype"; mv "$td/pw-record.away" "$td/bin/pw-record"
 echo no > "$td/muted"; : > "$td/notify.log"
 dictate
 pid="$(cat "$td/run/0xide-dictation/listener.pid" 2>/dev/null)"
@@ -953,6 +974,16 @@ dictate
 sleep 1.5
 grep -q 'Dictation stopped' "$td/notify.log" && no "turning dictation off was reported as the listener failing" ||
     ok "turning it off is not reported as a failure"
+
+# Pressed again while the last listener still types its final phrase: it is
+# not started twice.
+sleep 30 &
+slow=$!
+echo "$slow" > "$td/run/0xide-dictation/stopping.pid"; : > "$td/notify.log"; rm -f "$td/listener.args"
+dictate
+grep -q 'Dictation is still stopping' "$td/notify.log" && [ ! -e "$td/listener.args" ] && [ ! -e "$td/run/0xide-dictation/listener.pid" ] &&
+    ok "a press while the last listener is still stopping starts nothing, and says so" || no "press while stopping: $(cat "$td/notify.log")"
+kill "$slow"; wait "$slow" 2>/dev/null; rm -f "$td/run/0xide-dictation/stopping.pid"
 
 # A listener that fails after the first seconds, as whisper-server does when
 # it cannot load the model, used to leave "Dictation on" up with nothing
@@ -4734,6 +4765,33 @@ QML
 else
     skipt "qs is not installed"
 fi
+
+ox_step "Dictation: the listener fails visibly"
+dx="$(mktemp -d)"
+mkdir -p "$dx/bin" "$dx/a" "$dx/data/0xide/speech"
+cp "$OX_ROOT/shell/extensions/ai/tree/assets/dictation/speech.py" "$dx/a/"
+printf '{"model": {"file": "m.bin", "bytes": 3, "repo": "r", "revision": "v", "sha256": "0"}}\n' > "$dx/a/speech.json"
+printf 'abc' > "$dx/data/0xide/speech/m.bin"
+cat > "$dx/bin/whisper-server" <<STUB
+#!$PY
+import socket, sys, time
+port = int(sys.argv[sys.argv.index("--port") + 1])
+s = socket.socket(); s.bind(("127.0.0.1", port)); s.listen()
+time.sleep(30)
+STUB
+printf '#!/bin/sh\necho "pw-record: no target node available" >&2\nexit 1\n' > "$dx/bin/pw-record"
+printf '#!/bin/sh\necho "Compositor does not support the virtual keyboard protocol" >&2\nexit 1\n' > "$dx/bin/wtype"
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/notified"\n' "$dx" > "$dx/bin/notify-send"
+chmod +x "$dx/bin/"*
+out="$(cd "$dx" && timeout 30 env PATH="$dx/bin:$PATH" XDG_DATA_HOME="$dx/data" "$PY" "$dx/a/speech.py" listen --language en 2>"$dx/err")"; rc=$?
+[ "$rc" = 1 ] && grep -q '"error": "The microphone stream ended (pw-record exited 1)"' <<<"$out" && grep -q 'no target node available' "$dx/err" &&
+    ok "a microphone stream that ends is an error, with pw-record's reason in the log" || no "stream end: $rc $out"
+pgrep -f "$dx/bin/whisper-server" >/dev/null && no "whisper-server was left running" || ok "and whisper-server is stopped with it"
+out="$(cd "$dx/a" && PATH="$dx/bin:$PATH" XDG_DATA_HOME="$dx/data" "$PY" -c 'import speech; t = speech.Typist(); t.type("one"); t.type("two")')"
+[ "$(grep -c '"error": "Could not type: Compositor does not support the virtual keyboard protocol"' <<<"$out")" = 2 ] &&
+    [ "$(grep -c 'Dictation could not type' "$dx/notified" 2>/dev/null)" = 1 ] &&
+    ok "text that cannot be typed is reported, once on screen and every time in the log" || no "typing failure: $out / $(cat "$dx/notified" 2>/dev/null)"
+rm -rf "$dx"
 
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"

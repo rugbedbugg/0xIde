@@ -219,11 +219,22 @@ class Typist:
 
     def __init__(self):
         self.typed = False
+        self.warned = 0.0
 
     def type(self, text):
         if self.typed and text[:1] not in '.,!?;:':
             text = ' ' + text
-        subprocess.run(['wtype', '--', text], check=False)
+        typed = subprocess.run(['wtype', '--', text], check=False, capture_output=True, text=True)
+        if typed.returncode != 0:
+            # Lost text is said, not dropped: once a while, not per phrase.
+            reason = typed.stderr.strip() or f'wtype exited {typed.returncode}'
+            emit(stage='error', error=f'Could not type: {reason}')
+            if time.monotonic() - self.warned > 30:
+                self.warned = time.monotonic()
+                subprocess.run(["notify-send", "-a", "0xide-dictation", "-i", "audio-input-microphone-symbolic", "-u", "critical",
+                                "Dictation could not type", f"{reason}. Click into the window to type in, then speak again."],
+                               check=False, capture_output=True)
+            return
         self.typed = True
 
 
@@ -283,7 +294,7 @@ def listen(language):
         typing = threading.Thread(target=worker, daemon=True)
         typing.start()
         recorder = subprocess.Popen(['pw-record', '--rate', str(RATE), '--channels', '1', '--format', 's16',
-                                     '--raw', '-'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                                     '--raw', '-'], stdout=subprocess.PIPE)
         emit(stage='listening')
         segmenter = Segmenter()
         # Once a second, the levels the pause detection is working from, so a
@@ -301,11 +312,16 @@ def listen(language):
                 emit(stage='level', background=round(segmenter.floor, 1), loudest=round(loudest, 1),
                      speaking=bool(segmenter.frames))
                 loudest = -100.0
+        # The stream ending without being asked to: the microphone went away,
+        # or pw-record could not record. Its own error is in the log above.
+        ended = not stopping.is_set()
         # Whatever was being said when dictation was turned off still counts.
         if (pcm := segmenter.flush()) is not None:
             phrases.put(pcm)
         phrases.put(None)
         typing.join(timeout=60)
+        if ended:
+            raise RuntimeError(f'The microphone stream ended (pw-record exited {recorder.wait(timeout=5)})')
     finally:
         for child in (recorder, server):
             if child is not None and child.poll() is None:

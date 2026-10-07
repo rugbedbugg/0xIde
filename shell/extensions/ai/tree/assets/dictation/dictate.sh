@@ -13,6 +13,8 @@ model="${XDG_DATA_HOME:-$HOME/.local/share}/0xide/speech/ggml-base.bin"
 config="${XDG_CONFIG_HOME:-$HOME/.config}/caelestia/shell.json"
 pidfile="$state/listener.pid"
 idfile="$state/notification"
+# The PID of a listener being turned off, while it finishes its last phrase.
+stopping="$state/stopping.pid"
 python=/usr/bin/python3
 [ -x "$python" ] || python="$(command -v python3)"
 
@@ -47,26 +49,42 @@ chmod 700 "$state"
 # Off: the listener finishes the phrase in progress, types it, and exits.
 if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
     listener="$(cat "$pidfile")"
-    rm -f -- "$pidfile"
+    mv -f -- "$pidfile" "$stopping"
     kill -TERM "$listener" 2>/dev/null || true
     for _ in $(seq 100); do
         kill -0 "$listener" 2>/dev/null || break
         sleep 0.1
     done
+    rm -f -- "$stopping"
     mapfile -t replace < <(replace_id)
     rm -f -- "$idfile"
     note "${replace[@]}" -u low "Dictation off" "Stopped listening."
     exit 0
 fi
 
-# On.
-for tool in whisper-server pw-record wtype; do
-    command -v "$tool" >/dev/null 2>&1 || fail "$tool is not installed. Dictation needs the whisper-cpp and wtype packages."
+# On, unless the last listener is still typing its final phrase: two at once
+# would type over each other.
+if [ -f "$stopping" ] && kill -0 "$(cat "$stopping")" 2>/dev/null; then
+    note -u low "Dictation is still stopping" "It is typing the last phrase. Press the key again in a moment."
+    exit 0
+fi
+missing=()
+for need in whisper-server:whisper-cpp pw-record:pipewire-audio wtype:wtype; do
+    command -v "${need%%:*}" >/dev/null 2>&1 || missing+=("${need%%:*} (package ${need#*:})")
 done
+[ ${#missing[@]} -eq 0 ] ||
+    fail "Dictation needs $(IFS=,; echo "${missing[*]}" | sed 's/,/, /g'), which $([ ${#missing[@]} = 1 ] && echo is || echo are) not installed."
 [ -f "$model" ] || fail "The speech model is not installed. Install it under OCR & AI in the shell's settings."
-# A muted microphone records silence, which Whisper fills with invented words.
-if command -v pactl >/dev/null 2>&1 && pactl get-source-mute @DEFAULT_SOURCE@ 2>/dev/null | grep -q 'yes'; then
-    fail "Your microphone is muted. Unmute it, then turn dictation on again."
+if command -v pactl >/dev/null 2>&1; then
+    # No input at all records nothing, and would look like dictation on.
+    source="$(pactl get-default-source 2>/dev/null || true)"
+    if [ -z "$source" ] || ! pactl list short sources 2>/dev/null | cut -f2 | grep -qxF -- "$source"; then
+        fail "No microphone is available: PipeWire has no input to record from. Connect one, then try again."
+    fi
+    # A muted microphone records silence, which Whisper fills with invented words.
+    if pactl get-source-mute @DEFAULT_SOURCE@ 2>/dev/null | grep -q 'yes'; then
+        fail "Your microphone is muted. Unmute it, then turn dictation on again."
+    fi
 fi
 
 language="$(jq -r '.ai.dictationLanguage // "en"' "$config" 2>/dev/null || echo en)"
