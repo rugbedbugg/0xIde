@@ -2571,6 +2571,301 @@ rm -rf "$ho"
 ! grep -qE '\b(pkill|killall)\b|kill -9|SIGKILL|--pid "\$' "$OX_ROOT/installer/shell-handoff" &&
     ok "the hand-off stops instances only by id, never by process name or signal" || no "shell-handoff kills by name or signal"
 
+ox_step "Local model installer: events"
+# The real runtime.py, kept away from the network: a held lock and missing
+# tools both end it before anything is fetched.
+lx="$(mktemp -d)"
+mkdir -p "$lx/rt" "$lx/data/0xide/ai" "$lx/bin"
+cp "$OX_ROOT/shell/extensions/ai/tree/assets/ai/runtime.py" "$lx/rt/"
+"$PY" "$OX_ROOT/installer/render_manifest.py" "$OX_ROOT/manifests/ai.toml" "$lx/rt/manifest.json" >/dev/null
+coproc HOLD { exec "$PY" -c 'import fcntl,sys,time; f=open(sys.argv[1],"w"); fcntl.flock(f,fcntl.LOCK_EX); print("held",flush=True); time.sleep(30)' "$lx/data/0xide/ai/.lock"; }
+read -r _ <&"${HOLD[0]}"
+out="$(XDG_DATA_HOME="$lx/data" PYTHONDONTWRITEBYTECODE=1 timeout 20 "$PY" "$lx/rt/runtime.py" install)"; code=$?
+first="$(printf '%s\n' "$out" | head -1)"
+case "$first" in *'"stage": "waiting"'*) ok "a busy lock is reported at once, not after the wait" ;; *) no "no waiting event first: $first" ;; esac
+case "$out" in *'"stage": "error"'*'already running or being installed'*) [ "$code" = 1 ] && ok "and ends in an error naming it" || no "busy lock exit $code" ;; *) no "busy lock did not end in an error: $out" ;; esac
+grep -q 'install failed: The local model is already running' "$lx/data/0xide/ai/install.log" 2>/dev/null &&
+    ok "the error is in install.log, where the shell points" || no "install.log does not hold the error"
+XDG_DATA_HOME="$lx/data" PYTHONDONTWRITEBYTECODE=1 "$PY" "$lx/rt/runtime.py" install >"$lx/term" &
+rp=$!
+for _ in $(seq 50); do grep -q waiting "$lx/term" && break; sleep 0.1; done
+kill -TERM "$rp"; wait "$rp"; code=$?
+grep -q '"stage": "cancelled"' "$lx/term" && [ "$code" = 130 ] &&
+    ok "SIGTERM while waiting is reported as cancelled, exit 130" || no "SIGTERM gave exit $code: $(cat "$lx/term")"
+kill "$HOLD_PID" 2>/dev/null; wait "$HOLD_PID" 2>/dev/null
+out="$(PATH="$lx/bin" XDG_DATA_HOME="$lx/data" PYTHONDONTWRITEBYTECODE=1 "$PY" "$lx/rt/runtime.py" install)"; code=$?
+case "$out" in *'"stage": "error"'*'Install prerequisites manually'*clang*) [ "$code" = 1 ] && ok "missing tools fail first, by name" || no "missing tools exit $code" ;; *) no "missing tools not reported: $out" ;; esac
+[ ! -e "$lx/data/0xide/ai/404980eecae3-a1f2f1c76581.partial" ] && [ -z "$(find "$lx/data/0xide/ai" -name '*.partial')" ] &&
+    ok "a failed start leaves no staging directory" || no "a staging directory was left behind"
+rm -rf "$lx"
+
+ox_step "Local model installer: shared state"
+# The real AiRuntime in a private Quickshell, with a stand-in installer that
+# replays events. Nothing is built or downloaded.
+if ox_have qs; then
+    ax="$(mktemp -d)"
+    mkdir -p "$ax/cfg/services" "$ax/cfg/assets/ai" "$ax/bin" "$ax/xdg"
+    cp "$OX_ROOT/shell/extensions/ai/tree/services/AiRuntime.qml" "$ax/cfg/services/"
+    printf '#!/bin/sh\n# uv run --no-project --python 3.13 SCRIPT ARGS\nshift 4\nexec "%s" "$@"\n' "$PY" > "$ax/bin/uv"
+    chmod +x "$ax/bin/uv"
+    cat > "$ax/cfg/assets/ai/runtime.py" <<'MOCK'
+import json, os, signal, sys, time
+d = os.path.dirname(os.path.abspath(__file__))
+def read(name):
+    try:
+        return open(os.path.join(d, name)).read().strip()
+    except OSError:
+        return ""
+def emit(**e):
+    print(json.dumps(e), flush=True)
+def term(*_):
+    raise KeyboardInterrupt
+signal.signal(signal.SIGTERM, term)
+base = {"missing": [], "freeBytes": 9e11, "requiredBytes": 4409026560, "downloadBytes": 1187801280,
+        "destination": "/x/0xide/ai", "installed": read("installed") == "1", "diskBytes": 0}
+status = read("status")
+if status == "missing":
+    base["missing"] = ["clang", "clang++"]
+elif status == "disk":
+    base["freeBytes"] = 2e9
+mode = read("mode")
+try:
+    if sys.argv[1] == "status":
+        if status == "broken":
+            time.sleep(0.6)
+        print("not json" if status == "broken" else json.dumps(dict(base, stage="status")), flush=True)
+        sys.exit(0)
+    if mode in ("ok", "fail", "slow"):
+        time.sleep(0.3)
+        emit(stage="source", message="Fetching pinned BitNet source")
+        time.sleep(0.3)
+        emit(stage="build", message="Building the CPU inference runtime")
+        time.sleep(0.3 if mode != "slow" else 60)
+    if mode == "fail":
+        emit(stage="error", error="Command failed (1); details: /x/0xide/ai/install.log")
+        sys.exit(1)
+    if mode == "crash":
+        emit(stage="source", message="Fetching pinned BitNet source")
+        sys.exit(2)
+    if mode == "ok":
+        for b in (0, 500000000, 1187801280):
+            emit(stage="download", bytes=b, total=1187801280)
+            time.sleep(0.2)
+        emit(stage="verify", message="Starting model for a health check")
+    if mode in ("ok", "late"):
+        open(os.path.join(d, "installed"), "w").write("1")
+        emit(stage="installed", **dict(base, installed=True))
+        if mode == "late":
+            time.sleep(60)
+except KeyboardInterrupt:
+    emit(stage="cancelled")
+    sys.exit(130)
+MOCK
+    cat > "$ax/cfg/shell.qml" <<QML
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import qs.services
+
+ShellRoot {
+    id: h
+
+    property var r: ({})
+    property var seen: []
+    property real maxBytes
+    property int phase
+    property real since
+    property real idleNow
+
+    function put(name: string, value: string): void {
+        files.path = "$ax/cfg/assets/ai/" + name;
+        files.setText(value);
+    }
+    function settled(): bool {
+        return !AiRuntime.installing && !AiRuntime.checking;
+    }
+    function next(): void {
+        phase++;
+        since = Date.now();
+    }
+
+    FileView { id: files; blockWrites: true }
+    // Takes uv away, as on a machine without it.
+    Process { id: noUv; property bool done; command: ["$(command -v chmod)", "-x", "$ax/bin/uv"]; onExited: done = true }
+
+    Connections {
+        function onStageChanged(): void {
+            h.seen.push(AiRuntime.stage);
+        }
+        function onBytesChanged(): void {
+            h.maxBytes = Math.max(h.maxBytes, AiRuntime.bytes);
+        }
+
+        target: AiRuntime
+    }
+
+    Timer {
+        interval: 100
+        repeat: true
+        running: true
+        onTriggered: {
+            const r = h.r;
+            const waited = Date.now() - h.since;
+            if (h.phase === 0 && h.settled() && AiRuntime.info.destination) {
+                r.ready = AiRuntime.installBlocker === "" && AiRuntime.outcome === "";
+                h.idleNow = AiRuntime.now;
+                h.put("mode", "ok");
+                h.next();
+            } else if (h.phase === 1 && waited > 1500) {
+                r.idleClock = AiRuntime.now === h.idleNow;
+                AiRuntime.install();
+                r.immediate = AiRuntime.installing && AiRuntime.stage === "starting" && AiRuntime.message !== "" && AiRuntime.outcome === "";
+                h.next();
+            } else if (h.phase === 2 && h.settled() && AiRuntime.info.installed) {
+                r.okOutcome = AiRuntime.outcome === "installed" && AiRuntime.error === "";
+                r.okStages = ["source", "build", "download", "verify"].every(s => h.seen.includes(s));
+                r.okBytes = h.maxBytes === 1187801280 && AiRuntime.total === 1187801280;
+                r.clockRan = AiRuntime.now > h.idleNow;
+                h.put("installed", "0");
+                h.put("mode", "fail");
+                AiRuntime.refresh();
+                h.next();
+            } else if (h.phase === 3 && h.settled() && waited > 300 && !AiRuntime.info.installed) {
+                AiRuntime.install();
+                h.next();
+            } else if (h.phase === 4 && h.settled() && waited > 300) {
+                r.failOutcome = AiRuntime.outcome === "failed" && AiRuntime.stage === "build";
+                r.failError = AiRuntime.error === "Command failed (1); details: /x/0xide/ai/install.log";
+                r.failLog = AiRuntime.log === "/x/0xide/ai/install.log";
+                h.put("mode", "crash");
+                AiRuntime.install();
+                r.retryClears = AiRuntime.error === "" && AiRuntime.outcome === "";
+                h.next();
+            } else if (h.phase === 5 && h.settled() && waited > 300) {
+                r.crash = AiRuntime.outcome === "failed" && AiRuntime.error.includes("exit code 2");
+                h.put("mode", "slow");
+                AiRuntime.install();
+                h.next();
+            } else if (h.phase === 6 && AiRuntime.stage === "build") {
+                AiRuntime.cancel();
+                r.cancelling = AiRuntime.installing && AiRuntime.stage === "cancelling";
+                h.next();
+            } else if (h.phase === 7 && h.settled() && waited > 300) {
+                r.cancelled = AiRuntime.outcome === "cancelled" && !AiRuntime.info.installed;
+                h.put("mode", "late");
+                AiRuntime.install();
+                h.next();
+            } else if (h.phase === 8 && AiRuntime.outcome === "installed" && AiRuntime.installing) {
+                AiRuntime.cancel();
+                h.next();
+            } else if (h.phase === 9 && h.settled() && waited > 300) {
+                r.lateCancel = AiRuntime.outcome === "installed" && AiRuntime.info.installed;
+                h.put("installed", "0");
+                h.put("status", "missing");
+                AiRuntime.refresh();
+                h.next();
+            } else if (h.phase === 10 && h.settled() && waited > 300) {
+                r.blockMissing = AiRuntime.installBlocker.includes("clang");
+                h.put("status", "disk");
+                AiRuntime.refresh();
+                h.next();
+            } else if (h.phase === 11 && h.settled() && waited > 300) {
+                r.blockDisk = AiRuntime.installBlocker.includes("4.1 GiB") && AiRuntime.installBlocker.includes("1.9 GiB");
+                h.put("status", "broken");
+                AiRuntime.info = ({});
+                AiRuntime.refresh();
+                h.next();
+            } else if (h.phase === 12) {
+                r.blockChecking = AiRuntime.checking && AiRuntime.installBlocker.startsWith("Checking");
+                h.next();
+            } else if (h.phase === 13 && h.settled() && waited > 300) {
+                r.blockBroken = AiRuntime.installBlocker !== "" && AiRuntime.installBlocker === AiRuntime.error;
+                h.put("status", "");
+                AiRuntime.refresh();
+                h.next();
+            } else if (h.phase === 14 && h.settled() && waited > 300) {
+                h.put("mode", "ok");
+                AiRuntime.install();
+                AiRuntime.cancel();
+                h.next();
+            } else if (h.phase === 15 && h.settled() && waited > 2500) {
+                r.cancelBeforeStart = AiRuntime.outcome === "cancelled" && !AiRuntime.info.installed;
+                noUv.running = true;
+                h.next();
+            } else if (h.phase === 16 && noUv.done) {
+                AiRuntime.install();
+                h.next();
+            } else if (h.phase === 17 && !AiRuntime.installing && waited > 1000) {
+                r.noUv = AiRuntime.outcome === "failed" && AiRuntime.error.startsWith("Could not start the installer");
+                console.log("RESULT " + JSON.stringify(r));
+                Qt.quit();
+            } else if (waited > 15000) {
+                console.log("RESULT " + JSON.stringify(Object.assign(r, {stuck: h.phase})));
+                Qt.quit();
+            }
+        }
+    }
+}
+QML
+    printf ok > "$ax/cfg/assets/ai/mode"
+    # Only the stand-in uv is on PATH, so taking it away leaves none.
+    res="$(cd "$ax" && timeout 90 env PATH="$ax/bin" XDG_RUNTIME_DIR="$ax/xdg" QT_QPA_PLATFORM=offscreen \
+        "$(command -v qs)" -p "$ax/cfg/shell.qml" 2>&1 | sed -n 's/.*RESULT //p' | tail -1)"
+    if [ -z "$res" ]; then
+        no "the AiRuntime harness produced no result"
+    else
+        for c in "ready:status is read and nothing blocks an install" \
+                 "idleClock:no clock runs while nothing installs" \
+                 "immediate:Download shows a step at once, before the installer says anything" \
+                 "okStages:every step the installer reports is shown" \
+                 "okBytes:download progress is the installer's own byte count" \
+                 "okOutcome:a finished install ends as installed" \
+                 "clockRan:the elapsed time moves while installing" \
+                 "failOutcome:a failure ends as failed, at the step it failed in" \
+                 "failError:the installer's own error is kept, word for word" \
+                 "failLog:the log path is the installer's install.log" \
+                 "retryClears:trying again clears the last error" \
+                 "crash:an installer that dies without a word still ends as failed" \
+                 "cancelling:Cancel shows at once" \
+                 "cancelled:a cancelled install ends as cancelled, not installed" \
+                 "lateCancel:a cancel after installing finished does not undo it" \
+                 "blockMissing:missing tools are named as the reason Download is off" \
+                 "blockDisk:too little space is the reason, with both sizes" \
+                 "blockChecking:while the status is read, that is the reason" \
+                 "blockBroken:a status that cannot be read is the reason" \
+                 "cancelBeforeStart:Cancel pressed before the installer has started still stops it" \
+                 "noUv:an installer that cannot start at all ends as failed, saying so"; do
+            key="${c%%:*}"
+            case "$res" in
+                *"\"$key\":true"*) ok "${c#*:}" ;;
+                *) no "${c#*:} ($res)" ;;
+            esac
+        done
+    fi
+    rm -rf "$ax"
+else
+    skipt "AiRuntime harness (qs not installed)"
+fi
+
+# Both settings surfaces drive Download from the same reason and show the
+# same progress; neither makes up its own.
+AIS="$OX_ROOT/shell/extensions/ai/tree/modules/areapicker/AiSettings.qml"
+AIP="$OX_ROOT/shell/extensions/ai/tree/modules/nexus/pages/AiPage.qml"
+grep -q 'disabled: !!AiRuntime.installBlocker' "$AIS" && grep -q 'acceptAllowed: !AiRuntime.installBlocker' "$AIP" &&
+    ok "Download is disabled in both places for the one shared reason" || no "a Download button decides on its own"
+grep -q 'text: AiRuntime.installBlocker' "$AIS" && grep -q 'AiRuntime.installBlocker ||' "$AIP" &&
+    ok "a disabled Download says why in both places" || no "a disabled Download is silent"
+n=0
+for f in "$AIS" "$AIP" "$OX_ROOT/shell/extensions/ocr/tree/modules/areapicker/OcrResult.qml"; do
+    grep -q 'AiInstallProgress {' "$f" && n=$((n+1))
+done
+[ "$n" = 3 ] && ok "the Ask AI card, its settings and Nexus all show AiInstallProgress" || no "only $n of 3 surfaces show the install progress"
+PROG="$OX_ROOT/shell/extensions/ai/tree/components/AiInstallProgress.qml"
+grep -q 'indeterminate: !root.downloading' "$PROG" && grep -q 'AiRuntime.bytes / AiRuntime.total' "$PROG" &&
+    ok "only the download shows a fraction, from bytes; other steps are indeterminate" || no "the progress bar may show a made-up fraction"
+! grep -q 'caelestia/ai' "$OX_ROOT/shell/extensions/ai/tree/services/AiRuntime.qml" &&
+    ok "no error points at the pre-rename caelestia/ai directory" || no "AiRuntime still names caelestia/ai"
+
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"
 [ -z "$dups" ] && ok "every shell patch has its own number, so glob order is the series order" || no "duplicate patch numbers: $dups"
