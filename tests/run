@@ -872,6 +872,31 @@ dictate
     ok "pressing it again stops listening and replaces the notification" ||
     no "dictation did not turn off: $(tr '\n' '|' < "$td/notify.log")"
 [ -n "$pid" ] && kill "$pid" 2>/dev/null
+sleep 1.5
+grep -q 'Dictation stopped' "$td/notify.log" && no "turning dictation off was reported as the listener failing" ||
+    ok "turning it off is not reported as a failure"
+
+# A listener that fails after the first seconds, as whisper-server does when
+# it cannot load the model, used to leave "Dictation on" up with nothing
+# listening.
+cat > "$td/assets/speech.py" <<'STUB'
+import json, time
+time.sleep(4)
+print(json.dumps({"stage": "error", "error": "whisper-server exited; see server.log"}), flush=True)
+raise SystemExit(1)
+STUB
+: > "$td/notify.log"
+dictate
+for _ in $(seq 40); do grep -q 'Dictation stopped' "$td/notify.log" && break; sleep 0.25; done
+grep -q -- '-r 7 .*Dictation stopped whisper-server exited' "$td/notify.log" && [ ! -e "$td/run/0xide-dictation/listener.pid" ] &&
+    ok "a listener that fails later replaces Dictation on with its error" ||
+    no "a listener that failed later was not reported: $(tr '\n' '|' < "$td/notify.log")"
+# One that ends at once without logging an error still says it stopped.
+printf 'raise SystemExit(1)\n' > "$td/assets/speech.py"
+: > "$td/notify.log"
+dictate; rc=$?
+[ "$rc" = 1 ] && grep -q 'Dictation failed The listener stopped' "$td/notify.log" &&
+    ok "a listener that stops at once without an error still says so" || no "a silent listener exit: $rc, $(tr '\n' '|' < "$td/notify.log")"
 rm -rf "$td"
 
 "$PY" - "$OX_ROOT/shell/extensions/ai/tree/assets/dictation/speech.py" <<'PY' && ok "speech is cut into phrases at pauses, and noise is not typed" || no "the phrase splitter or noise filter is wrong"
