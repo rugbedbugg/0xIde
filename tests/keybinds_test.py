@@ -107,7 +107,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check("error" in run("--binds", bad), "11. malformed JSON is an error, not a crash")
     empty = os.path.join(tmp, "empty.json")
     open(empty, "w").write("[]")
-    check(run("--binds", empty) == {"binds": []}, "12. no binds is an empty list")
+    check(run("--binds", empty) == {"binds": [], "annotated": True}, "12. no binds is an empty list")
     obj = os.path.join(tmp, "obj.json")
     open(obj, "w").write('{"binds": 1}')
     check("error" in run("--binds", obj), "a JSON value that is not a list is an error")
@@ -141,3 +141,17 @@ check(search("super shift t") and all("Super" in r["keys"] and "Shift" in r["key
 check(any(r["group"] == "0xIde" for r in search("text")), "14. search matches descriptions")
 check(search("mouse") and all("mouse" in r["search"] for r in search("mouse")), "14. search matches groups")
 check(search("zzzz-nothing") == [], "14. a search with no match is empty")
+
+# 15. A session whose Lua binds carry no descriptions (0xide-binds.lua was not
+# loaded) is reported as such; its binds are still all listed, not guessed at.
+check(out.get("annotated") is True, "15. the annotated fixture is reported as annotated")
+bare = copy.deepcopy(binds)
+for b in bare:
+    if b.get("dispatcher") == "__lua":
+        b["description"] = ""
+plain = keybinds.normalise(bare, globals_)
+check(plain.get("annotated") is False, "15. Lua binds without descriptions are reported as unannotated")
+check(len(plain["binds"]) >= len(rows) - 5 and len(plain["binds"]) > 0, "15. and every bind is still listed",
+      (len(plain["binds"]), len(rows)))
+nolua = [b for b in binds if b.get("dispatcher") != "__lua"]
+check(keybinds.normalise(nolua, globals_).get("annotated") is True, "15. a session without Lua binds is not called unannotated")

@@ -203,7 +203,13 @@ def normalise(binds, globals_list=None) -> dict:
     rows = sorted(merged.values(), key=lambda row: row["_order"])
     for row in rows:
         del row["_order"]
-    return {"binds": rows}
+    # Lua binds carry what they do only in the description 0xide-binds.lua
+    # gives them as they are registered. Lua binds with none at all mean that
+    # module was not loaded in this session, which the overlay has to say
+    # rather than list every one as "Lua action".
+    lua = [b for b in binds if isinstance(b, dict) and b.get("dispatcher") == "__lua"]
+    annotated = not lua or any(str(b.get("description") or "").strip() for b in lua)
+    return {"binds": rows, "annotated": annotated}
 
 
 def hyprctl(*args: str):

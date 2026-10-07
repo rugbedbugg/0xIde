@@ -19,6 +19,9 @@ Singleton {
     property string error
     // Each bind as keybinds.py gives it, grouped and in a stable order.
     property var binds: []
+    // False when the session's Lua binds carry no descriptions at all, so
+    // what they do cannot be shown.
+    property bool annotated: true
     property string query
     // How many times Hyprland has been asked, for the tests.
     property int snapshots
@@ -96,6 +99,7 @@ Singleton {
                         root.binds = [];
                     } else {
                         root.binds = Array.isArray(data.binds) ? data.binds : [];
+                        root.annotated = data.annotated !== false;
                     }
                 } catch (e) {
                     root.error = qsTr("The keybind list could not be read");

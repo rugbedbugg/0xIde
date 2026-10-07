@@ -171,6 +171,28 @@ Scope {
                         }
                     }
 
+                    // The binds are shown either way; this says why many read
+                    // only "Lua action", instead of guessing what they do.
+                    StyledRect {
+                        objectName: "unannotatedBanner"
+                        Layout.fillWidth: true
+                        visible: !Keybinds.annotated && !Keybinds.loading && !Keybinds.error && Keybinds.binds.length > 0
+                        implicitHeight: bannerText.implicitHeight + Tokens.padding.medium * 2
+                        radius: Tokens.rounding.medium
+                        color: Colours.palette.m3secondaryContainer
+
+                        StyledText {
+                            id: bannerText
+
+                            anchors.fill: parent
+                            anchors.margins: Tokens.padding.medium
+                            wrapMode: Text.Wrap
+                            color: Colours.palette.m3onSecondaryContainer
+                            font: Tokens.font.label.large
+                            text: qsTr("Some shortcut descriptions are unavailable: Hyprland was loaded without 0xIde's binding annotations. Run ./install --only overrides, then reload Hyprland, to restore them.")
+                        }
+                    }
+
                     // Loading, a failure, nothing bound, or nothing matching.
                     ColumnLayout {
                         Layout.fillWidth: true
