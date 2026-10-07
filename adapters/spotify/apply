@@ -2,19 +2,23 @@
 # Caelestia regenerates the spicetify colour file on every theme change but
 # never re-applies it, so Spotify keeps rendering the previous palette until
 # something runs `spicetify apply`. That is all this does.
+#
+# Exit 0 applied (in the background), 3 not applied this time, with the reason.
 set -euo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
 
-ox_have spicetify || exit 0
+skip() { echo "spotify: $1"; exit 3; }
+ox_have spicetify || skip "spicetify is not installed"
 grep -qE '^current_theme[[:space:]]*=[[:space:]]*caelestia' \
-    "$XDG_CONFIG_HOME/spicetify/config-xpui.ini" 2>/dev/null || exit 0
+    "$XDG_CONFIG_HOME/spicetify/config-xpui.ini" 2>/dev/null ||
+    skip "spicetify is not set to the caelestia theme (spicetify config current_theme caelestia)"
 
 # `spicetify apply` restarts Spotify, which starts it if it was closed. This
 # adapter exists to re-theme a Spotify you are already using, not to open one
 # behind your back on every wallpaper change, so it does nothing unless one is
 # running. Without pgrep there is no way to tell, and not applying is the
 # safer half of that guess.
-ox_have pgrep || exit 0
+ox_have pgrep || skip "pgrep is not installed, so a running Spotify cannot be found"
 
 # Check for live (non-zombie) Spotify processes.
 # pgrep matches zombies; filter via ps state.
@@ -41,7 +45,7 @@ spotify_running() {
     return 1
 }
 
-spotify_running || exit 0
+spotify_running || skip "Spotify is not running; it is re-themed at the next theme change while it runs"
 
 # A full apply takes ~25s, so it must not block the theme change. flock keeps
 # rapid scheme switches from running two applies over the same files.
