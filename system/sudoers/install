@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
-# Installs the passwordless rule the papirus adapter needs.
-# Prints the exact file first and refuses to run unattended.
+# Installs the fixed helper the papirus adapter needs, and the passwordless
+# rule for that helper alone. Prints exactly what it will do first, and refuses
+# to run unattended.
 set -euo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
 
 here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 dest=/etc/sudoers.d/0xide
+helper_src="$here/0xide-papirus-folders"
+helper=/usr/local/libexec/0xide-papirus-folders
+
+[ "$(id -u)" -ne 0 ] || ox_die "do not run this installer as root; run as your normal user"
+[ -x "$helper_src" ] || ox_die "helper source $helper_src not found or not executable"
 staged="$OX_STATE/0xide.sudoers"
 
 mkdir -p "$OX_STATE"
@@ -15,11 +21,15 @@ sed "s|@USER@|$(id -un)|g" "$here/0xide.template" > "$staged"
 chmod 0440 "$staged"
 
 echo
-echo "This grants passwordless root for these commands, and nothing else:"
+echo "This installs, as root:"
 echo
-sed 's/^/    /' "$staged" | grep -v '^    #' | grep -v '^    $'
+echo "    $helper  (root:root 0755, from system/sudoers/0xide-papirus-folders)"
+echo "    $dest  (root:root 0440), which grants passwordless root for this, and nothing else:"
 echo
-echo "It will be installed as $dest"
+sed 's/^/        /' "$staged" | grep -v '^        #' | grep -v '^        $'
+echo
+echo "The helper takes one colour name and recolours the system Papirus theme's"
+echo "folders with papirus-folders; it accepts no theme, directory or other option."
 echo
 
 if ! visudo -c -f "$staged" >/dev/null; then
@@ -33,6 +43,12 @@ if [ "${OX_ASSUME_YES:-0}" != 1 ]; then
     case "$reply" in [yY]*) ;; *) ox_log "nothing was installed"; exit 0 ;; esac
 fi
 
+# The helper first, so the rule never names a file that is not there. The rule
+# replaces any earlier one in the same file, which granted papirus-folders
+# itself and so any of its options.
+sudo install -D -m 0755 -o root -g root "$helper_src" "$helper"
+ox_own "$helper"
+ox_log "installed $helper"
 sudo install -m 0440 -o root -g root "$staged" "$dest"
 ox_own "$dest"
 ox_log "installed $dest"

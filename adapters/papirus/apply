@@ -1,20 +1,58 @@
 #!/usr/bin/env bash
 # Caelestia maps the scheme's primary colour to a Papirus folder colour from its
-# GTK step, which the gtk adapter turns off, so the call is made from here. It
-# needs root and fails silently without it. The colour is not re-derived: this
-# reuses Caelestia's own mapping.
-set -euo pipefail
+# GTK step, which the gtk adapter turns off, so the recolouring is done here.
+# The colour is Caelestia's own mapping, captured from sync_papirus_colors
+# rather than re-derived. Writing it needs root, which only the fixed helper
+# from system/sudoers has.
+#
+# Exit 0 applied, 3 cannot apply on this system (the reason is printed and
+# recorded), anything else failed. adapters/papirus/status reads the record.
+set -uo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
 
-ox_have papirus-folders || exit 0
-[ -r "$OX_SCHEME" ] || exit 0
+# Overridable only for the tests: the sudo rule names the fixed path alone.
+HELPER="${OX_PAPIRUS_HELPER:-/usr/local/libexec/0xide-papirus-folders}"
+RESULT="$OX_STATE/papirus.result"
 
-primary="$(jq -r '.colours.primary // empty' "$OX_SCHEME")"
-[ -n "$primary" ] || exit 0
+# record <applied|unavailable|failed> <words>
+record() {
+    mkdir -p "$OX_STATE"
+    printf '%s\t%s\n' "$1" "$2" > "$RESULT"
+    printf 'papirus: %s\n' "$2"
+}
 
-"$(ox_python)" - "$primary" <<'PY'
-import sys
-from caelestia.utils.theme import sync_papirus_colors
+ox_have papirus-folders || { record unavailable "papirus-folders is not installed"; exit 3; }
+[ -d /usr/share/icons/Papirus ] || { record unavailable "the Papirus icon theme is not installed"; exit 3; }
+[ -r "$OX_SCHEME" ] || { record unavailable "there is no Caelestia scheme to take the colour from yet"; exit 3; }
+primary="$(jq -r '.colours.primary // empty' "$OX_SCHEME" 2>/dev/null)"
+[ -n "$primary" ] || { record failed "the scheme has no primary colour"; exit 1; }
 
-sync_papirus_colors(sys.argv[1])
+# Caelestia's mapping, run with its subprocess calls captured instead of made.
+colour="$("$(ox_python)" - "$primary" 2>&1 <<'PY'
+import subprocess, sys, types
+import caelestia.utils.theme as theme
+
+calls = []
+def run(*args, **kwargs):
+    return subprocess.CompletedProcess(args[0], 0, b"", b"")
+def popen(args, *rest, **kwargs):
+    calls.append(list(args))
+theme.subprocess = types.SimpleNamespace(run=run, Popen=popen, DEVNULL=subprocess.DEVNULL)
+theme.sync_papirus_colors(sys.argv[1])
+call = calls[-1] if calls else []
+if call[:4] != ["sudo", "-n", "papirus-folders", "-C"] or len(call) < 5:
+    sys.exit(f"Caelestia's papirus-folders call has changed: {call}")
+print(call[4])
 PY
+)" || { record failed "the colour could not be worked out: $(tail -n1 <<<"$colour")"; exit 1; }
+
+if [ ! -x "$HELPER" ] || ! ox_has_sudo_rule "$HELPER"; then
+    record unavailable "the 0xIde papirus helper is not installed; install it with ./install --enable sudoers"
+    exit 3
+fi
+if out="$(sudo -n "$HELPER" "$colour" 2>&1)"; then
+    record applied "folders recoloured $colour"
+else
+    record failed "the helper refused or failed: $(tail -n1 <<<"$out")"
+    exit 1
+fi

@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
-# /etc/sudoers.d cannot be read without root, so its files cannot be tested for
-# first; removing one that is absent is harmless. caelestia-mod is the rule's
-# name from before the rename.
+# Takes back exactly what install put in place: the rule, then the helper it
+# names. /etc/sudoers.d cannot be read without root, so its files cannot be
+# tested for first; removing one that is absent is harmless. caelestia-mod is
+# the rule's name from before the rename.
 dest=/etc/sudoers.d/0xide
 old=/etc/sudoers.d/caelestia-mod
-echo "Removing $dest (and $old, if present). The papirus adapter will stop working."
+helper=/usr/local/libexec/0xide-papirus-folders
+echo "Removing $dest (and $old, if present), then $helper. The papirus adapter will stop recolouring folders."
 sudo rm -f -- "$dest" "$old"
-ox_log "removed $dest"
+sudo rm -f -- "$helper"
+ox_log "removed $dest and $helper"
