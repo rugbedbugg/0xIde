@@ -3807,6 +3807,120 @@ CHK
     rm -rf "$kx"
 else skipt "no qs for the shortcuts service harness"; fi
 
+ox_step "OCR: engine and language readiness"
+# The real Ocr service in a private Quickshell, with a stand-in tesseract that
+# can be taken away. A missing engine and missing language data are different
+# problems, and both have to be named, in settings and when a capture fails.
+if ox_have qs && [ -d "$PLUGIN_QML/Caelestia/Config" ]; then
+    ox="$(mktemp -d)"
+    mkdir -p "$ox/cfg/services" "$ox/bin" "$ox/xdg/run" "$ox/xdg/caelestia"
+    cp "$OX_ROOT/shell/extensions/ocr/tree/services/Ocr.qml" "$ox/cfg/services/"
+    printf '{"ai":{"ocrLanguages":""}}\n' > "$ox/xdg/caelestia/shell.json"
+    cat > "$ox/tesseract" <<'STUB'
+#!/bin/sh
+if [ "$1" = --list-langs ]; then printf 'List of available languages (2):\neng\nosd\n'; exit 0; fi
+for a; do case "$a" in *deu*) printf "Error opening data file deu.traineddata\nFailed loading language 'deu'\nTesseract couldn't load any languages!\n" >&2; exit 1 ;; esac; done
+echo "HELLO"
+STUB
+    chmod +x "$ox/tesseract"
+    printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/notified"\n' "$ox" > "$ox/bin/notify-send"
+    printf '#!/bin/sh\ncat > /dev/null\n' > "$ox/bin/wl-copy"
+    chmod +x "$ox/bin/notify-send" "$ox/bin/wl-copy"
+    for t in sh cat mv ln; do ln -s "$(type -P "$t")" "$ox/bin/$t"; done
+    cat > "$ox/cfg/shell.qml" <<QML
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import Caelestia.Config
+import qs.services
+
+ShellRoot {
+    id: h
+
+    property var r: ({})
+    property int phase
+    property real since: Date.now()
+
+    function next(): void {
+        phase++;
+        since = Date.now();
+    }
+    function run(cmd: var): void {
+        sh.done = false;
+        sh.command = cmd;
+        sh.running = true;
+    }
+
+    Component.onCompleted: Ocr.refreshLanguages()
+    Process { id: sh; property bool done; onExited: done = true }
+
+    Timer {
+        interval: 100
+        repeat: true
+        running: true
+        onTriggered: {
+            const r = h.r;
+            const waited = Date.now() - h.since;
+            if (h.phase === 0 && waited > 800) {
+                r.engineMissing = Ocr.engineMissing && Ocr.readiness === "OCR requires Tesseract. Install tesseract first.";
+                h.run(["ln", "-s", "$ox/tesseract", "$ox/bin/tesseract"]);
+                h.next();
+            } else if (h.phase === 1 && sh.done) {
+                Ocr.refreshLanguages();
+                h.next();
+            } else if (h.phase === 2 && waited > 800) {
+                r.ready = !Ocr.engineMissing && Ocr.readiness === "" && Ocr.languages.join() === "eng";
+                GlobalConfig.ai.ocrLanguages = "eng+deu";
+                h.next();
+            } else if (h.phase === 3 && waited > 300) {
+                r.langMissing = Ocr.missingLanguages.join() === "deu" && Ocr.readiness.startsWith("Tesseract has no data for deu.");
+                Ocr.capture("/nonexistent.png");
+                h.next();
+            } else if (h.phase === 4 && waited > 1500) {
+                h.run(["mv", "$ox/bin/tesseract", "$ox/gone"]);
+                h.next();
+            } else if (h.phase === 5 && sh.done) {
+                Ocr.capture("/nonexistent.png");
+                h.next();
+            } else if (h.phase === 6 && waited > 1500) {
+                r.goneAfter = Ocr.engineMissing;
+                console.log("RESULT " + JSON.stringify(r));
+                Qt.quit();
+            } else if (waited > 15000) {
+                console.log("RESULT " + JSON.stringify(Object.assign(r, {stuck: h.phase})));
+                Qt.quit();
+            }
+        }
+    }
+}
+QML
+    res="$(cd "$ox" && timeout 60 env PATH="$ox/bin" XDG_RUNTIME_DIR="$ox/xdg/run" XDG_CONFIG_HOME="$ox/xdg" XDG_STATE_HOME="$ox/xdg" \
+        XDG_DATA_HOME="$ox/xdg" XDG_CACHE_HOME="$ox/xdg" QML_IMPORT_PATH="$PLUGIN_QML" QT_QPA_PLATFORM=offscreen \
+        "$(command -v qs)" -p "$ox/cfg/shell.qml" 2>&1 | sed -n 's/.*RESULT //p' | tail -1)"
+    for c in "engineMissing:without Tesseract, settings say the engine is missing" \
+             "ready:with it and its data, nothing is reported" \
+             "langMissing:a configured language without data is named as such" \
+             "goneAfter:a capture after Tesseract is removed updates the settings too"; do
+        key="${c%%:*}"
+        case "$res" in *"\"$key\":true"*) ok "${c#*:}" ;; *) no "${c#*:} ($res)" ;; esac
+    done
+    grep -q "Tesseract has no data for deu. Install it (e.g. tesseract-data-deu)" "$ox/notified" 2>/dev/null &&
+        ok "a capture in a language without data says which, not Tesseract's raw text" ||
+        no "a missing language at capture: $(tr '\n' '|' < "$ox/notified" 2>/dev/null)"
+    grep -q "OCR requires Tesseract. Install tesseract first." "$ox/notified" 2>/dev/null &&
+        ok "a capture without Tesseract says to install it, not command-not-found" ||
+        no "a capture without Tesseract: $(tr '\n' '|' < "$ox/notified" 2>/dev/null)"
+    rm -rf "$ox"
+else
+    skipt "the OCR service checks need qs and a built plugin"
+fi
+rd="$(mktemp -d)"
+mkdir -p "$rd/bin"; ln -s "$PY" "$rd/bin/python3"
+out="$(PATH="$rd/bin" "$PY" "$OX_ROOT/shell/extensions/ocr/tree/assets/ocr/recognize.py" "$rd/none.png" --language eng)"
+[[ "$out" == *'"error": "OCR requires Tesseract. Install tesseract first."'* ]] &&
+    ok "the table recogniser names a missing Tesseract" || no "recognize.py without tesseract: $out"
+rm -rf "$rd"
+
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"
 [ -z "$dups" ] && ok "every shell patch has its own number, so glob order is the series order" || no "duplicate patch numbers: $dups"

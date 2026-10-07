@@ -368,9 +368,9 @@ ColumnLayout {
     StyledText {
         Layout.fillWidth: true
         wrapMode: Text.Wrap
-        color: Colours.palette.m3outline
+        color: Ocr.readiness ? Colours.palette.m3error : Colours.palette.m3outline
         font: Tokens.font.label.large
-        text: qsTr("Installed: %1").arg(Ocr.languages.join(", ") || qsTr("none found"))
+        text: Ocr.engineMissing ? Ocr.readiness : [qsTr("Installed: %1").arg(Ocr.languages.join(", ") || qsTr("none found")), Ocr.readiness].filter(t => t).join("\n")
     }
     RowLayout {
         Layout.fillWidth: true
