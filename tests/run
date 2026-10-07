@@ -4854,6 +4854,14 @@ sleep 0.3; kill -TERM "$ip"; wait "$ip"; rc=$?
 grep -q '"stage": "download", "bytes": 0' "$dx/install.out" && ok "the download is shown from its first byte" || no "no download event before data"
 rm -rf "$dx"
 
+ox_step "Settings: reasons are shown whole"
+AIP="$OX_ROOT/shell/extensions/ai/tree/modules/nexus/pages/AiPage.qml"
+! grep -q '^        InfoRow {' "$AIP" && [ "$(grep -c '^        StatusRow {' "$AIP")" = 4 ] &&
+    grep -q 'wrapMode: Text.Wrap' "$OX_ROOT/shell/extensions/ai/tree/components/StatusRow.qml" &&
+    ok "the OCR, local model, translation and speech rows wrap their reasons instead of cutting them" || no "a status row still elides its reason"
+grep -q 'text: qsTr("Not switched: %1").arg(DesktopProfiles.error)' "$OX_ROOT/shell/extensions/desktop-profile/tree/modules/nexus/pages/ThemePage.qml" &&
+    ok "a profile switch failure is shown in full" || no "the profile switch failure is cut to one line"
+
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"
 [ -z "$dups" ] && ok "every shell patch has its own number, so glob order is the series order" || no "duplicate patch numbers: $dups"

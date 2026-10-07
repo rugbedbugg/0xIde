@@ -281,7 +281,7 @@ ColumnLayout {
         wrapMode: Text.Wrap
         color: Colours.palette.m3outline
         font: Tokens.font.label.large
-        text: Translator.installed.length ? qsTr("Translate runs offline between these. Select one to remove it.") : qsTr("None installed. Each language is about 160 MB and translates offline to and from every other installed one.")
+        text: Translator.installed.length ? qsTr("Translate runs offline between these. Select one to remove it; English goes with the last other one, as every language translates through it.") : qsTr("None installed. Each language is about 160 MB and translates offline to and from every other installed one.")
     }
     Flow {
         Layout.fillWidth: true

@@ -35,12 +35,32 @@ PageBase {
             subtext: {
                 if (DesktopProfiles.switching)
                     return qsTr("Switching to %1…").arg(DesktopProfiles.name(DesktopProfiles.switchingTo));
-                if (DesktopProfiles.error)
-                    return qsTr("Not switched: %1").arg(DesktopProfiles.error);
                 return DesktopProfiles.active?.description ?? "";
             }
             value: DesktopProfiles.active?.name ?? qsTr("Unknown")
             iconColour: DesktopProfiles.error && !DesktopProfiles.switching ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
+        }
+
+        // Why the last switch did not happen, in full: InfoRow's subtext is
+        // cut to one line.
+        ConnectedRect {
+            Layout.fillWidth: true
+            visible: !!DesktopProfiles.error && !DesktopProfiles.switching
+            implicitHeight: switchError.implicitHeight + Tokens.padding.medium * 2
+
+            StyledText {
+                id: switchError
+
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: Tokens.padding.largeIncreased
+                anchors.rightMargin: Tokens.padding.largeIncreased
+                wrapMode: Text.Wrap
+                color: Colours.palette.m3error
+                font: Tokens.font.label.large
+                text: qsTr("Not switched: %1").arg(DesktopProfiles.error)
+            }
         }
 
         Repeater {
