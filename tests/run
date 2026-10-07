@@ -4556,6 +4556,8 @@ sx="$(mktemp -d)"
 mkdir -p "$sx/bin" "$sx/h"
 printf '#!/bin/sh\nexit 1\n' > "$sx/bin/sudo"
 printf '#!/bin/sh\nexit 0\n' > "$sx/bin/systemctl"
+# gtk requires dconf; the check is about status, not about this machine.
+printf '#!/bin/sh\nexit 0\n' > "$sx/bin/dconf"
 printf '#!/bin/sh\necho "No running instances"\n' > "$sx/bin/qs"
 cat > "$sx/bin/pactl" <<STUB
 #!/bin/sh
