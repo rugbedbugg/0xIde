@@ -2866,6 +2866,131 @@ grep -q 'indeterminate: !root.downloading' "$PROG" && grep -q 'AiRuntime.bytes /
 ! grep -q 'caelestia/ai' "$OX_ROOT/shell/extensions/ai/tree/services/AiRuntime.qml" &&
     ok "no error points at the pre-rename caelestia/ai directory" || no "AiRuntime still names caelestia/ai"
 
+ox_step "Speech model: why Download is off"
+# The real Speech service in a private Quickshell, with a stand-in helper. The
+# install dialog's Download was disabled with no reason when space was short,
+# while the status was still loading, and when uv was missing.
+if ox_have qs; then
+    sx="$(mktemp -d)"
+    mkdir -p "$sx/cfg/services" "$sx/cfg/assets/dictation" "$sx/bin" "$sx/xdg"
+    cp "$OX_ROOT/shell/extensions/ai/tree/services/Speech.qml" "$sx/cfg/services/"
+    printf '#!/bin/sh\n# uv run --no-project --python 3.13 SCRIPT ARGS\nshift 4\nexec "%s" "$@"\n' "$PY" > "$sx/bin/uv"
+    chmod +x "$sx/bin/uv"
+    cat > "$sx/cfg/assets/dictation/speech.py" <<'MOCK'
+import json, os, sys, time
+d = os.path.dirname(os.path.abspath(__file__))
+mode = open(os.path.join(d, "status")).read().strip()
+if mode == "slow":
+    time.sleep(3)
+info = {"installed": False, "model": "ggml-base.bin", "downloadBytes": 147951465,
+        "freeBytes": 1e8 if mode == "disk" else 9e11, "destination": "/x/0xide/speech", "missing": []}
+print(json.dumps(dict(info, stage="status")), flush=True)
+MOCK
+    cat > "$sx/cfg/shell.qml" <<QML
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import qs.services
+
+ShellRoot {
+    id: h
+
+    property var r: ({})
+    property int phase
+    property real since: Date.now()
+
+    function put(value: string): void {
+        files.setText(value);
+    }
+    function next(): void {
+        phase++;
+        since = Date.now();
+    }
+
+    FileView { id: files; path: "$sx/cfg/assets/dictation/status"; blockWrites: true }
+    Process { id: chmod; property bool done; onExited: done = true }
+
+    Timer {
+        interval: 100
+        repeat: true
+        running: true
+        onTriggered: {
+            const r = h.r;
+            const waited = Date.now() - h.since;
+            if (h.phase === 0 && !Speech.checking && Speech.info.destination) {
+                r.ready = Speech.installBlocker === "";
+                h.put("disk");
+                Speech.refresh();
+                h.next();
+            } else if (h.phase === 1 && !Speech.checking && waited > 300) {
+                r.blockDisk = Speech.installBlocker === "Needs 142 MiB free, 95 MiB free in /x/0xide/speech";
+                h.put("slow");
+                Speech.info = ({});
+                Speech.refresh();
+                h.next();
+            } else if (h.phase === 2 && waited > 300) {
+                r.blockChecking = Speech.checking && Speech.installBlocker === "Checking this computer...";
+                h.next();
+            } else if (h.phase === 3 && !Speech.checking) {
+                h.put("ok");
+                chmod.command = ["$(command -v chmod)", "-x", "$sx/bin/uv"];
+                chmod.running = true;
+                h.next();
+            } else if (h.phase === 4 && chmod.done) {
+                Speech.info = ({});
+                Speech.refresh();
+                Speech.install();
+                h.next();
+            } else if (h.phase === 5 && waited > 1000) {
+                r.noUv = Speech.installBlocker === "Could not check dictation. Install uv first.";
+                r.noUvInstall = Speech.error.startsWith("Could not start the speech model installer");
+                chmod.done = false;
+                chmod.command = ["$(command -v chmod)", "+x", "$sx/bin/uv"];
+                chmod.running = true;
+                h.next();
+            } else if (h.phase === 6 && chmod.done) {
+                Speech.refresh();
+                h.next();
+            } else if (h.phase === 7 && !Speech.checking && waited > 500) {
+                r.recovers = Speech.installBlocker === "" && Speech.statusError === "";
+                console.log("RESULT " + JSON.stringify(r));
+                Qt.quit();
+            } else if (waited > 15000) {
+                console.log("RESULT " + JSON.stringify(Object.assign(r, {stuck: h.phase})));
+                Qt.quit();
+            }
+        }
+    }
+}
+QML
+    printf ok > "$sx/cfg/assets/dictation/status"
+    res="$(cd "$sx" && timeout 60 env PATH="$sx/bin" XDG_RUNTIME_DIR="$sx/xdg" QT_QPA_PLATFORM=offscreen \
+        "$(command -v qs)" -p "$sx/cfg/shell.qml" 2>&1 | sed -n 's/.*RESULT //p' | tail -1)"
+    if [ -z "$res" ]; then
+        no "the Speech harness produced no result"
+    else
+        for c in "ready:with room and a status, nothing blocks the download" \
+                 "blockDisk:too little space is the reason, with both sizes" \
+                 "blockChecking:while the status is read, that is the reason" \
+                 "noUv:without uv, that is the reason" \
+                 "noUvInstall:an installer that cannot start says so" \
+                 "recovers:a status that works again clears the reason"; do
+            key="${c%%:*}"
+            case "$res" in
+                *"\"$key\":true"*) ok "${c#*:}" ;;
+                *) no "${c#*:} ($res)" ;;
+            esac
+        done
+    fi
+    rm -rf "$sx"
+else
+    skipt "qs is not installed"
+fi
+page="$OX_ROOT/shell/extensions/ai/tree/modules/nexus/pages/AiPage.qml"
+grep -q 'acceptAllowed: !Speech.installBlocker' "$page" && grep -q 'text: Speech.installBlocker ||' "$page" &&
+    ok "the speech model's Download is off only for the reason it shows" ||
+    no "the speech model's Download no longer shows why it is off"
+
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"
 [ -z "$dups" ] && ok "every shell patch has its own number, so glob order is the series order" || no "duplicate patch numbers: $dups"
