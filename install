@@ -83,8 +83,9 @@ if [ "$MODE" = status ]; then
     }
     status_overrides() {
         local f stale="" missing=0 r
-        for f in hypr-vars.lua:caelestia/hypr-vars.lua: hypr-user.lua:caelestia/hypr-user.lua:render \
-                 cli.json:caelestia/cli.json:render user-config.fish:fish/user-config.fish:; do
+        for f in 0xide-binds.lua:caelestia/0xide-binds.lua: hypr-vars.lua:caelestia/hypr-vars.lua: \
+                 hypr-user.lua:caelestia/hypr-user.lua:render cli.json:caelestia/cli.json:render \
+                 user-config.fish:fish/user-config.fish:; do
             IFS=: read -r name src render <<<"$f"
             rendered_matches "$OX_CAELCONF/$name" "$OX_ROOT/overrides/$src" "$render"; r=$?
             [ "$r" = 2 ] && missing=$((missing + 1))
@@ -92,7 +93,7 @@ if [ "$MODE" = status ]; then
         done
         "$(ox_python)" "$OX_ROOT/installer/apply_overlay.py" "$OX_ROOT/overrides/caelestia/shell.json" \
             "$OX_CAELCONF/shell.json" --json --check >/dev/null 2>&1 || stale="$stale shell.json"
-        if [ "$missing" = 4 ]; then bad overrides "not installed; run ./install --only overrides"
+        if [ "$missing" = 5 ]; then bad overrides "not installed; run ./install --only overrides"
         elif [ -n "$stale" ]; then bad overrides "out of date:$stale; run ./install --only overrides"
         else say overrides "ok"; fi
     }
