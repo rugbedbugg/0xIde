@@ -15,7 +15,12 @@ Singleton {
     property string helper: Quickshell.shellPath("assets/shortcuts/keybinds.py")
 
     property bool open
-    property bool loading
+    // What the overlay shows: "closed", "loading" until this open's snapshot
+    // has answered, then "ready", "empty" (Hyprland answered, and has no
+    // binds) or "error". Only a snapshot that was read and parsed can make it
+    // empty; a failure of any kind is an error instead.
+    property string phase: "closed"
+    readonly property bool loading: phase === "loading"
     property string error
     // Each bind as keybinds.py gives it, grouped and in a stable order.
     property var binds: []
@@ -25,6 +30,10 @@ Singleton {
     property string query
     // How many times Hyprland has been asked, for the tests.
     property int snapshots
+    // The snapshot whose answer counts. Each has its own reader, so one
+    // still finishing from an earlier open or refresh can never land.
+    property int request
+    property var reader: null
 
     // Rows for the list: a header before each group's first bind. Every word
     // of the search has to appear in a bind's keys, description, action or
@@ -48,14 +57,16 @@ Singleton {
 
     function show(): void {
         query = "";
+        // Loading before the window exists, so it is never built empty.
+        phase = "loading";
         open = true;
         refresh();
     }
 
     function hide(): void {
         open = false;
-        reader.running = false;
-        loading = false;
+        phase = "closed";
+        stop();
         binds = [];
         error = "";
         query = "";
@@ -72,45 +83,87 @@ Singleton {
     function refresh(): void {
         if (!open)
             return;
-        loading = true;
+        stop();
+        phase = "loading";
         error = "";
-        reader.running = false;
         snapshots++;
-        Qt.callLater(() => {
-            if (root.open)
-                reader.running = true;
+        reader = readerComponent.createObject(root, {
+            request: ++request
         });
     }
 
-    Process {
-        id: reader
+    // The current reader is stopped and forgotten; its answer, if any, is
+    // for a request that no longer counts.
+    function stop(): void {
+        if (reader)
+            reader.running = false;
+        reader = null;
+        request++;
+    }
 
-        command: ["/usr/bin/python3", root.helper]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                // A late answer for an overlay that has since closed.
-                if (!root.open)
-                    return;
-                root.loading = false;
-                try {
-                    const data = JSON.parse(text);
-                    if (data.error) {
-                        root.error = data.error;
-                        root.binds = [];
-                    } else {
-                        root.binds = Array.isArray(data.binds) ? data.binds : [];
-                        root.annotated = data.annotated !== false;
-                    }
-                } catch (e) {
-                    root.error = qsTr("The keybind list could not be read");
-                    root.binds = [];
-                }
-            }
+    function answer(from: int, text: string): void {
+        if (from !== request || phase !== "loading")
+            return;
+        let data;
+        try {
+            data = JSON.parse(text);
+        } catch (e) {
+            fail(qsTr("The keybind list could not be read"));
+            return;
         }
-        onExited: code => { // qmllint disable signal-handler-parameters
-            if (root.open && root.loading && code !== 0) {
-                root.loading = false;
-                root.error = qsTr("The keybind list could not be read");
+        if (!data || typeof data !== "object")
+            fail(qsTr("The keybind list could not be read"));
+        else if (data.error)
+            fail(String(data.error));
+        else if (!Array.isArray(data.binds))
+            fail(qsTr("The keybind list was not in the expected form"));
+        else {
+            binds = data.binds;
+            annotated = data.annotated !== false;
+            error = "";
+            phase = binds.length > 0 ? "ready" : "empty";
+        }
+    }
+
+    function fail(reason: string): void {
+        binds = [];
+        error = reason;
+        phase = "error";
+    }
+
+    Component {
+        id: readerComponent
+
+        Process {
+            id: proc
+
+            required property int request
+            property bool didExit
+
+            command: ["/usr/bin/python3", root.helper]
+            running: true
+            stdout: StdioCollector {
+                onStreamFinished: root.answer(proc.request, text)
+            }
+            // A reader that cannot start reports no exit; one that exits
+            // without having answered failed. Either way it is then gone.
+            onExited: code => { // qmllint disable signal-handler-parameters
+                didExit = true;
+                if (code !== 0 && proc.request === root.request && root.phase === "loading")
+                    root.fail(qsTr("The keybind reader stopped with exit code %1").arg(code));
+            }
+            onRunningChanged: {
+                if (running)
+                    return;
+                Qt.callLater(() => {
+                    if (!proc.didExit && proc.request === root.request && root.phase === "loading")
+                        root.fail(qsTr("Could not start /usr/bin/python3"));
+                    else if (proc.request === root.request && root.phase === "loading")
+                        root.fail(qsTr("The keybind reader ended without an answer"));
+                    if (root.reader === proc)
+                        root.reader = null;
+                    proc.destroy();
+                });
             }
         }
     }
