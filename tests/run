@@ -3768,8 +3768,8 @@ grep -qF 'onPressed: Keybinds.toggle()' "$KBH" && grep -qF 'name: "shortcuts"' "
 ! grep -qE 'implicitHeight: contentHeight|layout\.implicitHeight' "$KBH" &&
     ok "the card's size does not follow the list, which would build every row at once" ||
     no "the card's height follows the list's content"
-grep -qF 'visible: !Keybinds.annotated && !Keybinds.loading && !Keybinds.error && Keybinds.binds.length > 0' "$KBH" &&
-    grep -qF 'root.annotated = data.annotated !== false;' "$OX_ROOT/shell/extensions/shortcuts/tree/services/Keybinds.qml" &&
+grep -qF 'visible: !Keybinds.annotated && Keybinds.phase === "ready"' "$KBH" &&
+    grep -qF 'annotated = data.annotated !== false;' "$OX_ROOT/shell/extensions/shortcuts/tree/services/Keybinds.qml" &&
     ok "binds without 0xIde's annotations are still listed, under a banner that says why" || no "missing annotations are not explained"
 grep -qF 'active: Keybinds.open' "$KBH" && ! grep -qE '\b(Timer|FileView|SocketServer)\b' "$KBH" "$OX_ROOT/shell/extensions/shortcuts/tree/services/Keybinds.qml" &&
     ok "18. no window exists while closed, and nothing in it runs on a timer" || no "the overlay keeps something running while closed"
@@ -3805,6 +3805,9 @@ elif mode == "garbage":
     print("not json")
 elif mode == "crash":
     sys.exit(3)
+elif mode == "slowempty":
+    time.sleep(1)
+    print('{"binds": [], "annotated": true}')
 else:
     if mode == "slow":
         time.sleep(1)
@@ -3824,6 +3827,21 @@ ShellRoot {
     property var r: ({})
     property int n
     property int at
+    // Every phase the overlay goes through while open, and the one it is
+    // already in at the moment it opens.
+    property var seen: []
+
+    Connections {
+        target: Keybinds
+        function onPhaseChanged(): void {
+            if (Keybinds.open)
+                h.seen.push(Keybinds.phase);
+        }
+        function onOpenChanged(): void {
+            if (Keybinds.open && h.r.openPhase === undefined)
+                h.r.openPhase = Keybinds.phase;
+        }
+    }
 
     // Kept current by watching the file, so a read here is never stale.
     function runs(): int {
@@ -3898,7 +3916,37 @@ ShellRoot {
             } else if (n === 24) {
                 r.lateIgnored = !Keybinds.open && Keybinds.binds.length === 0 && Keybinds.error === "";
                 Keybinds.refresh();
-                r.refreshClosedNoop = !Keybinds.loading;
+                r.refreshClosedNoop = !Keybinds.loading && Keybinds.phase === "closed";
+                // A slow snapshot: loading, and never empty, until it answers.
+                h.seen = [];
+                Keybinds.show();
+                r.initialLoading = Keybinds.phase === "loading";
+            } else if (n === 25) {
+                r.pendingNotEmpty = Keybinds.phase === "loading" && Keybinds.matches === 0;
+            } else if (n === 28) {
+                r.delayedBinds = Keybinds.phase === "ready" && Keybinds.binds.length > 20 && h.seen.join() === "ready";
+                // Overlapping requests: only the newest one's answer counts.
+                h.seen = [];
+                Keybinds.refresh();
+                Keybinds.refresh();
+                Keybinds.hide();
+                Keybinds.show();
+                Keybinds.hide();
+                Keybinds.show();
+            } else if (n === 33) {
+                r.overlapNewest = Keybinds.phase === "ready" && Keybinds.binds.length > 20 && Keybinds.error === "" && h.seen.every(p => p === "loading" || p === "ready");
+                // Hyprland answering, with nothing bound.
+                h.mode("slowempty");
+                h.seen = [];
+                Keybinds.refresh();
+            } else if (n === 35) {
+                r.emptyPending = Keybinds.phase === "loading";
+            } else if (n === 38) {
+                r.delayedEmpty = Keybinds.phase === "empty" && Keybinds.binds.length === 0 && Keybinds.error === "" && h.seen.join() === "loading,empty";
+                Keybinds.hide();
+                h.at = h.runs();
+            } else if (n === 42) {
+                r.quietAfterAll = h.runs() === h.at && !Keybinds.open && Keybinds.phase === "closed";
                 console.log("RESULTS " + JSON.stringify(r));
                 Qt.quit();
             }
@@ -3908,7 +3956,7 @@ ShellRoot {
 QML
     res="$(cd "$kx" && XDG_CONFIG_HOME="$kx/xdg" XDG_STATE_HOME="$kx/xdg" XDG_CACHE_HOME="$kx/xdg" XDG_DATA_HOME="$kx/xdg" \
         XDG_RUNTIME_DIR="$kx/xdg" WAYLAND_DISPLAY='' QT_QPA_PLATFORM=offscreen \
-        timeout 40 qs -p "$kx/cfg" 2>&1 | sed -n 's/.*qml.*RESULTS //p')"
+        timeout 60 qs -p "$kx/cfg" 2>&1 | sed -n 's/.*qml.*RESULTS //p')"
     if [ -z "$res" ]; then
         no "the shortcuts service harness did not run"
     else
@@ -3928,11 +3976,19 @@ want = {
     "closedAfterToggles": (True, "opening and closing repeatedly ends closed"),
     "reopenRefreshes": (True, "reopening reads a fresh snapshot"),
     "noPollingAfterCycles": (True, "18. after many opens and closes, nothing keeps running"),
+    "openPhase": ("loading", "the overlay is loading, not empty, from the moment it opens"),
     "errorShown": (True, "an error from the helper is shown, not a crash"),
     "garbage": (True, "output that is not JSON is an error"),
     "crash": (True, "a helper that dies is an error"),
     "lateIgnored": (True, "an answer that arrives after closing is ignored"),
     "refreshClosedNoop": (True, "refresh does nothing while closed"),
+    "initialLoading": (True, "a snapshot still pending shows loading"),
+    "pendingNotEmpty": (True, "a snapshot still pending is never shown as no keybinds"),
+    "delayedBinds": (True, "a slow snapshot with binds goes straight from loading to the list"),
+    "overlapNewest": (True, "of overlapping opens and refreshes, only the newest answer lands, and no stale one shows as an error"),
+    "emptyPending": (True, "a slow empty snapshot is loading until it answers"),
+    "delayedEmpty": (True, "no keybinds is shown only once Hyprland has answered with none"),
+    "quietAfterAll": (True, "18. after all of it, nothing is read while closed"),
 }
 for k, (v, what) in want.items():
     print(("ok " if r.get(k) == v else "FAIL ") + what + ("" if r.get(k) == v else f" (got {r.get(k)!r})"))

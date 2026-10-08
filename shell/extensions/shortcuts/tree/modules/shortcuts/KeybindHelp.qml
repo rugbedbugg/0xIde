@@ -176,7 +176,7 @@ Scope {
                     StyledRect {
                         objectName: "unannotatedBanner"
                         Layout.fillWidth: true
-                        visible: !Keybinds.annotated && !Keybinds.loading && !Keybinds.error && Keybinds.binds.length > 0
+                        visible: !Keybinds.annotated && Keybinds.phase === "ready"
                         implicitHeight: bannerText.implicitHeight + Tokens.padding.medium * 2
                         radius: Tokens.rounding.medium
                         color: Colours.palette.m3secondaryContainer
@@ -198,13 +198,17 @@ Scope {
                         Layout.fillWidth: true
                         Layout.topMargin: Tokens.padding.large
                         Layout.bottomMargin: Tokens.padding.large
-                        visible: Keybinds.loading || !!Keybinds.error || Keybinds.matches === 0
+                        visible: Keybinds.phase !== "ready" || Keybinds.matches === 0
                         spacing: Tokens.spacing.small
 
                         MaterialIcon {
                             Layout.alignment: Qt.AlignHCenter
-                            text: Keybinds.error ? "error" : Keybinds.loading ? "hourglass_empty" : Keybinds.query ? "search_off" : "keyboard_off"
-                            color: Keybinds.error ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
+                            text: ({
+                                    error: "error",
+                                    empty: "keyboard_off",
+                                    ready: "search_off"
+                                })[Keybinds.phase] ?? "hourglass_empty"
+                            color: Keybinds.phase === "error" ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
                             fontStyle: Tokens.font.icon.large
                         }
 
@@ -213,14 +217,16 @@ Scope {
                             horizontalAlignment: Text.AlignHCenter
                             wrapMode: Text.Wrap
                             color: Colours.palette.m3onSurfaceVariant
+                            // "Nothing registered" only for a snapshot that
+                            // was read and is empty, never while one is pending.
                             text: {
-                                if (Keybinds.error)
+                                if (Keybinds.phase === "error")
                                     return qsTr("Could not read the keybinds: %1").arg(Keybinds.error);
-                                if (Keybinds.loading)
-                                    return qsTr("Reading the keybinds…");
-                                if (Keybinds.query)
+                                if (Keybinds.phase === "empty")
+                                    return qsTr("Hyprland has no keybinds registered");
+                                if (Keybinds.phase === "ready")
                                     return qsTr("No shortcut matches “%1”").arg(Keybinds.query);
-                                return qsTr("Hyprland has no keybinds registered");
+                                return qsTr("Reading the keybinds…");
                             }
                         }
                     }
@@ -230,7 +236,7 @@ Scope {
 
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        visible: !Keybinds.loading && !Keybinds.error && Keybinds.matches > 0
+                        visible: Keybinds.phase === "ready" && Keybinds.matches > 0
                         clip: true
                         spacing: Tokens.spacing.extraSmall
                         model: Keybinds.rows

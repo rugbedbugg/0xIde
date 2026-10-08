@@ -127,6 +127,19 @@ with tempfile.TemporaryDirectory() as tmp:
                           env={"PATH": tmp, "PYTHONDONTWRITEBYTECODE": "1"})
     check(json.loads(proc.stdout).get("error", "").startswith("Hyprland did not answer"),
           "without Hyprland's IPC it says Hyprland did not answer", proc.stdout)
+    # Hyprland answering with something that is not JSON is an error too.
+    open(fake, "w").write("#!/bin/sh\necho 'ok'\n")
+    proc = subprocess.run([sys.executable, helper], capture_output=True, text=True,
+                          env={"PATH": tmp, "PYTHONDONTWRITEBYTECODE": "1"})
+    check(json.loads(proc.stdout) == {"error": "Hyprland's keybind list could not be read"},
+          "a hyprctl answer that is not JSON is an error, not an empty list", proc.stdout)
+    # Only globalshortcuts failing: the binds are still listed, by name.
+    open(fake, "w").write(f"#!/bin/sh\n[ \"$2\" = binds ] && exec /bin/cat {fixtures}/hyprctl-binds.json\nexit 1\n")
+    proc = subprocess.run([sys.executable, helper], capture_output=True, text=True,
+                          env={"PATH": tmp, "PYTHONDONTWRITEBYTECODE": "1"})
+    got = json.loads(proc.stdout)
+    check("error" not in got and len(got.get("binds", [])) > 20,
+          "a failing globalshortcuts still lists every bind, neither empty nor an error", proc.stdout[:200])
 
 # 14. Search: every word has to appear; the overlay filters the same way.
 def search(query):
