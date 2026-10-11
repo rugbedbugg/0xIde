@@ -29,21 +29,21 @@ Item {
 
         visible: false
         font: Tokens.font.label.small
-        text: qsTr("Read on this computer; only the text is searched")
+        text: qsTr("Searches text read on this computer")
     }
     StyledText {
         id: uploadSizer
 
         visible: false
         font: Tokens.font.label.small
-        text: qsTr("Uploads the image, and asks first")
+        text: qsTr("Asks before uploading the image")
     }
     StyledText {
         id: aiSizer
 
         visible: false
         font: Tokens.font.label.small
-        text: qsTr("Read on this computer, then ask the AI about it")
+        text: qsTr("Ask AI about the captured text")
     }
 
     Elevation {

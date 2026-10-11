@@ -73,11 +73,12 @@ StyledFlickable {
             status: AiRuntime.error && AiRuntime.info.installed === undefined ? qsTr("Status unavailable") : U.aiState(runtime)
             statusColour: AiRuntime.endpoint && !AiRuntime.stopping ? Colours.palette.m3primary : AiRuntime.serving || AiRuntime.installing ? Colours.palette.m3tertiary : Colours.palette.m3outline
             lines: [
-                AiRuntime.info.installed === undefined ? (AiRuntime.error ? qsTr("Installation status unavailable") : qsTr("Checking installation…")) : AiRuntime.info.installed ? qsTr("Model installed · starts when local AI is used") : qsTr("Model not installed · set up Local AI in Settings"),
+                AiRuntime.info.installed === undefined ? (AiRuntime.error ? qsTr("Installation status unavailable") : qsTr("Checking installation…")) : AiRuntime.info.installed ? qsTr("Model installed") : "",
+                AiRuntime.info.installed === undefined ? "" : AiRuntime.info.installed ? (AiRuntime.serving ? "" : qsTr("Starts on request")) : qsTr("Set up Local AI in Settings"),
                 AiRuntime.info.contextTokens ? qsTr("Context window: %1 tokens").arg(AiRuntime.info.contextTokens) : "",
                 ai.usage.found ? qsTr("%1 memory · %2 CPU · %3 process(es)").arg(U.formatBytes(ai.usage.memory)).arg(U.formatPercent(ai.usage.cpu)).arg(ai.usage.processes) : "",
                 AiRuntime.endpoint ? qsTr("Endpoint: %1").arg(AiRuntime.endpoint) : "",
-                AiRuntime.serving && AiRuntime.endpoint ? qsTr("Unloads itself after five minutes unused.") : "",
+                AiRuntime.serverNote,
                 (AiRuntime.info.missing ?? []).length ? qsTr("Missing: %1").arg(AiRuntime.info.missing.join(", ")) : "",
                 AiRuntime.installing ? AiRuntime.message : "",
                 AiRuntime.error
@@ -108,9 +109,10 @@ StyledFlickable {
             }, listener !== null)
             statusColour: listener ? Colours.palette.m3primary : Speech.working ? Colours.palette.m3tertiary : Colours.palette.m3outline
             lines: [
-                Speech.info.installed === undefined ? qsTr("Checking installation…") : Speech.info.installed ? qsTr("Model installed · loaded for dictation as needed") : qsTr("Set up the speech model in Settings to enable dictation"),
+                Speech.info.installed === undefined ? qsTr("Checking installation…") : Speech.info.installed ? qsTr("Model installed") : "",
+                Speech.info.installed === undefined ? "" : Speech.info.installed ? qsTr("Loaded only while dictating") : qsTr("Set up dictation in Settings"),
                 qsTr("Language: %1").arg(GlobalConfig.ai.dictationLanguage === "auto" ? qsTr("Auto-detect") : Translator.name(GlobalConfig.ai.dictationLanguage)),
-                qsTr("Use your dictation shortcut to start or stop recording"),
+                qsTr("Use the dictation shortcut to record"),
                 listener ? qsTr("%1 memory while listening").arg(U.formatBytes(listener.memory)) : "",
                 (Speech.info.missing ?? []).length ? qsTr("Missing: %1").arg(Speech.info.missing.join(", ")) : "",
                 Speech.working ? Speech.message : "",
@@ -133,7 +135,7 @@ StyledFlickable {
             lines: [
                 U.translationLanguages(Translator.installed.filter(c => c !== "en").map(c => Translator.name(c))),
                 GlobalConfig.ai.translateFrom && GlobalConfig.ai.translateLanguage ? qsTr("Selected: %1 → %2").arg(Translator.name(GlobalConfig.ai.translateFrom)).arg(Translator.name(GlobalConfig.ai.translateLanguage)) : qsTr("Selected: no language pair configured"),
-                qsTr("Runs per request; no background runtime to unload"),
+                qsTr("Runs only while translating"),
                 Translator.translating ? Translator.translationLabel : "",
                 Translator.working ? Translator.message : "",
                 Translator.error
@@ -153,7 +155,7 @@ StyledFlickable {
                 Ocr.readiness,
                 Ocr.languages.length ? qsTr("Installed languages: %1").arg(Ocr.languages.join(", ")) : "",
                 Ocr.languages.length ? qsTr("Selected languages: %1").arg(Ocr.effectiveLanguages.split("+").join(", ")) : "",
-                qsTr("Runs when you capture text; no background runtime to unload"),
+                qsTr("Runs only while reading a capture"),
                 Ocr.error
             ]
         }
@@ -168,7 +170,7 @@ StyledFlickable {
             lines: [
                 DesktopProfiles.switching ? qsTr("Switching to %1…").arg(DesktopProfiles.name(DesktopProfiles.switchingTo)) : "",
                 DesktopProfiles.error ? DesktopProfiles.error : DesktopProfiles.active?.description ?? qsTr("Reading the desktop profiles…"),
-                qsTr("Profile selection is managed in Settings")
+                qsTr("Change profiles in Settings")
             ]
         }
     }

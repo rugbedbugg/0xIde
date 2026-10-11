@@ -10,9 +10,9 @@ import qs.services
 InstallProgress {
     runtime: AiRuntime
     what: qsTr("Local model")
-    installedHint: GlobalConfig.ai.backend === "managed" ? "" : qsTr("Choose Local as the backend to use it.")
+    installedHint: GlobalConfig.ai.backend === "managed" ? "" : qsTr("Select the Local backend to use this model")
     notes: ({
-            build: qsTr("Compiling takes several minutes. It carries on if you close this."),
-            waiting: qsTr("Another installation or the running model holds the lock")
+            build: qsTr("Build continues after closing this panel"),
+            waiting: qsTr("Waiting for the installer or model to finish")
         })
 }

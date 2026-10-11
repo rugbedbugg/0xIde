@@ -28,7 +28,7 @@ Scope {
     property string translationStage: ""
     readonly property string translationLabel: ({
             starting: qsTr("Starting offline translation…"),
-            preparing: qsTr("Preparing the offline translation runtime; the first time downloads it…"),
+            preparing: qsTr("Preparing translation (downloads on first use)…"),
             translating: qsTr("Translating on this computer…")
         })[translationStage] ?? ""
     readonly property string helper: Qt.resolvedUrl("../assets/ai/translate.py").toString().replace("file://", "")

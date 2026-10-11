@@ -125,9 +125,9 @@ PageBase {
             label: qsTr("Backend")
             subtext: {
                 if (root.external)
-                    return qsTr("Text goes to your server, only when you press Ask AI");
+                    return qsTr("Sends text on Ask AI");
                 if (GlobalConfig.ai.backend === "managed")
-                    return qsTr("Runs on this computer. Small and experimental");
+                    return qsTr("Experimental local model");
                 return qsTr("Nothing is sent anywhere");
             }
             menuItems: root.backendItems
@@ -142,7 +142,7 @@ PageBase {
         TextFieldRow {
             visible: root.external
             label: qsTr("Server URL")
-            subtext: qsTr("OpenAI-compatible chat completions")
+            subtext: qsTr("OpenAI-compatible URL")
             placeholderText: qsTr("URL")
             value: GlobalConfig.ai.backendUrl
             onEditingFinished: value => {
@@ -154,7 +154,7 @@ PageBase {
         TextFieldRow {
             visible: root.external
             label: qsTr("Model")
-            subtext: qsTr("Optional. Sent with each request")
+            subtext: qsTr("Optional model name")
             placeholderText: qsTr("Model")
             value: GlobalConfig.ai.model
             onEditingFinished: value => {
@@ -200,7 +200,7 @@ PageBase {
             first: true
             last: true
             label: qsTr("System prompt")
-            subtext: qsTr("Optional. Sent before the text you ask about")
+            subtext: qsTr("Optional instructions")
             placeholderText: qsTr("Prompt")
             value: GlobalConfig.ai.systemPrompt
             onEditingFinished: value => {
@@ -222,6 +222,8 @@ PageBase {
                 // The installer's own progress and errors are in full below.
                 if (AiRuntime.installing)
                     return AiRuntime.stageLabel(AiRuntime.stage);
+                if (AiRuntime.serverNote && !AiRuntime.error)
+                    return AiRuntime.serverNote;
                 if (installProgress.shown)
                     return root.installed ? qsTr("%1 MiB on disk").arg(root.mib(AiRuntime.info.diskBytes)) : qsTr("Not downloaded");
                 if (AiRuntime.error)
@@ -288,7 +290,7 @@ PageBase {
                     font: Tokens.font.body.small
                     // A disabled Download always says why.
                     color: AiRuntime.installBlocker ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
-                    text: AiRuntime.installBlocker || qsTr("Builds the runtime and downloads %1 MiB into %2. Needs %3 GiB free.").arg(root.mib(AiRuntime.info.downloadBytes)).arg(AiRuntime.info.destination ?? "").arg(AiRuntime.gib(AiRuntime.info.requiredBytes))
+                    text: AiRuntime.installBlocker || qsTr("Downloads %1 MiB and needs %2 GiB free").arg(root.mib(AiRuntime.info.downloadBytes)).arg(AiRuntime.gib(AiRuntime.info.requiredBytes))
                 }
             }
         }
@@ -298,7 +300,7 @@ PageBase {
             visible: AiRuntime.serverState === "running" || AiRuntime.serverState === "starting"
             icon: "stop_circle"
             text: qsTr("Stop server")
-            subtext: AiRuntime.serverLabel + qsTr(". It starts again the next time you ask")
+            subtext: qsTr("Restarts on the next request")
             onClicked: AiRuntime.stop()
         }
 
@@ -316,7 +318,7 @@ PageBase {
                     wrapMode: Text.Wrap
                     font: Tokens.font.body.small
                     color: Colours.palette.m3onSurfaceVariant
-                    text: qsTr("The model and its runtime are deleted. Server settings are kept.")
+                    text: qsTr("Removes the model and runtime but keeps server settings")
                 }
             }
         }
@@ -330,7 +332,7 @@ PageBase {
             first: true
             icon: "translate"
             label: qsTr("Installed languages")
-            subtext: Translator.error || Translator.statusError || Translator.message || qsTr("Translate runs offline between these")
+            subtext: Translator.error || Translator.statusError || Translator.message || qsTr("Offline translation through English")
             value: Translator.working ? qsTr("Working") : Translator.installed.map(code => Translator.name(code)).join(", ") || qsTr("None")
             error: !!(Translator.error || Translator.statusError)
         }
@@ -342,8 +344,8 @@ PageBase {
             id: addLanguage
 
             label: qsTr("Add a language")
-            subtext: qsTr("Name or code, e.g. French, then Enter. About 160 MB each")
-            placeholderText: qsTr("Language")
+            subtext: qsTr("Enter to download (~160 MB)")
+            placeholderText: qsTr("Name or code")
             value: ""
         }
         Connections {
@@ -369,8 +371,8 @@ PageBase {
 
             last: true
             label: qsTr("Remove a language")
-            subtext: qsTr("Name, then Enter. Its models are deleted; English stays while any other is installed")
-            placeholderText: qsTr("Language")
+            subtext: qsTr("Press Enter to remove")
+            placeholderText: qsTr("Name or code")
             value: ""
         }
         Connections {
@@ -402,14 +404,14 @@ PageBase {
             subtext: {
                 // The installer's own progress and outcome are shown below.
                 if (speechProgress.shown)
-                    return qsTr("SUPER + SHIFT + D turns dictation on and off");
+                    return qsTr("Toggle dictation with SUPER + SHIFT + D");
                 if (Speech.error || Speech.statusError)
                     return Speech.error || Speech.statusError;
                 if (Speech.message)
                     return Speech.message;
                 if ((Speech.info.missing ?? []).length > 0)
                     return qsTr("Dictation needs: %1").arg(Speech.info.missing.join(", "));
-                return qsTr("SUPER + SHIFT + D turns dictation on and off; each phrase is typed where you are as you pause");
+                return qsTr("Toggle dictation with SUPER + SHIFT + D");
             }
             value: Speech.installing ? qsTr("Installing") : Speech.working ? qsTr("Removing") : Speech.info.installed ? qsTr("Installed") : qsTr("Not installed")
             error: !!(Speech.error || Speech.statusError)
@@ -417,7 +419,7 @@ PageBase {
 
         TextFieldRow {
             label: qsTr("Language")
-            subtext: qsTr("A code such as en or de. auto detects it once, on the first phrase, which is slower")
+            subtext: qsTr("Language code or auto")
             placeholderText: qsTr("en")
             value: GlobalConfig.ai.dictationLanguage
             validate: /^\s*([a-z]{2,3}|auto)?\s*$/
@@ -475,7 +477,7 @@ PageBase {
                     font: Tokens.font.body.small
                     // A disabled Download always says why.
                     color: Speech.installBlocker ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
-                    text: Speech.installBlocker || qsTr("Downloads the whisper.cpp base model, %1 MiB, into %2. Speech is transcribed on this computer.").arg(root.mib(Speech.info.downloadBytes)).arg(Speech.info.destination ?? "")
+                    text: Speech.installBlocker || qsTr("Downloads %1 MiB for offline dictation").arg(root.mib(Speech.info.downloadBytes))
                 }
             }
         }
@@ -494,7 +496,7 @@ PageBase {
                     wrapMode: Text.Wrap
                     font: Tokens.font.body.small
                     color: Colours.palette.m3onSurfaceVariant
-                    text: qsTr("Dictation stops working until it is installed again.")
+                    text: qsTr("Disables dictation until the model is reinstalled")
                 }
             }
         }

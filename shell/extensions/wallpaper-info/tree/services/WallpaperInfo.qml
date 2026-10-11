@@ -65,7 +65,7 @@ Singleton {
         for (const lead of [`Error trashing file ${path}: `, `Unable to trash file ${path}: `])
             if (text.startsWith(lead))
                 text = text.slice(lead.length);
-        return text || qsTr("Could not move it to the Trash");
+        return text || qsTr("gio gave no reason");
     }
 
     // "2.4 MB", "980 KB": binary units, as the memory figure is.
@@ -121,7 +121,7 @@ Singleton {
                 Qt.callLater(() => {
                     if (!trashProc.didExit && root.trashing) {
                         root.trashing = false;
-                        root.trashError = qsTr("gio is not installed, so nothing was moved to the Trash");
+                        root.trashError = qsTr("gio is not installed");
                     }
                 });
         }

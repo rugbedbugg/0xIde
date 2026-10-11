@@ -181,15 +181,27 @@ Scope {
                         radius: Tokens.rounding.medium
                         color: Colours.palette.m3secondaryContainer
 
-                        StyledText {
+                        ColumnLayout {
                             id: bannerText
 
                             anchors.fill: parent
                             anchors.margins: Tokens.padding.medium
-                            wrapMode: Text.Wrap
-                            color: Colours.palette.m3onSecondaryContainer
-                            font: Tokens.font.label.large
-                            text: qsTr("Some shortcut descriptions are unavailable: Hyprland was loaded without 0xIde's binding annotations. Run ./install --only overrides, then reload Hyprland, to restore them.")
+                            spacing: 0
+
+                            StyledText {
+                                Layout.fillWidth: true
+                                wrapMode: Text.Wrap
+                                color: Colours.palette.m3onSecondaryContainer
+                                font: Tokens.font.label.large
+                                text: qsTr("Some descriptions are missing")
+                            }
+                            StyledText {
+                                Layout.fillWidth: true
+                                wrapMode: Text.Wrap
+                                color: Colours.palette.m3onSecondaryContainer
+                                font: Tokens.font.label.small
+                                text: qsTr("Reload Hyprland after ./install --only overrides")
+                            }
                         }
                     }
 

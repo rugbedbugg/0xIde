@@ -54,7 +54,7 @@ Singleton {
         if (fail)
             return fail.slice(5).trim();
         const step = lines.filter(l => / failed at /.test(l)).pop();
-        const restored = code === 2 ? qsTr("; the previous desktop could not be fully restored") : "";
+        const restored = code === 2 ? qsTr(". The previous desktop could not be fully restored") : "";
         return (step || qsTr("The switch exited with code %1").arg(code)) + restored;
     }
 

@@ -36,10 +36,12 @@ Scope {
     // The model server as it is, not as installed: "" when none runs.
     readonly property string serverState: !server.running ? "" : stopping ? "stopping" : endpoint ? "running" : "starting"
     readonly property string serverLabel: ({
-            starting: qsTr("Starting the local model"),
-            running: qsTr("Running; unloads itself after five minutes unused"),
-            stopping: qsTr("Stopping the local model")
+            starting: qsTr("Starting"),
+            running: qsTr("Running"),
+            stopping: qsTr("Stopping")
         })[serverState] ?? ""
+    // What a running server does next, to go under serverLabel.
+    readonly property string serverNote: serverState === "running" ? qsTr("Unloads after five idle minutes") : ""
     readonly property int serverPid: server.processId ?? 0
     readonly property string helper: Qt.resolvedUrl("../assets/ai/runtime.py").toString().replace("file://", "")
     readonly property string log: info.destination ? info.destination + "/install.log" : ""

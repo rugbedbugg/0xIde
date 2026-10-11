@@ -2490,7 +2490,7 @@ Item {
             duration: [U.formatDuration(5), U.formatDuration(125), U.formatDuration(3700), U.formatDuration(90000)],
             states: [U.stateText("T"), U.stateText("Z").split(":")[0], U.stateText("?")],
             end: U.action("end").signal + "|" + /exit normally/.test(U.action("end").explanation) + "|" + /kill|force/i.test(U.action("end").explanation),
-            force: U.action("force").signal + "|" + U.action("force").destructive + "|" + /cannot perform normal cleanup/.test(U.action("force").explanation) + "|" + /Unsaved work may be lost/.test(U.action("force").explanation),
+            force: U.action("force").signal + "|" + U.action("force").destructive + "|" + /without saving or cleanup/.test(U.action("force").explanation) + "|" + /Unsaved work may be lost/.test(U.action("force").explanation),
             menu: ["pause", "resume", "hangup", "interrupt"].map(a => U.action(a).signal).join(","),
             other: U.signalAction("USR1").signal + "|" + U.signalAction("KILL").id,
             init: /system's init process/.test(U.context({ pid: 1 }, 99)),
@@ -4417,7 +4417,7 @@ if tmp:
     bad += check("not supported" in e and "file://" not in e and os.path.exists(tmp),
                  "a file system without a Trash is reported and the file kept", r.get("tmpfs"))
 e = r.get("noGio", {}).get("error", "")
-bad += check(e == "gio is not installed, so nothing was moved to the Trash", "without gio it says so instead of Moving… forever", r.get("noGio"))
+bad += check(e == "gio is not installed", "without gio it says so instead of Moving… forever", r.get("noGio"))
 sys.exit(bad)
 CHK
     n=$?; t=$([ -n "$tmpfile" ] && echo 6 || echo 5)
@@ -4861,7 +4861,7 @@ ShellRoot {
                 r.immediate = Translator.translating && Translator.translationLabel === "Starting offline translation…";
                 h.next();
             } else if (h.phase === 1 && Translator.translationStage === "preparing") {
-                r.preparingLabel = Translator.translationLabel.startsWith("Preparing the offline translation runtime");
+                r.preparingLabel = Translator.translationLabel === "Preparing translation (downloads on first use)…";
                 h.next();
             } else if (h.phase === 2 && !Translator.translating && waited > 300) {
                 r.stages = h.seen.join() === "starting,preparing,translating";
@@ -4959,7 +4959,7 @@ AIP="$OX_ROOT/shell/extensions/ai/tree/modules/nexus/pages/AiPage.qml"
 ! grep -q '^        InfoRow {' "$AIP" && [ "$(grep -c '^        StatusRow {' "$AIP")" = 4 ] &&
     grep -q 'wrapMode: Text.Wrap' "$OX_ROOT/shell/extensions/ai/tree/components/StatusRow.qml" &&
     ok "the OCR, local model, translation and speech rows wrap their reasons instead of cutting them" || no "a status row still elides its reason"
-grep -q 'text: qsTr("Not switched: %1").arg(DesktopProfiles.error)' "$OX_ROOT/shell/extensions/desktop-profile/tree/modules/nexus/pages/ThemePage.qml" &&
+grep -q 'text: qsTr("Not switched")' "$OX_ROOT/shell/extensions/desktop-profile/tree/modules/nexus/pages/ThemePage.qml" &&
     ok "a profile switch failure is shown in full" || no "the profile switch failure is cut to one line"
 
 ox_step "System components: dry runs and refusals change nothing"

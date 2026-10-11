@@ -63,7 +63,7 @@ const actions = [
         signal: "TERM",
         title: "End task",
         icon: "close",
-        explanation: "Asks the process to exit normally. It can perform cleanup and save state before closing.",
+        explanation: "Asks the process to exit normally",
         destructive: false
     },
     {
@@ -71,7 +71,7 @@ const actions = [
         signal: "KILL",
         title: "Force stop",
         icon: "dangerous",
-        explanation: "The process will stop immediately. It cannot perform normal cleanup or save state. Unsaved work may be lost.",
+        explanation: "Stops immediately without saving or cleanup\nUnsaved work may be lost",
         destructive: true
     },
     {
@@ -79,7 +79,7 @@ const actions = [
         signal: "STOP",
         title: "Pause",
         icon: "pause",
-        explanation: "Freezes the process until it is resumed. Its windows stop responding meanwhile, and nothing it was doing is lost.",
+        explanation: "Pauses the process and its windows until resumed",
         destructive: false
     },
     {
@@ -87,7 +87,7 @@ const actions = [
         signal: "CONT",
         title: "Resume",
         icon: "play_arrow",
-        explanation: "Lets a paused process carry on from where it stopped.",
+        explanation: "Resumes a paused process",
         destructive: false
     },
     {
@@ -95,7 +95,7 @@ const actions = [
         signal: "HUP",
         title: "Hang up",
         icon: "call_end",
-        explanation: "Tells the process its terminal has gone away. Many programs exit; many services reload their configuration instead.",
+        explanation: "Requests a hangup (may exit or reload settings)",
         destructive: false
     },
     {
@@ -103,7 +103,7 @@ const actions = [
         signal: "INT",
         title: "Interrupt",
         icon: "front_hand",
-        explanation: "The same as pressing Ctrl+C in its terminal. Most programs stop what they are doing and exit.",
+        explanation: "Requests a stop, like Ctrl+C in a terminal",
         destructive: false
     }
 ];
@@ -122,7 +122,7 @@ function signalAction(name) {
         signal: name,
         title: `Send SIG${name}`,
         icon: "send",
-        explanation: `Sends SIG${name}. What happens depends on the program: many exit, some ignore it, and some handle it in their own way.`,
+        explanation: `SIG${name} may exit the program or trigger custom behavior`,
         destructive: false
     };
 }
@@ -138,31 +138,31 @@ function base(path) {
 const known = [
     {
         names: ["Hyprland"],
-        text: "This is Hyprland, the compositor. Ending it closes every window and ends your session; unsaved work in any application may be lost."
+        text: "Ending the compositor ends your session\nUnsaved work may be lost"
     },
     {
         names: ["pipewire", "pipewire-pulse", "wireplumber"],
-        text: "Part of the audio system (PipeWire). Ending it stops sound and microphone input until it is started again, which usually happens automatically."
+        text: "Stopping this audio service interrupts sound and recording"
     },
     {
         names: ["NetworkManager", "iwd", "wpa_supplicant", "systemd-networkd", "systemd-resolved"],
-        text: "Part of networking. Ending it can drop your network connections until it is started again."
+        text: "Stopping this networking service may disconnect you"
     },
     {
         names: ["dbus-daemon", "dbus-broker", "dbus-broker-launch"],
-        text: "The message bus programs use to talk to each other. Ending it breaks most desktop services until you log in again."
+        text: "Stopping the message bus disrupts desktop services"
     },
     {
         names: ["Xwayland"],
-        text: "Runs X11 applications under Hyprland. Ending it closes every X11 window."
+        text: "Ending Xwayland closes all X11 windows"
     },
     {
         names: ["sddm", "sddm-helper"],
-        text: "The login manager. Ending it can end your session."
+        text: "Stopping the login manager may end your session"
     },
     {
         names: ["systemd-logind"],
-        text: "Tracks logins and sessions. Ending it can lock you out of the session until it restarts."
+        text: "Stopping login tracking may block access to your session"
     }
 ];
 
@@ -171,17 +171,17 @@ function context(details, shellPid) {
     if (!details || !details.pid)
         return "";
     if (details.pid === 1)
-        return `This is the system's init process. Signalling it may affect the entire running system.`;
+        return "Signals to the system's init process can affect the whole system";
     if (details.kernelThread)
-        return "A kernel thread: part of the kernel rather than a program. It ignores most signals.";
+        return "This kernel thread ignores most signals";
     if (details.pid === shellPid)
-        return "This is the Caelestia shell, which is also running UnNova. Ending it closes the bar, panels, notifications and this window. Pausing it freezes them, and nothing here could resume it.";
+        return "Ending the Caelestia shell closes its panels and UnNova\nPausing it also freezes UnNova's Resume action";
     const exe = details.exeReadable ? base(details.exe) : "";
     const name = exe || (details.uid === 0 ? details.comm : "");
     if (!name)
         return "";
     if (name === "systemd")
-        return details.uid === 0 ? "" : "Your user service manager. Ending it stops your user services and may end the session.";
+        return details.uid === 0 ? "" : "Stopping your user service manager may end the session";
     const entry = known.find(k => k.names.includes(name));
     return entry ? entry.text : "";
 }
@@ -191,7 +191,7 @@ function context(details, shellPid) {
 function ownership(details, ownUid) {
     if (!details || details.uid === undefined || details.uid === ownUid)
         return "";
-    return details.uid === 0 ? "Owned by root. You most likely don't have permission to signal it." : `Owned by ${details.user}. You most likely don't have permission to signal it.`;
+    return details.uid === 0 ? "Owned by root (signals may be denied)" : `Owned by ${details.user} (signals may be denied)`;
 }
 
 // The 0xIde tab. Each reads the service's own state; none starts anything.

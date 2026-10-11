@@ -17,7 +17,7 @@ applications Caelestia does not theme itself.
 > [!NOTE]
 > This is not a fork, a replacement theme engine or a `$HOME` dump. Caelestia stays the
 > source of truth for colours: there is no palette here, and every integration translates
-> what Caelestia already generated for one application. The shell is a three-patch series
+> what Caelestia already generated for one application. The shell is a patch series
 > over a pinned upstream revision, and every file belongs to a component you can install
 > or skip.
 
@@ -440,8 +440,9 @@ upstream maintains, and each one costs something at the next update.
 The suite checks syntax and metadata across the tree, re-applies every patch to a clean
 checkout of the pin, and drives the installers, adapters and privileged helpers with
 their side effects stubbed. It fails if generated state (the built plugin, the upstream
-checkout, the AI model, Caelestia runtime state) ever becomes tracked. [CI][ci] runs it
-on Arch Linux, with `shellcheck`, on every push and pull request.
+checkout, the AI model, Caelestia runtime state) ever becomes tracked. [CI][ci] runs the
+suite on Arch Linux and `shellcheck` on Ubuntu for pull requests, pushes to `main` and
+`ci/**`, and manual runs.
 
 UnNova's process core is compiled on its own with `c++` and signals only children the test
 starts. Its service and the local AI lifecycle are driven in a windowless `qs`; those two

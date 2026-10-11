@@ -47,7 +47,7 @@ StyledRect {
         pending = null;
         if (r.result === "sent") {
             resultIsError = false;
-            resultText = qsTr("Sent SIG%1 to %2.").arg(action.signal).arg(name);
+            resultText = qsTr("Sent SIG%1 to %2").arg(action.signal).arg(name);
             // Ending is a request. If it is still running a little later, say
             // so and offer more, but never escalate without being asked.
             if (action.signal === "TERM") {
@@ -77,7 +77,7 @@ StyledRect {
             if (root.mode === "stuck" && !Processes.isAlive(root.pendingKey)) {
                 root.mode = "details";
                 root.resultIsError = false;
-                root.resultText = qsTr("%1 has exited.").arg(root.pendingName);
+                root.resultText = qsTr("%1 has exited").arg(root.pendingName);
                 root.pendingKey = "";
             }
         }
@@ -116,7 +116,7 @@ StyledRect {
         StyledText {
             Layout.fillWidth: true
             horizontalAlignment: Text.AlignHCenter
-            text: qsTr("Select a process to see what it is and what it is using.")
+            text: qsTr("Select a process to view its details")
             wrapMode: Text.WordWrap
             color: Colours.palette.m3onSurfaceVariant
         }
@@ -153,16 +153,27 @@ StyledRect {
                 radius: Tokens.rounding.medium
                 color: Colours.palette.m3errorContainer
 
-                StyledText {
+                ColumnLayout {
                     id: exitedText
 
                     anchors.fill: parent
                     anchors.margins: Tokens.padding.small
                     anchors.leftMargin: Tokens.padding.medium
-                    text: qsTr("This process has exited. Its PID may already belong to another process; nothing here acts on it.")
-                    wrapMode: Text.WordWrap
-                    font: Tokens.font.body.small
-                    color: Colours.palette.m3onErrorContainer
+                    spacing: 0
+
+                    StyledText {
+                        Layout.fillWidth: true
+                        text: qsTr("Process exited")
+                        font: Tokens.font.label.large
+                        color: Colours.palette.m3onErrorContainer
+                    }
+                    StyledText {
+                        Layout.fillWidth: true
+                        text: qsTr("Actions are disabled for exited processes")
+                        wrapMode: Text.WordWrap
+                        font: Tokens.font.body.small
+                        color: Colours.palette.m3onErrorContainer
+                    }
                 }
             }
 
@@ -384,13 +395,13 @@ StyledRect {
 
                 StyledText {
                     Layout.fillWidth: true
-                    text: qsTr("%1 did not exit.").arg(root.pendingName)
+                    text: qsTr("%1 did not exit").arg(root.pendingName)
                     font: Tokens.font.title.small
                 }
 
                 StyledText {
                     Layout.fillWidth: true
-                    text: qsTr("It may still be finishing up, or asking something in one of its windows. Force stop ends it immediately: it cannot clean up or save, and unsaved work may be lost.")
+                    text: qsTr("Force stop may discard unsaved work")
                     wrapMode: Text.WordWrap
                     font: Tokens.font.body.small
                     color: Colours.palette.m3onSurfaceVariant

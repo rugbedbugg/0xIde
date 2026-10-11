@@ -48,7 +48,7 @@ PageBase {
             visible: !!DesktopProfiles.error && !DesktopProfiles.switching
             implicitHeight: switchError.implicitHeight + Tokens.padding.medium * 2
 
-            StyledText {
+            ColumnLayout {
                 id: switchError
 
                 anchors.left: parent.left
@@ -56,10 +56,21 @@ PageBase {
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.leftMargin: Tokens.padding.largeIncreased
                 anchors.rightMargin: Tokens.padding.largeIncreased
-                wrapMode: Text.Wrap
-                color: Colours.palette.m3error
-                font: Tokens.font.label.large
-                text: qsTr("Not switched: %1").arg(DesktopProfiles.error)
+                spacing: 0
+
+                StyledText {
+                    Layout.fillWidth: true
+                    color: Colours.palette.m3error
+                    font: Tokens.font.label.large
+                    text: qsTr("Not switched")
+                }
+                StyledText {
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                    color: Colours.palette.m3error
+                    font: Tokens.font.body.small
+                    text: DesktopProfiles.error
+                }
             }
         }
 
@@ -84,7 +95,7 @@ PageBase {
                         wrapMode: Text.Wrap
                         font: Tokens.font.body.small
                         color: Colours.palette.m3onSurfaceVariant
-                        text: qsTr("Your windows are rearranged for %1 and this shell keeps running. If the switch fails, the current desktop is restored.").arg(row.modelData.name)
+                        text: qsTr("Rearranges your windows for %1").arg(row.modelData.name)
                     }
                 }
             }

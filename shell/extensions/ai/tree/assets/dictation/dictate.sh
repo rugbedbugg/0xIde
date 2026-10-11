@@ -49,7 +49,7 @@ watch_listener() {
     reason="$(last_error)"
     mapfile -t replace < <(replace_id)
     rm -f -- "$pidfile" "$idfile"
-    note "${replace[@]}" -u critical "Dictation stopped" "${reason:-The listener stopped; see $state/listener.log}"
+    note "${replace[@]}" -u critical "Dictation stopped" "${reason:-The listener stopped. Details are in $state/listener.log}"
 }
 
 mkdir -p "$state"
@@ -100,7 +100,7 @@ language="$(jq -r '.ai.dictationLanguage // "en"' "$config" 2>/dev/null || echo 
 [ -n "$language" ] || language=en
 setsid "$python" "$here/speech.py" listen --language "$language" > "$state/listener.log" 2>&1 &
 echo $! > "$pidfile"
-note -p -t 0 "Dictation on" "Speak; each phrase is typed as you pause. Press the dictation key again to stop." > "$idfile" || true
+note -p -t 0 "Dictation on" "Press the dictation shortcut again to stop." > "$idfile" || true
 
 # Say so if it could not start, rather than leaving "on" showing.
 sleep 3
@@ -110,7 +110,7 @@ if ! alive "$(cat "$pidfile")"; then
     reason="$(last_error)"
     mapfile -t replace < <(replace_id)
     rm -f -- "$pidfile" "$idfile"
-    note "${replace[@]}" -u critical "Dictation failed" "${reason:-The listener stopped; see $state/listener.log}"
+    note "${replace[@]}" -u critical "Dictation failed" "${reason:-The listener stopped. Details are in $state/listener.log}"
     exit 1
 fi
 watch_listener "$(cat "$pidfile")" </dev/null >/dev/null 2>&1 &

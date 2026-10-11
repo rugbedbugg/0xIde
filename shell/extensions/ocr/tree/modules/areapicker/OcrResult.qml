@@ -126,7 +126,7 @@ Item {
         if (!GlobalConfig.ai.backend) {
             if (AiRuntime.info.installed) {
                 showSettings = true;
-                notice = qsTr("A local model is installed. Choose a backend in Settings, then submit again.");
+                notice = qsTr("Select Local below and ask again");
                 return;
             }
             offerInstall = true;
@@ -135,13 +135,13 @@ Item {
         if (GlobalConfig.ai.backend === "managed") {
             if (!AiRuntime.info.installed) {
                 showSettings = true;
-                notice = qsTr("Install the local model below first.");
+                notice = qsTr("Install the local model below first");
                 return;
             }
             // A conservative UTF-8 byte ceiling also bounds byte-tokenized input.
             const bytes = unescape(encodeURIComponent(pendingQuery + GlobalConfig.ai.systemPrompt)).length;
             if (bytes > 3072) {
-                notice = qsTr("Text is too long for this local model. Select a shorter passage (up to 3072 UTF-8 bytes including instructions). Nothing was sent.");
+                notice = qsTr("Nothing sent: text and instructions exceed 3072 bytes");
                 pendingQuery = "";
                 return;
             }
@@ -174,7 +174,7 @@ Item {
     function rebuildTable(): void {
         const cuts = boundaries.text.trim() ? boundaries.text.split(",").map(x => Number(x.trim())) : [];
         if (cuts.some((x, i) => !isFinite(x) || x < 0 || (i > 0 && x <= cuts[i - 1]))) {
-            notice = qsTr("Enter increasing column boundaries in image pixels, separated by commas.");
+            notice = qsTr("Use ascending pixel positions separated by commas");
             return;
         }
         const lines = structured.lines ?? [];
@@ -187,7 +187,7 @@ Item {
             return cells;
         });
         activeCell = null;
-        notice = qsTr("Table rebuilt from the original OCR positions.");
+        notice = qsTr("Table rebuilt from the original OCR positions");
     }
 
     anchors.centerIn: parent
@@ -401,7 +401,7 @@ Item {
                             Layout.fillWidth: true
                             wrapMode: Text.Wrap
                             color: Colours.palette.m3onTertiaryContainer
-                            text: root.offerInstall ? qsTr("AI needs a backend. Would you like to install a local model?") : root.notice
+                            text: root.offerInstall ? qsTr("Install a local model to use Ask AI?") : root.notice
                         }
                     }
                     RowLayout {
@@ -663,7 +663,7 @@ Item {
                             text: {
                                 if (root.localMode)
                                     return root.localError || Translator.translationLabel || qsTr("Translation, %1 to %2").arg(Translator.name(GlobalConfig.ai.translateFrom)).arg(Translator.name(GlobalConfig.ai.translateLanguage));
-                                return root.waiting ? qsTr("Starting the local model...") : request.error || (request.status === "stopped" ? qsTr("Stopped. Partial response kept.") : request.status === "loading" ? qsTr("Generating...") : qsTr("AI response"));
+                                return root.waiting ? qsTr("Starting the local model...") : request.error || (request.status === "stopped" ? qsTr("Stopped, partial answer kept") : request.status === "loading" ? qsTr("Generating...") : qsTr("AI response"));
                             }
                         }
                         // No amount is known while the runtime is prepared or

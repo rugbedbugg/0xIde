@@ -145,7 +145,7 @@ document.getElementById("f").submit();
 JS
     } > "$page"
     ( sleep 60; rm -f -- "$page" ) >/dev/null 2>&1 &
-    note "Google Lens" "Region sent to Google Lens; results opened in your browser."
+    note "Region sent to Google Lens" "Results opened in your browser."
     open_search "file://$page"
 fi
 
@@ -210,5 +210,5 @@ done
 [[ -n "$image_url" ]] ||
     die "${reason:-No upload host is configured}. Set upload_endpoints in ${conf} to use a different host."
 
-note "Google Lens" "Region uploaded to ${host}; search opened in your browser."
+note "Region uploaded to ${host}" "Google Lens opened in your browser."
 open_search "https://lens.google.com/uploadbyurl?url=$(printf '%s' "$image_url" | jq -sRr @uri)"

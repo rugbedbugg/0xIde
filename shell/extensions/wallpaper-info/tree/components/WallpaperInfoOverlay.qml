@@ -89,6 +89,15 @@ Item {
 
         StyledText {
             Layout.fillWidth: true
+            visible: root.open && WallpaperInfo.trashError !== ""
+            horizontalAlignment: Text.AlignHCenter
+            color: Colours.palette.m3error
+            font: Tokens.font.label.medium
+            text: qsTr("Could not move to Trash")
+        }
+
+        StyledText {
+            Layout.fillWidth: true
             visible: text !== ""
             horizontalAlignment: Text.AlignHCenter
             // The reason a delete failed is the point: wrapped, not cut off.

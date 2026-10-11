@@ -59,10 +59,10 @@ ColumnLayout {
         font: Tokens.font.label.large
         text: {
             if (GlobalConfig.ai.backend === "external")
-                return qsTr("Text goes to this URL, only when you press Ask AI.");
+                return qsTr("Sends text on Ask AI");
             if (GlobalConfig.ai.backend === "managed")
-                return qsTr("Runs on this computer. Small and experimental.");
-            return qsTr("Nothing is sent anywhere until you pick a backend.");
+                return qsTr("Experimental local model");
+            return qsTr("No text is sent");
         }
     }
 
@@ -138,7 +138,15 @@ ColumnLayout {
         wrapMode: Text.Wrap
         color: Colours.palette.m3outline
         font: Tokens.font.label.large
-        text: AiRuntime.installing ? qsTr("Installing") : AiRuntime.serverLabel || (AiRuntime.info.installed ? qsTr("Installed, %1 MiB; starts when you ask").arg(Math.round((AiRuntime.info.diskBytes ?? 0) / 1048576)) : qsTr("Not installed"))
+        text: AiRuntime.installing ? qsTr("Installing") : AiRuntime.serverLabel || (AiRuntime.info.installed ? qsTr("Installed · %1 MiB").arg(Math.round((AiRuntime.info.diskBytes ?? 0) / 1048576)) : qsTr("Not installed"))
+    }
+    StyledText {
+        Layout.fillWidth: true
+        visible: text !== ""
+        wrapMode: Text.Wrap
+        color: Colours.palette.m3outline
+        font: Tokens.font.label.medium
+        text: AiRuntime.installing ? "" : AiRuntime.serverNote || (AiRuntime.serverState || !AiRuntime.info.installed ? "" : qsTr("Starts when you ask"))
     }
     RowLayout {
         Layout.fillWidth: true
@@ -197,7 +205,7 @@ ColumnLayout {
         visible: root.confirmInstall && !!AiRuntime.info.destination
         wrapMode: Text.Wrap
         font: Tokens.font.label.large
-        text: qsTr("Builds the runtime and downloads %1 MiB into %2. Needs %3 GiB free.").arg(Math.round((AiRuntime.info.downloadBytes ?? 0) / 1048576)).arg(AiRuntime.info.destination ?? "").arg(AiRuntime.gib(AiRuntime.info.requiredBytes))
+        text: qsTr("Downloads %1 MiB and needs %2 GiB free").arg(Math.round((AiRuntime.info.downloadBytes ?? 0) / 1048576)).arg(AiRuntime.gib(AiRuntime.info.requiredBytes))
     }
     RowLayout {
         visible: root.confirmInstall
@@ -238,7 +246,7 @@ ColumnLayout {
         visible: root.confirmRemove
         wrapMode: Text.Wrap
         font: Tokens.font.label.large
-        text: qsTr("Remove the local model and its runtime? Server settings are kept.")
+        text: qsTr("Removes the model and runtime but keeps server settings")
     }
     RowLayout {
         visible: root.confirmRemove
@@ -281,7 +289,7 @@ ColumnLayout {
         wrapMode: Text.Wrap
         color: Colours.palette.m3outline
         font: Tokens.font.label.large
-        text: Translator.installed.length ? qsTr("Translate runs offline between these. Select one to remove it; English goes with the last other one, as every language translates through it.") : qsTr("None installed. Each language is about 160 MB and translates offline to and from every other installed one.")
+        text: Translator.installed.length ? qsTr("Select a language to remove it (English is shared)") : qsTr("Offline languages use about 160 MB each")
     }
     Flow {
         Layout.fillWidth: true
@@ -327,7 +335,7 @@ ColumnLayout {
         id: languageFilter
 
         Layout.fillWidth: true
-        placeholderText: qsTr("Add a language, e.g. French")
+        placeholderText: qsTr("Add a language")
     }
     Flow {
         Layout.fillWidth: true
@@ -378,7 +386,7 @@ ColumnLayout {
 
         StyledTextField {
             Layout.fillWidth: true
-            placeholderText: qsTr("e.g. eng+deu. Empty uses all installed")
+            placeholderText: qsTr("eng+deu, or blank for all")
             text: GlobalConfig.ai.ocrLanguages
             onEditingFinished: if (text.trim() !== GlobalConfig.ai.ocrLanguages)
                 GlobalConfig.ai.ocrLanguages = text.trim()
