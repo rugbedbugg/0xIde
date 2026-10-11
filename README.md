@@ -81,6 +81,7 @@ applications Caelestia does not theme itself.
 -   [`quickshell-git`](https://git.outfoxxed.me/quickshell/quickshell)
 -   `git`, `rsync`, `python`, `jq`
 -   For text extraction: [`tesseract`][tesseract] with the language data you want, and `wl-clipboard`
+-   For OCR language controls: `polkit` and a running authentication agent
 -   For web search: [`fuzzel`](https://codeberg.org/dnkl/fuzzel) to ask before a circle sends anything, and `curl` for the optional file-host mode
 -   For voice dictation: `whisper-cpp` and `wtype`
 -   For the local AI model: [`uv`](https://docs.astral.sh/uv/), `git`, `clang`, `cmake` and
@@ -379,9 +380,17 @@ it by hand in `build/shell-src` with `git apply --3way`, then write it back as a
 | `$XDG_CONFIG_HOME/0xide/adapters.enabled`                        | which adapters the theme hook runs                                    |
 | `profiles/<id>/profile.conf`, `$XDG_CONFIG_HOME/0xide/profiles/` | desktop profiles: provider, window policy, presentation               |
 
-`ai.ocrLanguages` in `shell.json` picks the Tesseract languages; empty, the default, uses
-every installed one. `config.local` at the repository root, never committed, overrides
-paths and binary names for a machine that puts things somewhere unusual.
+In **OCR & AI → Text recognition**, **Languages to use** shows the installed codes.
+Leave the field blank to use them all, or enter codes joined with `+`, such as
+`eng+deu+fra`. The next two rows install or remove a language by name or code when you
+press Enter. They manage Arch's `tesseract-data-*` packages through an administrator
+prompt and refresh the list automatically. The last recognition language and
+Tesseract's orientation data are kept. Packages installed outside pacman must be
+managed separately.
+
+`ai.ocrLanguages` in `shell.json` stores this selection. `config.local` at the
+repository root, never committed, overrides paths and binary names for a machine
+that puts things somewhere unusual.
 
 ### Privacy and privileges
 

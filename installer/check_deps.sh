@@ -55,6 +55,7 @@ report optional notify-send "shell extensions (how failures are shown)"
 
 # Shell features, each used only when you use it.
 report optional tesseract   "OCR and region text search (plus a tesseract-data-<lang> package)"
+report optional pkexec      "OCR language installation and removal (polkit)"
 report optional wl-copy     "OCR (the extracted text goes to the clipboard)"
 report optional magick      "OCR (reads small screen text more accurately)"
 report optional xdg-open    "region search (opens the results)"

@@ -84,20 +84,13 @@ PageBase {
             text: qsTr("Text recognition")
         }
 
-        StatusRow {
-            first: true
-            icon: "translate"
-            label: qsTr("Installed languages")
-            subtext: Ocr.readiness || qsTr("Tesseract data found on this system")
-            value: Ocr.engineMissing ? qsTr("Tesseract missing") : Ocr.languages.join(", ") || qsTr("None found")
-            error: !!(Ocr.readiness)
-        }
-
         TextFieldRow {
+            objectName: "ocrLanguages"
+            first: true
             label: qsTr("Languages to use")
-            subtext: qsTr("Codes joined with +. Empty uses all")
+            subtext: qsTr("Installed: %1").arg(Ocr.languages.join(", ") || qsTr("None"))
             errorText: qsTr("Use language codes joined with +")
-            placeholderText: qsTr("Languages")
+            placeholderText: qsTr("All installed languages")
             value: GlobalConfig.ai.ocrLanguages
             validate: /^\s*([A-Za-z_]+(\+[A-Za-z_]+)*)?\s*$/
             onEditingFinished: value => {
@@ -106,12 +99,60 @@ PageBase {
             }
         }
 
-        RowButton {
+        TextFieldRow {
+            id: addOcrLanguage
+
+            objectName: "addOcrLanguage"
+            enabled: !Ocr.managingLanguages
+            label: qsTr("Add a language")
+            subtext: qsTr("Enter to install")
+            placeholderText: qsTr("Name or code")
+            value: ""
+        }
+        Connections {
+            target: addOcrLanguage.field
+
+            function onAccepted(): void {
+                if (!Ocr.managingLanguages && addOcrLanguage.field.text.trim()) {
+                    Ocr.manageLanguage("install", addOcrLanguage.field.text);
+                    addOcrLanguage.field.text = "";
+                }
+            }
+        }
+
+        TextFieldRow {
+            id: removeOcrLanguage
+
+            objectName: "removeOcrLanguage"
+            enabled: !Ocr.managingLanguages
+            last: !ocrLanguageStatus.visible
+            label: qsTr("Remove a language")
+            subtext: qsTr("Press Enter to remove")
+            placeholderText: qsTr("Name or code")
+            value: ""
+        }
+        Connections {
+            target: removeOcrLanguage.field
+
+            function onAccepted(): void {
+                if (!Ocr.managingLanguages && removeOcrLanguage.field.text.trim()) {
+                    Ocr.manageLanguage("remove", removeOcrLanguage.field.text);
+                    removeOcrLanguage.field.text = "";
+                }
+            }
+        }
+
+        StatusRow {
+            id: ocrLanguageStatus
+
+            objectName: "ocrLanguageStatus"
+            visible: !!subtext || Ocr.managingLanguages
             last: true
-            icon: "refresh"
-            text: qsTr("Rescan languages")
-            subtext: qsTr("After adding or removing language packages")
-            onClicked: Ocr.refreshLanguages()
+            icon: "translate"
+            label: qsTr("Language status")
+            subtext: Ocr.languageError || Ocr.readiness || Ocr.languageMessage
+            value: Ocr.managingLanguages ? qsTr("Working") : ""
+            error: !!(Ocr.languageError || Ocr.readiness)
         }
 
         // AI backend

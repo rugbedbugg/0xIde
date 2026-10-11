@@ -26,6 +26,13 @@ Scope {
     property bool engineMissing: false
     property var resultScreen: null
     property string error: ""
+    property string languageError: ""
+    property string languageMessage: ""
+    property string languageOperation: ""
+    property string languageInput: ""
+    property bool languagePending: false
+    readonly property bool managingLanguages: languagePending || languageWorker.running
+    readonly property string languageHelper: Qt.resolvedUrl("../assets/ocr/languages.py").toString().replace("file://", "")
     // Reading or copying a capture right now.
     readonly property bool busy: extraction.running || recognition.running || copy.running
 
@@ -109,6 +116,60 @@ Scope {
             return;
         listing.didExit = false;
         listing.running = true;
+    }
+
+    function manageLanguage(action: string, value: string): void {
+        if (managingLanguages || !value.trim() || (action !== "install" && action !== "remove"))
+            return;
+        languageError = "";
+        languageMessage = qsTr("Preparing language change");
+        languageOperation = action;
+        languageInput = value.trim();
+        languagePending = true;
+        languageWorker.didExit = false;
+        languageWorker.running = true;
+    }
+
+    Process {
+        id: languageWorker
+
+        property bool didExit: false
+
+        command: [root.python, root.languageHelper, root.languageOperation, root.languageInput]
+        stdout: SplitParser {
+            onRead: line => {
+                try {
+                    const data = JSON.parse(line);
+                    if (data.error) {
+                        root.languageError = data.error;
+                        root.languageMessage = "";
+                    } else if (data.message) {
+                        root.languageMessage = data.message;
+                    } else if (data.stage === "install" || data.stage === "remove") {
+                        root.languageMessage = (data.stage === "install" ? qsTr("Installing %1") : qsTr("Removing %1")).arg(data.code);
+                    }
+                } catch (e) {
+                    root.languageError = qsTr("Invalid language helper response");
+                }
+            }
+        }
+        onRunningChanged: {
+            if (!running)
+                Qt.callLater(() => {
+                    root.languagePending = false;
+                    if (!languageWorker.didExit) {
+                        root.languageError = qsTr("Could not start the language helper");
+                        root.languageMessage = "";
+                    }
+                });
+        }
+        onExited: code => {
+            didExit = true;
+            root.languagePending = false;
+            if (code !== 0 && !root.languageError)
+                root.languageError = qsTr("Could not change OCR languages");
+            root.refreshLanguages();
+        }
     }
 
     // Only ever removes a capture this shell made for this purpose.
