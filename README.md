@@ -45,6 +45,8 @@ applications Caelestia does not theme itself.
         shown, and to move it to the Trash (`gio`, after a confirming second click; the
         wallpaper in use cannot be deleted). The size is read from the file's header, so
         checking a huge image costs nothing.
+    -   **Power settings** in the shell's settings app: how long the computer may be
+        inactive before it sleeps. See [Power](#power).
     -   **UnNova**, a system monitor and process manager in the shell's own look: click
         the character in the power panel. See [UnNova](#unnova).
 -   Theme adapters, for applications Caelestia does not reach:
@@ -291,6 +293,28 @@ profile's policy. A missing or damaged record means Caelestia.
 > taskbar are not built yet, so the Caelestia shell keeps its own look. XPlasma, which
 > restyles a KDE Plasma session, was studied as reference material for that look; it is
 > not used at runtime, and 0xIde never starts Plasma.
+
+### Power
+
+In the shell's settings, **Power → Sleep after inactivity** sets how long the computer may
+go without keyboard, mouse or touch input before it suspends: 5, 10, 15 or 30 minutes, 1 or
+2 hours, a custom time on hour and minute drums (five-minute steps), or **Never**. Any input
+starts the count again. Keep Awake in the Utilities drawer, media that is playing and
+applications that ask to keep the screen on all pause it, as they always have.
+
+It is the suspend entry of `general.idle.timeouts` in Caelestia's `shell.json`, the list the
+shell's own idle monitors already run, so it applies at once, survives restarts and needs
+no other idle service. Locking and turning the display off are separate entries and stay
+as they are; **Never** turns off only the suspend, and their timers keep running. A custom
+idle action is kept with its fields, and only its time changes. If more than one entry
+suspends, the page says so and changes none of them; keep one in `shell.json` to set it
+here.
+
+> [!NOTE]
+> `general.idle.timeouts` is a single setting, so the first change writes the whole list to
+> `shell.json`, including upstream's lock and display-off entries as they are now. From then
+> on, a later Caelestia release that changes those defaults does not change them for you.
+> Edit or remove `general.idle.timeouts` in `shell.json` to take upstream's defaults again.
 
 ### UnNova
 

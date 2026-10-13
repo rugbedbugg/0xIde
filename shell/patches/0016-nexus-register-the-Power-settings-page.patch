@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Oxide 1-6 <yes.par781@gmail.com>
+Date: Tue, 13 Oct 2026 19:25:25 +0530
+Subject: [PATCH] nexus: register the Power settings page
+
+PowerPage lives in modules/nexus/pages, which the power extension provides;
+this only lists it under System, ahead of the placeholder pages there, so the
+pages the bar opens by index keep their places.
+---
+ modules/nexus/PageCompRegistry.qml | 8 ++++++++
+ modules/nexus/PageRegistry.qml     | 6 ++++++
+ 2 files changed, 14 insertions(+)
+
+diff --git a/modules/nexus/PageCompRegistry.qml b/modules/nexus/PageCompRegistry.qml
+index 36f2b494..b0a4d5cc 100644
+--- a/modules/nexus/PageCompRegistry.qml
++++ b/modules/nexus/PageCompRegistry.qml
+@@ -93,6 +93,14 @@ QtObject {
+         },
+ 
+         // System
++        Component {
++            // Power
++            StackPage {
++                Component {
++                    PowerPage {}
++                }
++            }
++        },
+         Component {
+             PlaceholderComp {}
+         },
+diff --git a/modules/nexus/PageRegistry.qml b/modules/nexus/PageRegistry.qml
+index 0bdd4b86..3fa3079a 100644
+--- a/modules/nexus/PageRegistry.qml
++++ b/modules/nexus/PageRegistry.qml
+@@ -43,6 +43,12 @@ QtObject {
+         },
+ 
+         // System
++        {
++            label: qsTr("Power"),
++            icon: "power_settings_new",
++            description: qsTr("Sleep after inactivity"),
++            category: "system"
++        },
+         {
+             label: qsTr("Updates"),
+             icon: "update",

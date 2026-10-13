@@ -5243,6 +5243,73 @@ else
     rm -rf "$yx"
 fi
 
+ox_step "Power: sleep after inactivity"
+# The Power page edits the sleep entry of general.idle.timeouts and nothing
+# else; IdleMonitors.qml is what acts on that list. These two lines are the
+# whole contract, so they are checked on upstream's file as patched.
+IM="$OX_BUILD/shell-src/modules/IdleMonitors.qml"
+if [ -f "$IM" ]; then
+    grep -q 'model: GlobalConfig.general.idle.timeouts' "$IM" && grep -q 'modelData.enabled ?? true' "$IM" &&
+        ok "IdleMonitors still runs general.idle.timeouts and honours an entry's enabled" ||
+        no "IdleMonitors.qml no longer reads general.idle.timeouts the way the Power page writes it"
+else
+    skipt "no built shell to read IdleMonitors.qml from (shell/build.sh --no-install)"
+fi
+
+# The page, its picker and the policy from this checkout, in a Quickshell with
+# no mapped window, private XDG directories and no IdleMonitor, over the rest
+# of the built shell. Nothing can lock, blank or suspend. The Hyprland socket
+# is hidden, or the shell's services would push their default blur and
+# transparency rules into the running session; Notifs is a stub, so the
+# notification server is never claimed, and the Wayland inhibitor is left out.
+PLUGIN_QML="$OX_BUILD/plugin-install/lib/qt6/qml"
+if ! ox_have qs || ! ox_have rsync || [ ! -d "$PLUGIN_QML/Caelestia" ] || [ ! -d "$OX_BUILD/shell-src/.git" ]; then
+    skipt "no qs, rsync or built shell for the Power page checks (shell/build.sh --no-install)"
+else
+    px="$(mktemp -d)"
+    if [ -d "$px" ]; then
+        mkdir -p "$px/xdg/config/caelestia" "$px/xdg/state" "$px/xdg/cache" "$px/xdg/data"
+        rsync -a --exclude .git --exclude /plugin "$OX_BUILD/shell-src/" "$px/cfg/"
+        cp -r "$OX_ROOT/shell/extensions/power/tree/." "$px/cfg/"
+        "$PY" - "$px/cfg/services/IdleInhibitor.qml" <<'STRIP'
+import re, sys
+p = sys.argv[1]
+s = open(p).read()
+t = re.sub(r"\n    IdleInhibitor \{\n.*?\n    \}\n", "\n", s, flags=re.S)
+if t == s:
+    sys.exit("the inhibitor block was not found")
+open(p, "w").write(t)
+STRIP
+        printf '%s\n' 'pragma Singleton' '' 'import Quickshell' '' 'Singleton {' '    property var list: []' '' \
+            '    function shouldShowPopup(): bool {' '        return true;' '    }' '}' > "$px/cfg/services/Notifs.qml"
+        pconf="$px/xdg/config/caelestia/shell.json"
+        for harness in power_sleep_policy power_page power_reread; do
+            [ "$harness" = power_reread ] && before="$(sha256sum < "$pconf" 2>/dev/null)"
+            sed -e "s|@PLUGIN_QML@|$PLUGIN_QML|" -e "s|@CONFIG@|$pconf|" "$OX_ROOT/tests/$harness.qml" > "$px/cfg/shell.qml"
+            res="$(env -u WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE=0xide-test-isolated QT_QPA_PLATFORM=offscreen \
+                XDG_CONFIG_HOME="$px/xdg/config" XDG_STATE_HOME="$px/xdg/state" XDG_CACHE_HOME="$px/xdg/cache" XDG_DATA_HOME="$px/xdg/data" \
+                timeout 120 qs -p "$px/cfg/shell.qml" 2>&1 | grep -oE 'RESULT .*' | tail -1)"
+            if [ -z "$res" ]; then
+                no "$harness gave no result"
+            elif "$PY" - "${res#RESULT }" "$harness" <<'CHK'
+import json, sys
+r = json.loads(sys.argv[1])
+bad = [k for k, v in r.items() if v is not True]
+for k in bad:
+    print(f"        {sys.argv[2]}: {k} = {r[k]}")
+sys.exit(1 if bad or len(r) < 2 else 0)
+CHK
+            then ok "$harness: all $(grep -o '":' <<<"$res" | wc -l) checks passed"
+            else no "$harness: a check failed"; fi
+        done
+        [ -n "${before:-}" ] && [ "$(sha256sum < "$pconf")" = "$before" ] &&
+            ok "a restarted shell reads the setting without writing shell.json" || no "shell.json changed when only read"
+        rm -rf "$px"
+    else
+        no "no temporary directory for the Power page checks"
+    fi
+fi
+
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"
 [ -z "$dups" ] && ok "every shell patch has its own number, so glob order is the series order" || no "duplicate patch numbers: $dups"
