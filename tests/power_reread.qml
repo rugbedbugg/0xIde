@@ -15,7 +15,7 @@ ShellRoot {
     readonly property var page: pageLoader.item
 
     NexusState {
-        id: nState
+        id: testState
     }
 
     FloatingWindow {
@@ -29,7 +29,7 @@ ShellRoot {
             active: false
 
             sourceComponent: PowerPage {
-                nState: nState
+                nState: testState
             }
         }
     }

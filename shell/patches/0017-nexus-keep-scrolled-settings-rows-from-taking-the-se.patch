@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Oxide 1-6 <yes.par781@gmail.com>
+Date: Tue, 13 Oct 2026 20:07:58 +0530
+Subject: [PATCH] nexus: keep scrolled settings rows from taking the search
+ bar's clicks
+
+The settings list fades its edges with a layer mask rather than clipping, so
+rows scrolled up past its top stayed clickable where the search bar is, and a
+click meant for the search bar opened the page beneath it.
+---
+ modules/nexus/NavPane.qml | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/modules/nexus/NavPane.qml b/modules/nexus/NavPane.qml
+index b51f704c..ac330076 100644
+--- a/modules/nexus/NavPane.qml
++++ b/modules/nexus/NavPane.qml
+@@ -45,6 +45,9 @@ ColumnLayout {
+         Layout.fillHeight: true
+         Layout.topMargin: -topMargin
+         Layout.bottomMargin: -bottomMargin
++        // The fade hides rows scrolled past the top but would leave them
++        // clickable over the search bar; clipping keeps them out of input.
++        clip: true
+         nState: root.nState
+     }
+ }

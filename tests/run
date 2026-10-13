@@ -5243,7 +5243,7 @@ else
     rm -rf "$yx"
 fi
 
-ox_step "Power: sleep after inactivity"
+ox_step "Nexus: Power page and settings list"
 # The Power page edits the sleep entry of general.idle.timeouts and nothing
 # else; IdleMonitors.qml is what acts on that list. These two lines are the
 # whole contract, so they are checked on upstream's file as patched.
@@ -5264,7 +5264,7 @@ fi
 # notification server is never claimed, and the Wayland inhibitor is left out.
 PLUGIN_QML="$OX_BUILD/plugin-install/lib/qt6/qml"
 if ! ox_have qs || ! ox_have rsync || [ ! -d "$PLUGIN_QML/Caelestia" ] || [ ! -d "$OX_BUILD/shell-src/.git" ]; then
-    skipt "no qs, rsync or built shell for the Power page checks (shell/build.sh --no-install)"
+    skipt "no qs, rsync or built shell for the Nexus checks (shell/build.sh --no-install)"
 else
     px="$(mktemp -d)"
     if [ -d "$px" ]; then
@@ -5283,8 +5283,9 @@ STRIP
         printf '%s\n' 'pragma Singleton' '' 'import Quickshell' '' 'Singleton {' '    property var list: []' '' \
             '    function shouldShowPopup(): bool {' '        return true;' '    }' '}' > "$px/cfg/services/Notifs.qml"
         pconf="$px/xdg/config/caelestia/shell.json"
-        for harness in power_sleep_policy power_page power_reread; do
+        for harness in power_sleep_policy power_page power_reread nexus_search_click; do
             [ "$harness" = power_reread ] && before="$(sha256sum < "$pconf" 2>/dev/null)"
+            [ "$harness" = nexus_search_click ] && after_reread="$(sha256sum < "$pconf" 2>/dev/null)"
             sed -e "s|@PLUGIN_QML@|$PLUGIN_QML|" -e "s|@CONFIG@|$pconf|" "$OX_ROOT/tests/$harness.qml" > "$px/cfg/shell.qml"
             res="$(env -u WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE=0xide-test-isolated QT_QPA_PLATFORM=offscreen \
                 XDG_CONFIG_HOME="$px/xdg/config" XDG_STATE_HOME="$px/xdg/state" XDG_CACHE_HOME="$px/xdg/cache" XDG_DATA_HOME="$px/xdg/data" \
@@ -5302,7 +5303,7 @@ CHK
             then ok "$harness: all $(grep -o '":' <<<"$res" | wc -l) checks passed"
             else no "$harness: a check failed"; fi
         done
-        [ -n "${before:-}" ] && [ "$(sha256sum < "$pconf")" = "$before" ] &&
+        [ -n "${before:-}" ] && [ "${after_reread:-}" = "$before" ] &&
             ok "a restarted shell reads the setting without writing shell.json" || no "shell.json changed when only read"
         rm -rf "$px"
     else

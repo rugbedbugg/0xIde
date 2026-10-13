@@ -170,7 +170,7 @@ ShellRoot {
     ]
 
     NexusState {
-        id: nState
+        id: testState
     }
 
     FloatingWindow {
@@ -185,7 +185,7 @@ ShellRoot {
             active: false
 
             sourceComponent: PowerPage {
-                nState: nState
+                nState: testState
             }
         }
     }
