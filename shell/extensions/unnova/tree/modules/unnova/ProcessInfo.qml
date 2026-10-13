@@ -209,7 +209,7 @@ StyledRect {
             Field {
                 label: qsTr("Resident")
                 value: root.info.resident !== undefined ? U.formatBytes(root.info.resident) : ""
-                hint: qsTr("including memory shared with other processes")
+                hint: qsTr("Includes shared memory")
             }
             Field {
                 label: qsTr("Threads")

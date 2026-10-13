@@ -96,7 +96,7 @@ ColumnLayout {
             if (root.outcome === "failed")
                 return [rt.error, rt.stage ? qsTr("Step: %1").arg(rt.stageLabel(rt.stage)) : "", rt.log ? qsTr("Log: %1").arg(rt.log) : ""].filter(x => x).join("\n");
             if (root.outcome === "cancelled")
-                return rt.info.installed ? "" : qsTr("Install again to start over");
+                return rt.info.installed ? "" : qsTr("Nothing was installed. Install again to start over");
             if (root.outcome === "installed")
                 return root.installedHint;
             if (root.downloading) {

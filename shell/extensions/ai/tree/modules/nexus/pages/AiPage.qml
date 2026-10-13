@@ -105,7 +105,7 @@ PageBase {
             objectName: "addOcrLanguage"
             enabled: !Ocr.managingLanguages
             label: qsTr("Add a language")
-            subtext: qsTr("Enter to install")
+            subtext: qsTr("Press Enter to install")
             placeholderText: qsTr("Name or code")
             value: ""
         }
@@ -331,7 +331,7 @@ PageBase {
                     font: Tokens.font.body.small
                     // A disabled Download always says why.
                     color: AiRuntime.installBlocker ? Colours.palette.m3error : Colours.palette.m3onSurfaceVariant
-                    text: AiRuntime.installBlocker || qsTr("Downloads %1 MiB and needs %2 GiB free").arg(root.mib(AiRuntime.info.downloadBytes)).arg(AiRuntime.gib(AiRuntime.info.requiredBytes))
+                    text: AiRuntime.installBlocker || qsTr("Builds the runtime, then downloads %1 MiB. Needs %2 GiB free").arg(root.mib(AiRuntime.info.downloadBytes)).arg(AiRuntime.gib(AiRuntime.info.requiredBytes))
                 }
             }
         }
@@ -385,7 +385,7 @@ PageBase {
             id: addLanguage
 
             label: qsTr("Add a language")
-            subtext: qsTr("Enter to download (~160 MB)")
+            subtext: qsTr("Press Enter to download (~160 MB)")
             placeholderText: qsTr("Name or code")
             value: ""
         }

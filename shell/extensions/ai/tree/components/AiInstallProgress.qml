@@ -12,7 +12,7 @@ InstallProgress {
     what: qsTr("Local model")
     installedHint: GlobalConfig.ai.backend === "managed" ? "" : qsTr("Select the Local backend to use this model")
     notes: ({
-            build: qsTr("Build continues after closing this panel"),
-            waiting: qsTr("Waiting for the installer or model to finish")
+            build: qsTr("Compiling takes a few minutes and continues if you close this"),
+            waiting: qsTr("Waiting for another install or the running model to stop")
         })
 }

@@ -205,7 +205,7 @@ ColumnLayout {
         visible: root.confirmInstall && !!AiRuntime.info.destination
         wrapMode: Text.Wrap
         font: Tokens.font.label.large
-        text: qsTr("Downloads %1 MiB and needs %2 GiB free").arg(Math.round((AiRuntime.info.downloadBytes ?? 0) / 1048576)).arg(AiRuntime.gib(AiRuntime.info.requiredBytes))
+        text: qsTr("Builds the runtime, then downloads %1 MiB. Needs %2 GiB free").arg(Math.round((AiRuntime.info.downloadBytes ?? 0) / 1048576)).arg(AiRuntime.gib(AiRuntime.info.requiredBytes))
     }
     RowLayout {
         visible: root.confirmInstall

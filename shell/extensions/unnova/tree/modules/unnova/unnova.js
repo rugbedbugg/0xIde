@@ -71,7 +71,7 @@ const actions = [
         signal: "KILL",
         title: "Force stop",
         icon: "dangerous",
-        explanation: "Stops immediately without saving or cleanup\nUnsaved work may be lost",
+        explanation: "Stops immediately, without cleanup, so unsaved work may be lost",
         destructive: true
     },
     {
@@ -138,7 +138,7 @@ function base(path) {
 const known = [
     {
         names: ["Hyprland"],
-        text: "Ending the compositor ends your session\nUnsaved work may be lost"
+        text: "Ending the compositor ends your session and may lose unsaved work"
     },
     {
         names: ["pipewire", "pipewire-pulse", "wireplumber"],
@@ -175,7 +175,7 @@ function context(details, shellPid) {
     if (details.kernelThread)
         return "This kernel thread ignores most signals";
     if (details.pid === shellPid)
-        return "Ending the Caelestia shell closes its panels and UnNova\nPausing it also freezes UnNova's Resume action";
+        return "Ending the Caelestia shell closes its panels and UnNova, and pausing it freezes them";
     const exe = details.exeReadable ? base(details.exe) : "";
     const name = exe || (details.uid === 0 ? details.comm : "");
     if (!name)

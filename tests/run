@@ -2490,7 +2490,7 @@ Item {
             duration: [U.formatDuration(5), U.formatDuration(125), U.formatDuration(3700), U.formatDuration(90000)],
             states: [U.stateText("T"), U.stateText("Z").split(":")[0], U.stateText("?")],
             end: U.action("end").signal + "|" + /exit normally/.test(U.action("end").explanation) + "|" + /kill|force/i.test(U.action("end").explanation),
-            force: U.action("force").signal + "|" + U.action("force").destructive + "|" + /without saving or cleanup/.test(U.action("force").explanation) + "|" + /Unsaved work may be lost/.test(U.action("force").explanation),
+            force: U.action("force").signal + "|" + U.action("force").destructive + "|" + /without cleanup/.test(U.action("force").explanation) + "|" + /unsaved work may be lost/i.test(U.action("force").explanation),
             menu: ["pause", "resume", "hangup", "interrupt"].map(a => U.action(a).signal).join(","),
             other: U.signalAction("USR1").signal + "|" + U.signalAction("KILL").id,
             init: /system's init process/.test(U.context({ pid: 1 }, 99)),

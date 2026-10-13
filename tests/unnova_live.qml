@@ -306,8 +306,8 @@ ShellRoot {
             check("small divider spans right pane", Math.abs(tabs.width - strip.width) < 0.01 && Math.abs(tabs.mapToItem(UnNova.window.contentItem, 0, 0).x - strip.mapToItem(UnNova.window.contentItem, 0, 0).x) < 0.01);
             const scroll = descendants(info).find(o => o.contentHeight !== undefined && o.flickableDirection !== undefined);
             check("inspector retains scrolling", scroll && scroll.contentHeight > scroll.height);
-            const residentHint = descendants(info).find(o => o.text === "including memory shared with other processes");
-            check("resident explanation wraps without truncation", residentHint.wrapMode === Text.WordWrap && !residentHint.truncated && residentHint.lineCount > 1 && residentHint.height >= residentHint.contentHeight);
+            const residentHint = descendants(info).find(o => o.text === "Includes shared memory");
+            check("resident explanation shows in full", residentHint && !residentHint.truncated && residentHint.height >= residentHint.contentHeight);
             scroll.contentY = Math.max(0, scroll.contentHeight - scroll.height);
             snapshot("small-process-details");
         } else if (n === 120) {

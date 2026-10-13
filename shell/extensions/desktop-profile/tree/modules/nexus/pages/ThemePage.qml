@@ -91,11 +91,26 @@ PageBase {
                 onAccepted: DesktopProfiles.activate(row.modelData.id)
 
                 content: Component {
-                    StyledText {
-                        wrapMode: Text.Wrap
-                        font: Tokens.font.body.small
-                        color: Colours.palette.m3onSurfaceVariant
-                        text: qsTr("Rearranges your windows for %1").arg(row.modelData.name)
+                    ColumnLayout {
+                        spacing: Tokens.spacing.small
+
+                        StyledText {
+                            Layout.fillWidth: true
+                            wrapMode: Text.Wrap
+                            font: Tokens.font.body.medium
+                            text: qsTr("Rearranges your windows for %1").arg(row.modelData.name)
+                        }
+                        StyledText {
+                            Layout.fillWidth: true
+                            wrapMode: Text.Wrap
+                            font: Tokens.font.body.small
+                            color: Colours.palette.m3onSurfaceVariant
+                            text: qsTr("If the switch fails, your current desktop is restored")
+                        }
+                        // The dialog is a fixed height; the text stays at its top.
+                        Item {
+                            Layout.fillHeight: true
+                        }
                     }
                 }
             }
