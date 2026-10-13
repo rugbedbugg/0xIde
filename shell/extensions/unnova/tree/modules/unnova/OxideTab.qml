@@ -187,9 +187,10 @@ StyledFlickable {
         property bool sideActions: false
         default property alias actions: actionSlot.data
 
+        // Cards side by side share the taller one's height.
         Layout.fillWidth: true
-        Layout.alignment: Qt.AlignTop
-        implicitHeight: (sideActions ? Math.max(content.implicitHeight, actionSlot.implicitHeight) : content.implicitHeight + (actionSlot.visible ? actionSlot.implicitHeight + Tokens.spacing.small : 0)) + Tokens.padding.large * 2
+        Layout.fillHeight: true
+        implicitHeight: (sideActions ? Math.max(content.implicitHeight, actionSlot.implicitHeight) : content.implicitHeight + (actionSlot.implicitHeight > 0 ? actionSlot.implicitHeight + Tokens.spacing.small : 0)) + Tokens.padding.large * 2
         radius: Tokens.rounding.large
         color: Colours.tPalette.m3surfaceContainer
 
@@ -207,6 +208,8 @@ StyledFlickable {
                 spacing: Tokens.spacing.medium
 
                 MaterialIcon {
+                    id: cardIcon
+
                     text: card.icon
                     fill: 1
                     color: card.statusColour
@@ -234,7 +237,9 @@ StyledFlickable {
                 }
             }
 
+            // Status and details line up under the title, not the icon.
             RowLayout {
+                Layout.leftMargin: cardIcon.implicitWidth + Tokens.spacing.medium
                 spacing: Tokens.spacing.small
 
                 StyledRect {
@@ -258,6 +263,7 @@ StyledFlickable {
                     required property string modelData
 
                     Layout.fillWidth: true
+                    Layout.leftMargin: cardIcon.implicitWidth + Tokens.spacing.medium
                     text: modelData
                     font: Tokens.font.body.small
                     color: Colours.palette.m3onSurfaceVariant
@@ -269,16 +275,19 @@ StyledFlickable {
         Item {
             id: actionSlot
 
+            // Sized by the actions showing now: a hidden one (Cancel, while
+            // nothing is being translated) takes no room.
+            readonly property list<Item> shown: Array.from(children).filter(c => c.visible && c.implicitHeight > 0)
+
             anchors.left: card.sideActions ? undefined : parent.left
             anchors.right: card.sideActions ? parent.right : undefined
             anchors.top: card.sideActions ? undefined : content.bottom
             anchors.verticalCenter: card.sideActions ? parent.verticalCenter : undefined
-            anchors.leftMargin: Tokens.padding.large
+            anchors.leftMargin: Tokens.padding.large + (card.sideActions ? 0 : cardIcon.implicitWidth + Tokens.spacing.medium)
             anchors.rightMargin: Tokens.padding.large
             anchors.topMargin: Tokens.spacing.small
-            implicitWidth: childrenRect.width
-            implicitHeight: childrenRect.height
-            visible: children.length > 0
+            implicitWidth: shown.reduce((w, c) => Math.max(w, c.implicitWidth), 0)
+            implicitHeight: shown.reduce((h, c) => Math.max(h, c.implicitHeight), 0)
         }
     }
 }
