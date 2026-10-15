@@ -5268,9 +5268,20 @@ if ! ox_have qs || ! ox_have rsync || [ ! -d "$PLUGIN_QML/Caelestia" ] || [ ! -d
 else
     px="$(mktemp -d)"
     if [ -d "$px" ]; then
-        mkdir -p "$px/xdg/config/caelestia" "$px/xdg/state" "$px/xdg/cache" "$px/xdg/data"
+        mkdir -p "$px/xdg/config/caelestia" "$px/xdg/state/caelestia/wallpaper" "$px/xdg/cache" "$px/xdg/data" "$px/bin"
         rsync -a --exclude .git --exclude /plugin "$OX_BUILD/shell-src/" "$px/cfg/"
         cp -r "$OX_ROOT/shell/extensions/power/tree/." "$px/cfg/"
+        # With no current wallpaper, Wallpapers applies its fallback through the
+        # caelestia CLI, which over this empty config themes the real desktop:
+        # GTK, open terminals, browser policies. So one is named, and the CLI on
+        # PATH is a stand-in that only records being called.
+        printf '%s\n' "$px/cfg/assets/wallpaper.webp" > "$px/xdg/state/caelestia/wallpaper/path.txt"
+        cat > "$px/bin/caelestia" <<STUB
+#!/bin/sh
+printf '%s\n' "\$*" >> "$px/cli-calls"
+exit 1
+STUB
+        chmod +x "$px/bin/caelestia"
         "$PY" - "$px/cfg/services/IdleInhibitor.qml" <<'STRIP'
 import re, sys
 p = sys.argv[1]
@@ -5287,7 +5298,7 @@ STRIP
             [ "$harness" = power_reread ] && before="$(sha256sum < "$pconf" 2>/dev/null)"
             [ "$harness" = nexus_search_click ] && after_reread="$(sha256sum < "$pconf" 2>/dev/null)"
             sed -e "s|@PLUGIN_QML@|$PLUGIN_QML|" -e "s|@CONFIG@|$pconf|" "$OX_ROOT/tests/$harness.qml" > "$px/cfg/shell.qml"
-            res="$(env -u WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE=0xide-test-isolated QT_QPA_PLATFORM=offscreen \
+            res="$(env -u WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE=0xide-test-isolated QT_QPA_PLATFORM=offscreen PATH="$px/bin:$PATH" \
                 XDG_CONFIG_HOME="$px/xdg/config" XDG_STATE_HOME="$px/xdg/state" XDG_CACHE_HOME="$px/xdg/cache" XDG_DATA_HOME="$px/xdg/data" \
                 timeout 120 qs -p "$px/cfg/shell.qml" 2>&1 | grep -oE 'RESULT .*' | tail -1)"
             if [ -z "$res" ]; then
@@ -5305,6 +5316,8 @@ CHK
         done
         [ -n "${before:-}" ] && [ "${after_reread:-}" = "$before" ] &&
             ok "a restarted shell reads the setting without writing shell.json" || no "shell.json changed when only read"
+        [ ! -e "$px/cli-calls" ] && ok "no harness ran the caelestia CLI, so the desktop's theme was left alone" ||
+            no "a harness ran the caelestia CLI: $(sort -u "$px/cli-calls" | tr '\n' ';')"
         rm -rf "$px"
     else
         no "no temporary directory for the Power page checks"
