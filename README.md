@@ -113,12 +113,15 @@ cd 0xIde
 To work with individual components:
 
 ```sh
-./install --list                  # every component, its kind, and its default
+./install --list                  # every component, its default, and whether it is installed here
 ./install --status                # what is installed, and whether it works
 ./install --only shell            # just the shell
 ./install --enable sddm           # add a component that is off by default
 ./install --disable spotify       # skip one that is on
 ```
+
+`DEFAULT` in `--list` is what a plain `./install` picks; `INSTALLED` is what this computer
+has now (`yes`, `no`, or `fix` when it is installed but `--status` reports a problem).
 
 > [!WARNING]
 > Components under `system/` need root. None is on by default: each prints the exact

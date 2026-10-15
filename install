@@ -6,7 +6,7 @@
 #   ./install --disable spotify    skip one that is on by default
 #   ./install --only shell         install just these
 #   ./install --status             report what is installed and working
-#   ./install --list               list components
+#   ./install --list               list components: default, and installed here or not
 #   ./install --dry-run            print what would change, change nothing
 #
 # Nothing requiring root is ever in the default set, and every privileged step
@@ -58,21 +58,13 @@ selected() {
 validate_names "${ONLY[@]+"${ONLY[@]}"}" "${ENABLE[@]+"${ENABLE[@]}"}" "${DISABLE[@]+"${DISABLE[@]}"}"
 
 # ---------------------------------------------------------------- list/status
-if [ "$MODE" = list ]; then
-    printf '%-12s %-10s %-8s %s\n' NAME KIND DEFAULT DESCRIPTION
-    while IFS= read -r line; do
-        printf '%-12s %-10s %-8s %s\n' \
-            "$(field "$line" 1)" "$(field "$line" 2)" "$(field "$line" 3)" "$(field "$line" 4)"
-    done < <(components)
-    exit 0
-fi
-
-if [ "$MODE" = status ]; then
+if [ "$MODE" = list ] || [ "$MODE" = status ]; then
     # One line per component: installed or not, enabled or not, working or
     # not, and why. A preference alone is never reported as working.
     problems=0
     say() { printf '  %-10s %s\n' "$1:" "$2"; }
     bad() { say "$1" "$2"; problems=$((problems + 1)); }
+    more() { printf '  %-10s %s\n' "" "$1"; }
 
     # Exactly what ./install would write, compared with what is there.
     rendered_matches() {
@@ -138,13 +130,17 @@ if [ "$MODE" = status ]; then
         if [ -x "$st" ]; then
             out="$("$st" 2>&1)" && rc=0 || rc=$?
             # Its own words, set out like every other line; non-zero is a problem.
+            local said=0
             while IFS= read -r line; do
                 case "$line" in
-                    "$name: "*) printf '  %-10s %s\n' "$name:" "${line#"$name: "}" ;;
-                    *) printf '  %-10s %s\n' "" "${line#"${line%%[![:space:]]*}"}" ;;
+                    "$name: "*)
+                        if [ "$rc" != 0 ] && [ "$said" = 0 ]; then bad "$name" "${line#"$name: "}"
+                        else say "$name" "${line#"$name: "}"; fi
+                        said=1 ;;
+                    *) more "${line#"${line%%[![:space:]]*}"}" ;;
                 esac
             done <<<"$out"
-            [ "$rc" = 0 ] || problems=$((problems + 1))
+            [ "$rc" = 0 ] || [ "$said" = 1 ] || problems=$((problems + 1))
             return
         fi
         missing="$(ox_adapter_missing "$name")"
@@ -208,9 +204,8 @@ if [ "$MODE" = status ]; then
         else say shell "installed, plugin -> $OX_QMLDIR"; fi
     }
 
-    ox_step "Components"
-    while IFS= read -r line; do
-        name="$(field "$line" 1)"; kind="$(field "$line" 2)"
+    status_of() {
+        local kind="$1" name="$2"
         case "$kind:$name" in
             overrides:overrides) status_overrides ;;
             overrides:foot)      status_overlay foot "$OX_ROOT/overrides/foot/overlay.conf" "$XDG_CONFIG_HOME/foot/foot.ini" --ini ;;
@@ -224,6 +219,34 @@ if [ "$MODE" = status ]; then
             system:sddm)         status_sddm ;;
             system:lid)          status_lid ;;
         esac
+    }
+
+    # --list: each component with its default and whether it is on this
+    # computer now, from the same checks --status makes.
+    if [ "$MODE" = list ]; then
+        say() { verdict="$2"; }
+        bad() { verdict="$2"; flagged=1; }
+        more() { :; }
+        printf '%-12s %-10s %-8s %-10s %s\n' NAME KIND DEFAULT INSTALLED DESCRIPTION
+        while IFS= read -r line; do
+            name="$(field "$line" 1)"; kind="$(field "$line" 2)"
+            verdict=""; flagged=0
+            status_of "$kind" "$name"
+            case "$verdict" in
+                "not installed"* | "not enabled"* | "not applied to"* | "not set up"* | "no "* | "") here=no ;;
+                *) [ "$flagged" = 1 ] && here=fix || here=yes ;;
+            esac
+            printf '%-12s %-10s %-8s %-10s %s\n' "$name" "$kind" "$(field "$line" 3)" "$here" "$(field "$line" 4)"
+        done < <(components)
+        printf '\nDEFAULT: what ./install installs when no component is named.\n'
+        printf 'INSTALLED: what this computer has now; fix means installed but not working (./install --status says why).\n'
+        exit 0
+    fi
+
+    ox_step "Components"
+    while IFS= read -r line; do
+        name="$(field "$line" 1)"; kind="$(field "$line" 2)"
+        status_of "$kind" "$name"
     done < <(components)
 
     ox_step "Theme hook"

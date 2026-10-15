@@ -4873,6 +4873,8 @@ chmod +x "$sx/bin/"*
 stx() { env HOME="$sx/h" XDG_CONFIG_HOME="$sx/h/c" XDG_STATE_HOME="$sx/h/s" XDG_DATA_HOME="$sx/h/d" XDG_CACHE_HOME="$sx/h/k" \
     PATH="$sx/bin:$PATH" "$@"; }
 line() { grep -E "^  $1: " <<<"$out" | head -1 | sed -E "s/^  $1: +//"; }
+# --list's INSTALLED column for one component, from the last --list run.
+col() { awk -v n="$1" '$1 == n { print $4 }' <<<"$lst"; }
 out="$(stx "$OX_ROOT/install" --status 2>&1)"; rc=$?
 [ "$rc" = 1 ] && [ "$(line overrides)" = "not installed; run ./install --only overrides" ] &&
     ok "a fresh home: the overrides are reported missing, and status exits 1" || no "fresh overrides: $rc $(line overrides)"
@@ -4883,6 +4885,10 @@ sys_ok=1
 [ "$(line voice)" = "not installed (optional: ./install --enable voice)" ] && [ "$(line shell)" = "not installed (optional: ./install --enable shell)" ] &&
     [ "$sys_ok" = 1 ] && [ "$(line kde)" = "not enabled" ] &&
     ok "optional components that are off say so, without counting as broken" || no "fresh optional: $out"
+lst="$(stx "$OX_ROOT/install" --list 2>&1)"; rc=$?
+[ "$rc" = 0 ] && head -1 <<<"$lst" | grep -qE '^NAME +KIND +DEFAULT +INSTALLED +DESCRIPTION$' &&
+    [ "$(col overrides)" = no ] && [ "$(col voice)" = no ] && [ "$(col kde)" = no ] && [ "$(awk '$1 == "voice" { print $3 }' <<<"$lst")" = off ] &&
+    ok "--list shows each default and, beside it, that a fresh home has none of them" || no "fresh --list: $rc $lst"
 grep -q '^  foot: *not set up here (no ~/c/foot/foot.ini)' <<<"$(stx env HOME="$sx/h" "$OX_ROOT/install" --status 2>&1 | sed "s|$sx/h|~|g")" &&
     ok "an application that is not set up is not a problem" || no "foot without foot.ini: $(line foot)"
 stx "$OX_ROOT/install" --only overrides >/dev/null 2>&1
@@ -4890,6 +4896,8 @@ mkdir -p "$sx/h/c/foot"; printf 'font=x\n' > "$sx/h/c/foot/foot.ini"
 mkdir -p "$sx/h/c/zed"; printf '{ "a": "x, "b": 1 }' > "$sx/h/c/zed/settings.json"
 out="$(stx "$OX_ROOT/install" --status 2>&1)"
 [ "$(line overrides)" = ok ] && ok "installed overrides are ok" || no "overrides after install: $(line overrides)"
+lst="$(stx "$OX_ROOT/install" --list 2>&1)"
+[ "$(col overrides)" = yes ] && ok "--list shows installed overrides as installed" || no "--list overrides: $(col overrides)"
 [ "$(line foot)" = "not applied to ~/c/foot/foot.ini; run ./install --only foot" ] || [[ "$(line foot)" == "not applied to "*"; run ./install --only foot" ]] &&
     ok "an overlay not yet applied says so" || no "foot not applied: $(line foot)"
 [[ "$(line zed)" == *"cannot be read; fix it, then run ./install --only zed" ]] && ok "an unreadable config is reported" || no "zed: $(line zed)"
@@ -4902,6 +4910,9 @@ printf 'kde ok (1s)\ngtk FAILED (exit 1)\nspotify: Spotify is not running; it is
 out="$(stx "$OX_ROOT/install" --status 2>&1)"
 [ "$(line kde)" = ok ] && ok "an adapter that applied is ok" || no "kde: $(line kde)"
 [[ "$(line gtk)" == "the last theme change FAILED (exit 1); see "* ]] && ok "an adapter that failed is reported" || no "gtk: $(line gtk)"
+lst="$(stx "$OX_ROOT/install" --list 2>&1)"
+[ "$(col kde)" = yes ] && [ "$(col gtk)" = fix ] && ! grep -q '^  ' <<<"$lst" &&
+    ok "--list marks a working adapter yes and a failing one fix, and prints no adapter's own lines" || no "--list adapters: kde=$(col kde) gtk=$(col gtk) $(grep '^  ' <<<"$lst" | head -2)"
 if ox_have spicetify; then
     [ "$(line spotify)" = "enabled; not applied at the last theme change: Spotify is not running; it is re-themed at the next theme change while it runs" ] &&
         ok "an adapter that did not apply says why, without calling it ok" || no "spotify: $(line spotify)"
@@ -4912,6 +4923,8 @@ stx "$OX_ROOT/install" --only voice >/dev/null 2>&1
 out="$(stx "$OX_ROOT/install" --status 2>&1)"
 [ "$(line voice)" = "installed, but PipeWire has no 0xide_voice source; see journalctl --user -u pipewire" ] &&
     ok "voice installed without its source is a problem, named" || no "voice without source: $(line voice)"
+lst="$(stx "$OX_ROOT/install" --list 2>&1)"
+[ "$(col voice)" = fix ] && ok "--list marks installed-but-broken voice fix" || no "--list voice: $(col voice)"
 touch "$sx/voice-src"; echo alsa_input.x > "$sx/default"
 out="$(stx "$OX_ROOT/install" --status 2>&1)"
 [ "$(line voice)" = "installed, but the default microphone is alsa_input.x; run ./install --only voice" ] &&
