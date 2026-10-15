@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Installs the fixed helper Nexus's Power page sets lid-close behaviour with,
+# and the passwordless rule for that helper alone. Prints exactly what it will
+# do first, and refuses to run unattended. Installing changes no logind
+# setting: that happens only when a choice is made on the Power page.
+set -euo pipefail
+. "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
+
+here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+dest=/etc/sudoers.d/0xide-lid
+# The one source, which the shell also reads lid status with.
+helper_src="$OX_ROOT/shell/extensions/power/tree/assets/power/logind_lid.py"
+helper=/usr/local/libexec/0xide-logind-lid
+
+[ "$(id -u)" -ne 0 ] || ox_die "do not run this installer as root; run as your normal user"
+[ -x "$helper_src" ] || ox_die "helper source $helper_src not found or not executable"
+# Staged in a temporary file, so a dry run or a refusal leaves nothing behind.
+staged="$(mktemp)"
+trap 'rm -f -- "$staged"' EXIT
+sed "s|@USER@|$(id -un)|g" "$here/0xide-lid.template" > "$staged"
+chmod 0440 "$staged"
+
+echo
+echo "This installs, as root:"
+echo
+echo "    $helper  (root:root 0755, from ${helper_src#"$OX_ROOT"/})"
+echo "    $dest  (root:root 0440), which grants passwordless root for this, and nothing else:"
+echo
+sed 's/^/        /' "$staged" | grep -v '^        #' | grep -v '^        $'
+echo
+echo "The helper takes set <undocked> <docked> (each suspend, ignore, lock or hibernate)"
+echo "or reset. It writes only /etc/systemd/logind.conf.d/80-0xide-lid.conf and reloads"
+echo "systemd-logind in place, which keeps the session running. Installing it changes no"
+echo "lid setting; choosing one on Nexus's Power page does."
+echo
+
+if ! visudo -c -f "$staged" >/dev/null; then
+    ox_die "the generated rule is not valid sudoers syntax; nothing was installed"
+fi
+ox_log "syntax checked with visudo -c"
+
+# ./install --dry-run: the exact changes above, and no more.
+if [ "${OX_DRY_RUN:-0}" = 1 ]; then
+    ox_log "dry run: nothing was installed"
+    exit 0
+fi
+
+if [ "${OX_ASSUME_YES:-0}" != 1 ]; then
+    printf 'Install it? [y/N] '
+    # No terminal to answer on is a no, said as such.
+    read -r reply || { echo; ox_log "no answer (stdin is not a terminal); nothing was installed"; exit 0; }
+    case "$reply" in [yY]*) ;; *) ox_log "nothing was installed"; exit 0 ;; esac
+fi
+
+# The helper first, so the rule never names a file that is not there.
+sudo install -D -m 0755 -o root -g root "$helper_src" "$helper"
+ox_own "$helper"
+ox_log "installed $helper"
+sudo install -m 0440 -o root -g root "$staged" "$dest"
+ox_own "$dest"
+ox_log "installed $dest"

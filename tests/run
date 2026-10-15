@@ -5209,17 +5209,17 @@ else
     printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/sudo-calls"\nexit 0\n' "$yx" > "$yx/bin/sudo"
     chmod +x "$yx/bin/sudo"
     yenv() { env HOME="$yx/h" XDG_CONFIG_HOME="$yx/h/c" XDG_STATE_HOME="$yx/h/s" XDG_DATA_HOME="$yx/h/d" PATH="$yx/bin:$PATH" "$@"; }
-    for c in sddm sudoers; do
+    for c in sddm sudoers lid; do
         rm -f "$yx/sudo-calls"
         out="$(yenv "$OX_ROOT/install" --dry-run --only "$c" 2>&1)"; rc=$?
-        rule="$(grep -E 'NOPASSWD: /usr/local/libexec/0xide-(sddm-sync|papirus-folders)$' <<<"$out" | head -1)"
+        rule="$(grep -E 'NOPASSWD: /usr/local/libexec/0xide-(sddm-sync|papirus-folders|logind-lid)$' <<<"$out" | head -1)"
         [ "$rc" = 0 ] && [ ! -e "$yx/sudo-calls" ] && [ -n "$rule" ] && grep -q 'checked with visudo -c' <<<"$out" &&
             grep -q 'dry run: nothing was installed' <<<"$out" && [ -z "$(find "$yx/h" -type f 2>/dev/null)" ] &&
             ok "$c: a dry run prints the exact privileged changes, checks the rule, and changes nothing" ||
             no "$c dry run: exit $rc, sudo: $(cat "$yx/sudo-calls" 2>/dev/null | tr '\n' ';'), files: $(find "$yx/h" -type f | head -3)"
     done
     printf '#!/bin/sh\necho "syntax error near line 1" >&2\nexit 1\n' > "$yx/bin/visudo"; chmod +x "$yx/bin/visudo"
-    for c in sddm sudoers; do
+    for c in sddm sudoers lid; do
         rm -f "$yx/sudo-calls"
         out="$(yenv env OX_ASSUME_YES=1 "$OX_ROOT/install" --only "$c" 2>&1)"; rc=$?
         [ "$rc" = 1 ] && [ ! -e "$yx/sudo-calls" ] && grep -q "these did not take effect: $c " <<<"$out" &&
@@ -5237,11 +5237,28 @@ else
         ok "sudoers and sddm each ask, and each answer goes to the one that asked" ||
         no "two prompts: exit $rc, $(grep -c 'Install it' <<<"$out") prompts, sudo: $(tr '\n' ';' < "$yx/sudo-calls" 2>/dev/null)"
     rm -f "$yx/sudo-calls"
+    # Installing the lid helper sets no lid behaviour: only the Power page does.
+    out="$(printf 'y\n' | yenv "$OX_ROOT/install" --only lid 2>&1)"; rc=$?
+    [ "$rc" = 0 ] && [ "$(wc -l < "$yx/sudo-calls")" = 2 ] &&
+        grep -qx 'install -D -m 0755 -o root -g root .*/assets/power/logind_lid.py /usr/local/libexec/0xide-logind-lid' "$yx/sudo-calls" &&
+        grep -qE '^install -m 0440 -o root -g root .* /etc/sudoers.d/0xide-lid$' "$yx/sudo-calls" &&
+        ok "lid: installing puts the helper and its rule in place, and touches no logind setting" ||
+        no "lid install: exit $rc, sudo: $(tr '\n' ';' < "$yx/sudo-calls" 2>/dev/null)"
+    rm -f "$yx/sudo-calls"
     out="$(yenv "$OX_ROOT/install" --only sudoers < /dev/null 2>&1)"; rc=$?
     [ "$rc" = 0 ] && grep -q 'no answer (stdin is not a terminal); nothing was installed' <<<"$out" && [ ! -e "$yx/sudo-calls" ] &&
         ok "with no terminal to answer on, nothing is installed and it says why" || no "no tty: $rc $out"
     rm -rf "$yx"
 fi
+
+# A private root with tests/fixtures/fake-logind standing in for systemctl,
+# busctl and sudo, for logind_lid.py run with OX_LID_TEST_ROOT set to it.
+fake_logind() {
+    mkdir -p "$1/usr/bin" "$1/etc/systemd"
+    cp "$OX_ROOT/tests/fixtures/fake-logind" "$1/usr/bin/fake"
+    local c
+    for c in systemctl busctl sudo; do ln -sf fake "$1/usr/bin/$c"; done
+}
 
 ox_step "Nexus: Power page and settings list"
 # The Power page edits the sleep entry of general.idle.timeouts and nothing
@@ -5294,11 +5311,13 @@ STRIP
         printf '%s\n' 'pragma Singleton' '' 'import Quickshell' '' 'Singleton {' '    property var list: []' '' \
             '    function shouldShowPopup(): bool {' '        return true;' '    }' '}' > "$px/cfg/services/Notifs.qml"
         pconf="$px/xdg/config/caelestia/shell.json"
-        for harness in power_sleep_policy power_page power_reread nexus_search_click; do
+        # The lid rows reach a stand-in logind on a private root, never this one.
+        fake_logind "$px/lid"
+        for harness in power_sleep_policy power_page power_reread nexus_search_click power_lid; do
             [ "$harness" = power_reread ] && before="$(sha256sum < "$pconf" 2>/dev/null)"
             [ "$harness" = nexus_search_click ] && after_reread="$(sha256sum < "$pconf" 2>/dev/null)"
             sed -e "s|@PLUGIN_QML@|$PLUGIN_QML|" -e "s|@CONFIG@|$pconf|" "$OX_ROOT/tests/$harness.qml" > "$px/cfg/shell.qml"
-            res="$(env -u WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE=0xide-test-isolated QT_QPA_PLATFORM=offscreen PATH="$px/bin:$PATH" \
+            res="$(env -u WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE=0xide-test-isolated QT_QPA_PLATFORM=offscreen PATH="$px/bin:$PATH" OX_LID_TEST_ROOT="$px/lid" \
                 XDG_CONFIG_HOME="$px/xdg/config" XDG_STATE_HOME="$px/xdg/state" XDG_CACHE_HOME="$px/xdg/cache" XDG_DATA_HOME="$px/xdg/data" \
                 timeout 120 qs -p "$px/cfg/shell.qml" 2>&1 | grep -oE 'RESULT .*' | tail -1)"
             if [ -z "$res" ]; then
@@ -5323,6 +5342,123 @@ CHK
         no "no temporary directory for the Power page checks"
     fi
 fi
+
+ox_step "Lid close: logind drop-in, reload and rollback"
+# The real helper over a private root, with systemctl, busctl and sudo stood
+# in for by a logind that reads that root's configuration as logind would: the
+# main file, then drop-ins by name, a higher directory hiding a lower one of the
+# same name. No lid event, suspend or reload of the real logind can happen.
+LID="$OX_ROOT/shell/extensions/power/tree/assets/power/logind_lid.py"
+lr="$(mktemp -d)"
+mkdir -p "$lr/usr/bin" "$lr/etc/systemd" "$lr/usr/lib/systemd/logind.conf.d"
+printf '[Login]\nKillUserProcesses=no\n#HandleLidSwitch=hibernate\n' > "$lr/etc/systemd/logind.conf"
+fake_logind "$lr"
+lid() { env OX_LID_TEST_ROOT="$lr" "$PY" -I "$LID" "$@"; }
+field() { "$PY" -c 'import json,sys; v=json.loads(sys.argv[1]); [v := v[k] if not k.isdigit() else v[int(k)] for k in sys.argv[2].split(".")]; print(json.dumps(v) if not isinstance(v, str) else v)' "$1" "$2" 2>/dev/null; }
+reloads() { grep -c '^systemctl reload' "$lr/calls" 2>/dev/null || true; }
+mine="$lr/etc/systemd/logind.conf.d/80-0xide-lid.conf"
+main_sum="$(cksum < "$lr/etc/systemd/logind.conf")"
+live_before="$(ls /etc/systemd/logind.conf.d 2>/dev/null)"
+
+out="$(lid status)"
+[ "$(field "$out" undocked)" = suspend ] && [ "$(field "$out" docked)" = ignore ] && [ "$(field "$out" hibernate)" = na ] &&
+    [ "$(field "$out" dropin)" = null ] && ok "status reads what logind acts on: suspend, and ignore when docked" || no "status: $out"
+out="$(lid set ignore lock)"; rc=$?
+[ "$rc" = 0 ] && [ "$(field "$out" changed)" = true ] && [ "$(reloads)" = 1 ] &&
+    [ "$(grep -vE '^#' "$mine")" = "$(printf '[Login]\nHandleLidSwitch=ignore\nHandleLidSwitchExternalPower=ignore\nHandleLidSwitchDocked=lock')" ] &&
+    [ "$(field "$out" undocked)" = ignore ] && [ "$(field "$out" externalPower)" = ignore ] && [ "$(field "$out" docked)" = lock ] &&
+    ok "set writes the three lid keys to its own drop-in, reloads once, and logind follows" || no "set: $rc $out"
+[ "$(stat -c %a "$mine")" = 644 ] && [ -z "$(find "$lr/etc/systemd/logind.conf.d" -name '.*')" ] &&
+    ok "the drop-in is 0644 and no temporary file is left" || no "drop-in mode $(stat -c %a "$mine") or a temporary file left"
+[ "$(cksum < "$lr/etc/systemd/logind.conf")" = "$main_sum" ] && ok "logind.conf and its other settings are left alone" || no "logind.conf changed"
+out="$(lid set ignore lock)"; rc=$?
+[ "$rc" = 0 ] && [ "$(field "$out" changed)" = false ] && [ "$(reloads)" = 1 ] &&
+    ok "setting what is already set changes nothing and reloads nothing" || no "unchanged: $rc $out, $(reloads) reloads"
+before="$(cat "$mine")"
+for bad in "set poweroff ignore" "set suspend" "set suspend ignore extra" "set Suspend ignore" "set ../x ignore" "--anything"; do
+    # shellcheck disable=SC2086
+    out="$(lid $bad)"; rc=$?
+    [ "$rc" = 2 ] && [ "$(field "$out" ok)" = false ] || { no "'$bad' was not refused: $rc $out"; continue; }
+done
+[ "$(cat "$mine")" = "$before" ] && [ "$(reloads)" = 1 ] &&
+    ok "unknown actions and malformed requests are refused before anything is read or written" || no "a bad request changed something"
+out="$(lid set hibernate suspend)"; rc=$?
+[ "$rc" = 3 ] && grep -q 'cannot hibernate (logind says na)' <<<"$out" && [ "$(cat "$mine")" = "$before" ] &&
+    ok "hibernate is refused where logind cannot hibernate" || no "hibernate on na: $rc $out"
+echo yes > "$lr/can-hibernate"
+out="$(lid set hibernate suspend)"; rc=$?
+[ "$rc" = 0 ] && [ "$(field "$out" undocked)" = hibernate ] && [ "$(field "$out" docked)" = suspend ] &&
+    ok "and set where it can" || no "hibernate on yes: $rc $out"
+rm -f "$lr/can-hibernate"
+
+before="$(cat "$mine")"; n="$(reloads)"
+touch "$lr/reload-fails"
+out="$(lid set suspend ignore)"; rc=$?
+[ "$rc" = 1 ] && grep -q 'the previous setting is back in the file, but logind did not reload' <<<"$out" &&
+    [ "$(cat "$mine")" = "$before" ] && [ "$(reloads)" = "$((n + 2))" ] &&
+    ok "a failed reload puts the previous drop-in back, and says so" || no "reload fails: $rc $out"
+rm -f "$lr/reload-fails"; touch "$lr/reload-ignored"; n="$(reloads)"
+out="$(lid set suspend ignore)"; rc=$?
+[ "$rc" = 1 ] && grep -q 'not acting on the new setting; the previous setting is back' <<<"$out" && [ "$(cat "$mine")" = "$before" ] &&
+    ok "a reload logind does not act on is rolled back too" || no "reload ignored: $rc $out"
+rm -f "$lr/reload-ignored"
+
+out="$(lid reset)"; rc=$?
+[ "$rc" = 0 ] && [ ! -e "$mine" ] && [ "$(field "$out" undocked)" = suspend ] && [ "$(field "$out" docked)" = ignore ] &&
+    ok "reset removes the drop-in and logind is back on its own settings" || no "reset: $rc $out"
+n="$(reloads)"
+out="$(lid reset)"; rc=$?
+[ "$rc" = 0 ] && [ "$(field "$out" changed)" = false ] && [ "$(reloads)" = "$n" ] && ok "resetting nothing reloads nothing" || no "empty reset: $rc $out"
+touch "$lr/reload-ignored"
+out="$(lid set lock ignore)"; rc=$?
+[ "$rc" = 1 ] && [ ! -e "$mine" ] && ok "a failed first setting leaves no drop-in behind" || no "first set rolled back: $rc $out"
+rm -f "$lr/reload-ignored"
+
+# Other drop-ins: one applied after this one wins, so it is named and nothing
+# is written; one applied before is overridden, and kept as it is.
+mkdir -p "$lr/run/systemd/logind.conf.d"
+printf '[Login]\nHandleLidSwitch=lock\nKillUserProcesses=yes\n' > "$lr/run/systemd/logind.conf.d/10-local.conf"
+early_sum="$(cksum < "$lr/run/systemd/logind.conf.d/10-local.conf")"
+out="$(lid set suspend suspend)"; rc=$?
+[ "$rc" = 0 ] && [ "$(field "$out" overrides.0.file)" = /run/systemd/logind.conf.d/10-local.conf ] &&
+    [ "$(cksum < "$lr/run/systemd/logind.conf.d/10-local.conf")" = "$early_sum" ] && [ "$(field "$out" docked)" = suspend ] &&
+    ok "an earlier drop-in setting the lid is overridden, named, and left as it is" || no "earlier drop-in: $rc $out"
+printf '[Login]\nHandleLidSwitchDocked=poweroff\n' > "$lr/usr/lib/systemd/logind.conf.d/90-vendor.conf"
+before="$(cat "$mine")"; n="$(reloads)"
+out="$(lid set ignore ignore)"; rc=$?
+[ "$rc" = 4 ] && grep -q '/usr/lib/systemd/logind.conf.d/90-vendor.conf sets the lid too' <<<"$out" &&
+    [ "$(cat "$mine")" = "$before" ] && [ "$(reloads)" = "$n" ] &&
+    ok "a later drop-in that would win is named, and nothing is written" || no "later drop-in: $rc $out"
+# As logind would have it from boot.
+"$lr/usr/bin/systemctl" reload systemd-logind.service
+out="$(lid status)"
+[ "$(field "$out" overriddenBy.0.keys.HandleLidSwitchDocked)" = poweroff ] && [ "$(field "$out" docked)" = poweroff ] &&
+    ok "status shows the overriding file and what logind acts on because of it" || no "status overridden: $out"
+mkdir -p "$lr/etc/systemd/logind.conf.d"; printf '[Login]\n' > "$lr/etc/systemd/logind.conf.d/90-vendor.conf"
+out="$(lid set ignore ignore)"; rc=$?
+[ "$rc" = 0 ] && ok "a same-named file in /etc hides the vendor one, as it does for logind" || no "masked vendor: $rc $out"
+rm -f "$lr/etc/systemd/logind.conf.d/90-vendor.conf" "$lr/usr/lib/systemd/logind.conf.d/90-vendor.conf" "$lr/run/systemd/logind.conf.d/10-local.conf"
+
+printf '[["handle-lid-switch","Docking app","Lid handled here","block",1000,42],["sleep","NetworkManager","x","delay",0,1]]' > "$lr/inhibitors.json"
+out="$(lid status)"
+[ "$(field "$out" inhibitors.0.who)" = "Docking app" ] && [ "$(field "$out" inhibitors.0.mode)" = block ] &&
+    [ "$("$PY" -c 'import json,sys; print(len(json.loads(sys.argv[1])["inhibitors"]))' "$out")" = 1 ] &&
+    ok "status names a lid-switch inhibitor, and not sleep ones" || no "inhibitors: $out"
+[ "$(field "$out" helper.installed)" = false ] && [ "$(field "$out" helper.allowed)" = false ] &&
+    ok "status says the helper is not installed" || no "helper absent: $out"
+mkdir -p "$lr/usr/local/libexec"; cp "$LID" "$lr/usr/local/libexec/0xide-logind-lid"; touch "$lr/sudo-allowed"
+out="$(lid status)"
+[ "$(field "$out" helper.installed)" = true ] && [ "$(field "$out" helper.current)" = true ] && [ "$(field "$out" helper.allowed)" = true ] &&
+    ok "and when it is installed, current and allowed" || no "helper present: $out"
+echo '# older' >> "$lr/usr/local/libexec/0xide-logind-lid"
+[ "$(field "$(lid status)" helper.current)" = false ] && ok "an installed helper older than the shell's is reported as not current" || no "stale helper not seen"
+! grep -qvE '^(systemctl reload systemd-logind\.service|busctl --system --json=short (get-property|call) org\.freedesktop\.login1 /org/freedesktop/login1 org\.freedesktop\.login1\.Manager [A-Za-z]+|sudo -n -l /usr/local/libexec/0xide-logind-lid)$' "$lr/calls" &&
+    ok "it only ever reloads logind and reads it; no suspend, hibernate, restart or other call" || no "unexpected calls: $(sort -u "$lr/calls" | tr '\n' ';')"
+[ "$(ls /etc/systemd/logind.conf.d 2>/dev/null)" = "$live_before" ] && ok "this machine's logind configuration is untouched" || no "/etc/systemd/logind.conf.d changed"
+OX_LID_TEST_ROOT="$lr" "$PY" -I -c 'import os,sys; sys.exit(0 if os.geteuid() else 1)' &&
+    grep -q 'os.environ.get("OX_LID_TEST_ROOT") if os.geteuid() != 0 else None' "$LID" &&
+    ok "the test root is honoured only when not running as root" || no "the test root could apply to a root run"
+rm -rf "$lr"
 
 ox_step "Patch series order"
 dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"

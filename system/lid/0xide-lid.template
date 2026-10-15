@@ -1,0 +1,8 @@
+# Installed by 0xide. One fixed helper, for one operation.
+# @USER@ is substituted at install time; nothing here is committed with a
+# username in it.
+#
+# 0xide-logind-lid  sets what closing the lid does, undocked and docked, in
+#                   /etc/systemd/logind.conf.d/80-0xide-lid.conf alone, to one
+#                   of suspend, ignore, lock or hibernate, and reloads logind.
+@USER@ ALL=(root) NOPASSWD: /usr/local/libexec/0xide-logind-lid

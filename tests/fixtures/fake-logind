@@ -1,0 +1,81 @@
+#!/usr/bin/python3
+"""A stand-in for systemctl, busctl and sudo, as logind_lid.py calls them.
+
+Installed as <root>/usr/bin/fake with systemctl, busctl and sudo linked to it.
+It reads <root>'s logind configuration as logind would: the main file, then
+drop-ins by name, a higher directory hiding a lower one of the same name; a
+reload makes that what it reports. Nothing real is reloaded, suspended or
+asked. Files in <root> steer it: reload-fails, reload-ignored, can-hibernate,
+inhibitors.json, sudo-allowed. Every call is appended to <root>/calls.
+"""
+
+import json
+import sys
+from pathlib import Path
+
+root = Path(__file__).resolve().parents[2]
+name = Path(sys.argv[0]).name
+with (root / "calls").open("a") as calls:
+    calls.write(name + " " + " ".join(sys.argv[1:]) + "\n")
+DIRS = ["etc/systemd/logind.conf.d", "run/systemd/logind.conf.d", "usr/local/lib/systemd/logind.conf.d",
+        "usr/lib/systemd/logind.conf.d"]
+
+
+def settings(f, into):
+    section = None
+    if not f.exists():
+        return
+    for line in f.read_text().splitlines():
+        line = line.strip()
+        if not line or line[0] in "#;":
+            continue
+        if line.startswith("["):
+            section = line
+            continue
+        k, _, v = line.partition("=")
+        if section == "[Login]":
+            into[k.strip()] = v.strip()
+
+
+def merged():
+    into = {"HandleLidSwitch": "suspend", "HandleLidSwitchExternalPower": "", "HandleLidSwitchDocked": "ignore"}
+    settings(root / "etc/systemd/logind.conf", into)
+    chosen = {}
+    for d in DIRS:
+        p = root / d
+        for f in sorted(p.glob("*.conf")) if p.is_dir() else []:
+            chosen.setdefault(f.name, f)
+    for _, f in sorted(chosen.items()):
+        settings(f, into)
+    return into
+
+
+state = root / "state.json"
+if not state.exists():
+    state.write_text(json.dumps(merged()))
+args = sys.argv[1:]
+if name == "systemctl":
+    if args != ["reload", "systemd-logind.service"]:
+        sys.exit(99)
+    if (root / "reload-fails").exists():
+        print("Job for systemd-logind.service failed.", file=sys.stderr)
+        sys.exit(1)
+    if not (root / "reload-ignored").exists():
+        state.write_text(json.dumps(merged()))
+elif name == "busctl":
+    if args[:2] != ["--system", "--json=short"]:
+        sys.exit(99)
+    if args[2] == "get-property":
+        print(json.dumps({"type": "s", "data": json.loads(state.read_text())[args[6]]}))
+    elif args[2] == "call" and args[6] == "CanHibernate":
+        h = root / "can-hibernate"
+        print(json.dumps({"type": "s", "data": [h.read_text().strip() if h.exists() else "na"]}))
+    elif args[2] == "call" and args[6] == "ListInhibitors":
+        i = root / "inhibitors.json"
+        print(json.dumps({"type": "a(ssssuu)", "data": [json.loads(i.read_text()) if i.exists() else []]}))
+    else:
+        sys.exit(99)
+elif name == "sudo":
+    sys.exit(0 if (root / "sudo-allowed").exists() and args[:2] == ["-n", "-l"] else 1)
+else:
+    sys.exit(99)

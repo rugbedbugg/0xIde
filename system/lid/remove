@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+. "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
+# Takes back exactly what install put in place, and the lid setting the helper
+# wrote: logind goes back to its own settings first, while the helper is still
+# there to do it, then the rule and the helper go. /etc/sudoers.d cannot be read
+# without root, so its file cannot be tested for first; removing one that is
+# absent is harmless.
+dest=/etc/sudoers.d/0xide-lid
+helper=/usr/local/libexec/0xide-logind-lid
+dropin=/etc/systemd/logind.conf.d/80-0xide-lid.conf
+echo "Removing $dropin (logind is reloaded in place), then $dest and $helper."
+if [ -x "$helper" ]; then
+    sudo -n "$helper" reset || ox_die "the lid setting could not be reset (see above); $dest and $helper are kept"
+elif [ -e "$dropin" ]; then
+    ox_warn "$helper is gone but $dropin is still there; remove it with: sudo rm $dropin && sudo systemctl reload systemd-logind"
+fi
+sudo rm -f -- "$dest"
+sudo rm -f -- "$helper"
+ox_log "removed $dest and $helper"

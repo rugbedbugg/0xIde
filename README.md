@@ -46,7 +46,7 @@ applications Caelestia does not theme itself.
         wallpaper in use cannot be deleted). The size is read from the file's header, so
         checking a huge image costs nothing.
     -   **Power settings** in the shell's settings app: how long the computer may be
-        inactive before it sleeps. See [Power](#power).
+        inactive before it sleeps, and what closing the lid does. See [Power](#power).
     -   **UnNova**, a system monitor and process manager in the shell's own look: click
         the character in the power panel. See [UnNova](#unnova).
 -   Theme adapters, for applications Caelestia does not reach:
@@ -315,6 +315,21 @@ here.
 > `shell.json`, including upstream's lock and display-off entries as they are now. From then
 > on, a later Caelestia release that changes those defaults does not change them for you.
 > Edit or remove `general.idle.timeouts` in `shell.json` to take upstream's defaults again.
+
+**Power → Lid** sets what closing the lid does: **Suspend**, **Do nothing**, **Lock screen**,
+or **Hibernate** where the computer can hibernate (logind says so; a swap on zram alone
+cannot hold an image). It is set twice: for the lid on its own, on battery and on a charger
+alike, and for the lid closed with an external display connected or when docked, which
+stays **Do nothing** until you change it. systemd-logind acts on it, not the shell, so it
+holds while the shell is stopped or restarting.
+
+Changing it needs `./install --enable lid`, which installs one root helper and a rule for it
+alone; until then the page shows what logind does and how to change it. The helper writes
+only `/etc/systemd/logind.conf.d/80-0xide-lid.conf`, reloads logind in place (the session
+keeps running) and reads the setting back from logind, putting the previous file back if
+anything fails. A drop-in that sets the lid after it, such as a vendor's, wins over it:
+the page then names that file and changes nothing. An application holding logind's lid
+inhibitor, which a docking tool may, is named too. See [system/lid](system/lid/README.md).
 
 ### UnNova
 

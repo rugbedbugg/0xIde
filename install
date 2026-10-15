@@ -180,6 +180,18 @@ if [ "$MODE" = status ]; then
             *) say sddm "ok, the login screen follows the desktop" ;;
         esac
     }
+    # What closing the lid does comes from logind whether or not this is
+    # installed; the helper only lets the Power page change it.
+    status_lid() {
+        local helper=/usr/local/libexec/0xide-logind-lid src="$OX_ROOT/shell/extensions/power/tree/assets/power/logind_lid.py" out later
+        [ -e "$helper" ] || { say lid "not installed (optional: ./install --enable lid); the lid does what logind is set to"; return; }
+        ox_has_sudo_rule "$helper" || { bad lid "the helper is installed but its rule is not; run ./install --enable lid"; return; }
+        cmp -s "$helper" "$src" || { bad lid "the installed helper is older than this checkout's; run ./install --enable lid"; return; }
+        out="$("$(ox_python)" -I "$src" status 2>/dev/null)" || { bad lid "installed, but logind did not answer"; return; }
+        later="$(jq -r '[.overriddenBy[].file] | join(", ")' <<<"$out")"
+        [ -z "$later" ] || { bad lid "$later sets the lid after 0xIde's drop-in, so the Power page's choice does not apply"; return; }
+        say lid "ok, closing the lid: $(jq -r .undocked <<<"$out"), with an external display: $(jq -r .docked <<<"$out")"
+    }
     status_shell() {
         local running
         if [ ! -e "$OX_SHELLDIR/shell.qml" ]; then say shell "not installed (optional: ./install --enable shell)"; return; fi
@@ -210,6 +222,7 @@ if [ "$MODE" = status ]; then
             adapter:*)           status_adapter "$name" ;;
             system:sudoers)      status_sudoers ;;
             system:sddm)         status_sddm ;;
+            system:lid)          status_lid ;;
         esac
     done < <(components)
 
