@@ -14,6 +14,34 @@ PY="$(ox_python)"
 # Compiling a checker must not leave __pycache__ in the working tree.
 export PYTHONDONTWRITEBYTECODE=1
 
+# A qs harness that loads the shell's services over empty XDG state makes
+# Wallpapers apply its fallback through the caelestia CLI. With no cli.json
+# there, the CLI themes the desktop the tests run on: Caelestia's default scheme
+# into GTK through dconf, every open terminal, and the browser policies. So the
+# real CLI is never on PATH here, and what it would change is compared at the end.
+OX_GUARD="$(mktemp -d)"
+cat > "$OX_GUARD/caelestia" <<GUARD
+#!/bin/sh
+printf '%s\n' "\$*" >> "$OX_GUARD/calls"
+exit 1
+GUARD
+chmod +x "$OX_GUARD/caelestia"
+export PATH="$OX_GUARD:$PATH"
+desktop_state() {
+    local k f
+    if ox_have dconf; then
+        for k in gtk-theme color-scheme icon-theme; do
+            printf '%s=%s\n' "$k" "$(dconf read "/org/gnome/desktop/interface/$k" 2>/dev/null)"
+        done
+    fi
+    for f in /etc/opt/chrome/policies/managed/caelestia.json /etc/chromium/policies/managed/caelestia.json \
+        /etc/brave/policies/managed/caelestia.json "$XDG_CONFIG_HOME/gtk-3.0/gtk.css" \
+        "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" "$XDG_STATE_HOME/caelestia/scheme.json"; do
+        [ -e "$f" ] && printf '%s %s\n' "${f/#$HOME/\~}" "$(cksum < "$f")"
+    done
+}
+DESKTOP_BEFORE="$(desktop_state)"
+
 # The --exclude arguments of shell/build.sh's shell deploy, read from the
 # script itself so the checks below run the real patterns, not a copy.
 deploy_excludes() {
@@ -5053,6 +5081,15 @@ dups="$(ls "$OX_ROOT/shell/patches" | cut -c1-4 | sort | uniq -d | tr '\n' ' ')"
 
 ox_step "Dependencies"
 "$OX_ROOT/installer/check_deps.sh" || true
+
+ox_step "The desktop the tests ran on"
+if [ -s "$OX_GUARD/calls" ]; then
+    no "a test ran the caelestia CLI, which would have themed this desktop: $(sort -u "$OX_GUARD/calls" | tr '\n' ';')"
+else ok "no test reached the caelestia CLI"; fi
+after="$(desktop_state)"
+[ "$after" = "$DESKTOP_BEFORE" ] && ok "GTK, colour scheme, icon theme and browser theme policies are as they were" ||
+    no "desktop settings changed during the run (or the scheme was changed meanwhile): $(diff <(printf '%s\n' "$DESKTOP_BEFORE") <(printf '%s\n' "$after") | grep '^[<>]' | tr '\n' ';')"
+rm -rf "$OX_GUARD"
 
 # Nothing may follow this: the script's exit status is this comparison.
 printf '\n%s passed, %s failed, %s skipped\n' "$pass" "$fail" "$skip"
