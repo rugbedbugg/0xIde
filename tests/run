@@ -2684,7 +2684,7 @@ for k, (v, what) in want.items():
 sys.exit(bad)
 CHK
         n=$?
-        pass=$((pass + 28 - n)); fail=$((fail + n))
+        pass=$((pass + 30 - n)); fail=$((fail + n))
     fi
     rm -rf "$jx"
 fi
