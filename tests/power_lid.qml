@@ -123,8 +123,9 @@ ShellRoot {
             r.elsewhereCannotBeChosen = read(dropin) === "" && page.lid.docked === "poweroff";
             choose(undocked, "Suspend");
         }],
-        // Undocked was already suspend: wait for the read that follows the change.
-        [() => read(dropin) !== "" && !page.lidApplying && page.lid.docked !== "poweroff", () => {
+        // Undocked was already suspend: wait for the read that follows the change,
+        // which has the charger set alike again.
+        [() => read(dropin) !== "" && !page.lidApplying && page.lid.docked !== "poweroff" && page.lid.externalPower === "suspend", () => {
             r.otherFallsBackToDefault = page.lid.docked === "ignore" && read(dropin).includes("HandleLidSwitchDocked=ignore\n");
             r.noErrorLeft = page.lidError === "";
             r.chargerRowBackOnceBothSet = select(undocked).subtext === "On battery and on a charger";

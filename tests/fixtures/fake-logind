@@ -10,6 +10,7 @@ inhibitors.json, sudo-allowed. Every call is appended to <root>/calls.
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -51,8 +52,18 @@ def merged():
 
 
 state = root / "state.json"
+
+
+# Whole or not at all: busctl reads it once per property, possibly while a
+# reload is writing it.
+def save():
+    tmp = state.with_name(f"state.json.{os.getpid()}")
+    tmp.write_text(json.dumps(merged()))
+    tmp.replace(state)
+
+
 if not state.exists():
-    state.write_text(json.dumps(merged()))
+    save()
 args = sys.argv[1:]
 if name == "systemctl":
     if args != ["reload", "systemd-logind.service"]:
@@ -61,7 +72,7 @@ if name == "systemctl":
         print("Job for systemd-logind.service failed.", file=sys.stderr)
         sys.exit(1)
     if not (root / "reload-ignored").exists():
-        state.write_text(json.dumps(merged()))
+        save()
 elif name == "busctl":
     if args[:2] != ["--system", "--json=short"]:
         sys.exit(99)
