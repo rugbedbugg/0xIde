@@ -3407,8 +3407,11 @@ waitfor() { # file, pattern, tenths of a second
 endpoint_of() { sed -n 's/.*"endpoint": "\([^"]*\)".*/\1/p' "$1" | head -1; }
 # Killed on purpose, and reaped, so the shell does not report them.
 kill9() { kill -9 "$@" 2>/dev/null; wait "$@" 2>/dev/null; }
+# A process that has exited is gone even if nothing has reaped it yet: in a
+# container whose first process reaps nothing, a stopped server stays a zombie.
+live() { [ -e "/proc/$1" ] && [ "$(sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | cut -d' ' -f1)" != Z ]; }
 gone() { # pid, tenths of a second
-    for _ in $(seq "${2:-100}"); do kill -0 "$1" 2>/dev/null || return 0; sleep 0.1; done
+    for _ in $(seq "${2:-100}"); do live "$1" || return 0; sleep 0.1; done
     return 1
 }
 sleep 600 & shell1=$!
@@ -3426,18 +3429,18 @@ kill9 "$wrapB" "$shell1"
 sleep 600 & shell2=$!
 rserve "$shell2" "$rx/c.out"; wrapC=$wrap
 waitfor "$rx/c.out" '"ready"\|"error"' 50
-[ "$(endpoint_of "$rx/c.out")" = "$endpoint" ] && kill -0 "$server" 2>/dev/null &&
+[ "$(endpoint_of "$rx/c.out")" = "$endpoint" ] && live "$server" &&
     ok "so does a new shell, while the server waits for one" || no "new shell: $(cat "$rx/c.out")"
 pkill -TERM -P "$wrapC"
 waitfor "$rx/c.out" 'exit=' 100
 gone "$server" && grep -q '"cancelled"' "$rx/c.out" && grep -q 'exit=130' "$rx/c.out" && [ ! -e "$rx/data/0xide/ai/server.json" ] &&
-    ok "a stop from the shell stops the server it reused, and frees it" || no "stop: server ${server} $(kill -0 "$server" 2>/dev/null && echo alive), $(cat "$rx/c.out")"
+    ok "a stop from the shell stops the server it reused, and frees it" || no "stop: server ${server} $(live "$server" && echo alive), $(cat "$rx/c.out")"
 rserve "$shell2" "$rx/d.out"; wrapD=$wrap
 waitfor "$rx/d.out" '"ready"' && [ "$(endpoint_of "$rx/d.out")" != "$endpoint" ] &&
     ok "after that a shell starts a server of its own" || no "fresh again: $(cat "$rx/d.out")"
 server="$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1]))["pid"])' "$rx/data/0xide/ai/server.json" 2>/dev/null)"
 kill9 "$wrapD"
-kill -0 "$server" 2>/dev/null && gone "$server" 100 && [ ! -e "$rx/data/0xide/ai/server.json" ] &&
+live "$server" && gone "$server" 100 && [ ! -e "$rx/data/0xide/ai/server.json" ] &&
     ok "a server no shell asks for stops once the idle time is up" || no "unasked server ${server} still running or left its state"
 rserve "$shell2" "$rx/e.out"; wrapE=$wrap
 waitfor "$rx/e.out" '"ready"'
