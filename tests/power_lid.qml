@@ -108,7 +108,7 @@ ShellRoot {
             r.overriddenReadOnly = select(undocked) === null && (info(undocked)?.subtext ?? "").includes("/usr/lib/systemd/logind.conf.d/90-vendor.conf");
             r.overriddenShowsWhatWins = info(docked)?.value === "Power off";
             sh('rm -f "$1/usr/lib/systemd/logind.conf.d/90-vendor.conf" "' + dropin + '" && mkdir -p "$1/run/systemd/logind.conf.d"'
-                + ' && printf "[Login]\\nHandleLidSwitchDocked=poweroff\\n" > "$1/run/systemd/logind.conf.d/10-local.conf"'
+                + ' && printf "[Login]\\nHandleLidSwitchExternalPower=ignore\\nHandleLidSwitchDocked=poweroff\\n" > "$1/run/systemd/logind.conf.d/10-local.conf"'
                 + ' && printf \'[["handle-lid-switch","Dock app","Docked mode","block",1000,7]]\' > "$1/inhibitors.json"'
                 + ' && "$1/usr/bin/systemctl" reload systemd-logind.service');
         }],
@@ -116,6 +116,7 @@ ShellRoot {
             r.elsewhereShownNotOffered = select(docked).active?.text === "Power off (set elsewhere)"
                 && texts(select(docked)) === "Suspend|Do nothing|Lock screen|Hibernate|Power off (set elsewhere)";
             r.inhibitorNamed = (info("Closing the lid is handled elsewhere for now")?.subtext ?? "").includes("Dock app: Docked mode");
+            r.chargerSaidInRow = select(undocked).subtext === "On a charger it is Do nothing, set elsewhere; a change here sets both";
             choose(docked, "Power off (set elsewhere)");
         }],
         [() => !page.lidApplying, () => {
@@ -126,6 +127,8 @@ ShellRoot {
         [() => read(dropin) !== "" && !page.lidApplying && page.lid.docked !== "poweroff", () => {
             r.otherFallsBackToDefault = page.lid.docked === "ignore" && read(dropin).includes("HandleLidSwitchDocked=ignore\n");
             r.noErrorLeft = page.lidError === "";
+            r.chargerRowBackOnceBothSet = select(undocked).subtext === "On battery and on a charger";
+            r.noNotesUnderSections = find(page, i => typeof i.text === "string" && (i.text.includes("keep their own timers") || i.text.includes("systemd-logind acts on this"))) === null;
         }],
     ]
 

@@ -250,17 +250,7 @@ PageBase {
             last: true
             icon: "warning"
             label: qsTr("Sleep after inactivity")
-            subtext: qsTr("Set in shell.json, more than once")
-        }
-
-        StyledText {
-            Layout.fillWidth: true
-            Layout.topMargin: Tokens.spacing.small
-            Layout.leftMargin: Tokens.padding.small
-            color: Colours.palette.m3outline
-            font: Tokens.font.label.small
-            wrapMode: Text.Wrap
-            text: root.policy.state === "multiple" ? qsTr("More than one entry of general.idle.timeouts in shell.json suspends this computer, so which one this would change is not clear. Keep one of them and it can be set here. Locking and turning off the display keep their own timers.") : qsTr("Locking and turning off the display keep their own timers.")
+            subtext: qsTr("Set more than once in shell.json; keep one to set it here")
         }
 
         SectionHeader {
@@ -292,6 +282,7 @@ PageBase {
 
                 readonly property bool editable: root.lidBlocked === "" && root.lid?.[modelData.which] !== undefined
                 readonly property string value: root.lid?.[modelData.which] ?? ""
+                readonly property string subtext: modelData.which === "undocked" && LidPolicy.chargerDiffers(root.lid) ? qsTr("On a charger it is %1, set elsewhere; a change here sets both").arg(LidPolicy.label(root.lid.externalPower)) : modelData.subtext
                 // Hibernate only where logind can; an action set by something
                 // other than this page is shown as it is, not offered.
                 readonly property list<MenuItem> all: [
@@ -325,7 +316,7 @@ PageBase {
                     first: lidRow.index === 0
                     last: lidRow.index === 1
                     label: lidRow.modelData.label
-                    subtext: lidRow.modelData.subtext
+                    subtext: lidRow.subtext
                     menuItems: lidRow.items
                     active: lidRow.current
                     onSelected: item => {
@@ -349,7 +340,7 @@ PageBase {
                     icon: root.lidBlocked === "overridden" || root.lidBlocked === "unreadable" ? "warning" : LidPolicy.icon(lidRow.value)
                     label: lidRow.modelData.label
                     value: lidRow.value ? LidPolicy.label(lidRow.value) : ""
-                    subtext: lidRow.index === 0 ? root.lidReason() : lidRow.modelData.subtext
+                    subtext: lidRow.index === 0 ? root.lidReason() : lidRow.subtext
                 }
             }
         }
@@ -371,16 +362,6 @@ PageBase {
             icon: "info"
             label: qsTr("Closing the lid is handled elsewhere for now")
             subtext: (root.lid?.inhibitors ?? []).map(i => `${i.who}: ${i.why}`).join("; ")
-        }
-
-        StyledText {
-            Layout.fillWidth: true
-            Layout.topMargin: Tokens.spacing.small
-            Layout.leftMargin: Tokens.padding.small
-            color: Colours.palette.m3outline
-            font: Tokens.font.label.small
-            wrapMode: Text.Wrap
-            text: (LidPolicy.chargerDiffers(root.lid) ? qsTr("On a charger the lid is set to %1 elsewhere; a change here sets both alike. ").arg(LidPolicy.label(root.lid.externalPower)) : "") + qsTr("systemd-logind acts on this, so it holds while the shell is stopped or restarting.")
         }
     }
 
