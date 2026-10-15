@@ -3160,7 +3160,8 @@ cp "$OX_ROOT/orchestration/lib/common.sh" "$ho/repo/orchestration/lib/"
 cp "$OX_ROOT/installer/components.conf" "$OX_ROOT/installer/check_deps.sh" "$OX_ROOT/installer/shell-handoff" "$ho/repo/installer/"
 cat > "$ho/bin/qs" <<'QS'
 #!/usr/bin/env bash
-# list, kill -i, start (-c caelestia -n -d) and log -i, against $QS_STATE.
+# list, kill -i, start (-c caelestia -n -d), log -i and the Keep Awake
+# ipc calls, against $QS_STATE.
 echo "$*" >> "$QS_CALLS"
 st="$QS_STATE"
 put() { jq "$@" "$st" > "$st.t" && mv "$st.t" "$st"; }
@@ -3185,6 +3186,11 @@ case "$*" in
             '. + [{id: $id, pid: $pid, config_path: $p, launch_time: "T\($pid)", shell_id: "s"}]' ;;
     "log -i "*)
         [ -n "${QS_NO_LOAD:-}" ] || echo "  INFO: Configuration Loaded" ;;
+    "ipc -i "*" call idleInhibitor isEnabled")
+        jq -r --arg id "$3" '.[] | select(.id == $id) | .awake // false' "$st" ;;
+    "ipc -i "*" call idleInhibitor enable")
+        [ -n "${QS_IPC_FAIL:-}" ] && exit 1
+        put --arg id "$3" 'map(if .id == $id then .awake = true else . end)' ;;
     *) echo "simulated qs: unexpected: $*" >&2; exit 99 ;;
 esac
 QS
@@ -3239,6 +3245,20 @@ else
     out="$(hoenv "$H" handoff "$(hoenv "$H" capture)" 2>&1)"; rc=$?
     [ "$rc" -eq 0 ] && [ "$(caelestia_now)" = "new1@$USRQ" ] && [ "$(kills)" = 1 ] && other_intact &&
         ok "update: the running 0xIde shell is replaced by exactly one new one" || no "update: exit $rc, now: $(caelestia_now)"
+
+    # Keep Awake: on in the shell that is replaced, on in the new one; off stays off.
+    seed "$(inst usr1 102 "$USRQ" | jq -c '.awake = true')" "$OTH"
+    out="$(hoenv "$H" handoff "$(hoenv "$H" capture)" 2>&1)"; rc=$?
+    [ "$rc" -eq 0 ] && [ "$(jq -r '.[] | select(.id == "new1") | .awake' "$ho/state")" = true ] && grep -q 'Keep Awake stays on' <<<"$out" &&
+        ok "Keep Awake that was on is on again in the new shell" || no "keep awake on: exit $rc, $(jq -c . "$ho/state"), $out"
+    seed "$(inst usr1 102 "$USRQ")" "$OTH"
+    out="$(hoenv "$H" handoff "$(hoenv "$H" capture)" 2>&1)"; rc=$?
+    [ "$rc" -eq 0 ] && ! grep -q 'idleInhibitor enable' "$ho/calls" && ! grep -q 'Keep Awake' <<<"$out" &&
+        ok "Keep Awake that was off is left off" || no "keep awake off: exit $rc, calls: $(tr '\n' ';' < "$ho/calls")"
+    seed "$(inst usr1 102 "$USRQ" | jq -c '.awake = true')" "$OTH"
+    out="$(hoenv env QS_IPC_FAIL=1 "$H" handoff "$(hoenv "$H" capture)" 2>&1)"; rc=$?
+    [ "$rc" -eq 0 ] && [ "$(caelestia_now)" = "new1@$USRQ" ] && grep -q 'Keep Awake was on and could not be turned back on' <<<"$out" &&
+        ok "a Keep Awake that cannot be restored is said, and the hand-off still succeeds" || no "keep awake restore failed: exit $rc, $out"
 
     # 3. nothing running: nothing is stopped or started.
     seed "$OTH"

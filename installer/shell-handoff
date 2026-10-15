@@ -109,6 +109,11 @@ handoff() {
         return 3
     fi
 
+    # Keep Awake is held only by the running shell, so a new one starts with it
+    # off and the computer could sleep after an update. Read it before the stop.
+    local awake
+    awake="$(qs ipc -i "$id" call idleInhibitor isEnabled 2>/dev/null | ox_strip_qt_locale_warning)"
+
     qs kill -i "$id" >/dev/null 2>&1 || { ox_warn "could not stop the running shell $id ($path); nothing new was started"; return 3; }
     gone() { ! jq -e --arg id "$id" 'any(.[]; .id == $id)' <<<"$1" >/dev/null; }
     wait_for gone || { ox_warn "the running shell $id did not exit within ${TIMEOUT}s; nothing new was started"; return 3; }
@@ -135,6 +140,14 @@ handoff() {
         sleep 0.2
     done
     ox_log "running shell: $id ($path) -> $newid ($NEW)"
+    if [ "$awake" = true ]; then
+        deadline=$((SECONDS + TIMEOUT))
+        until qs ipc -i "$newid" call idleInhibitor enable >/dev/null 2>&1; do
+            [ "$SECONDS" -ge "$deadline" ] && { ox_warn "Keep Awake was on and could not be turned back on; turn it on again from the shell"; return 0; }
+            sleep 0.2
+        done
+        ox_log "Keep Awake stays on"
+    fi
 }
 
 ox_have jq || ox_die "jq is required to hand the running shell over"

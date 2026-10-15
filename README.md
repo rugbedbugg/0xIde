@@ -129,7 +129,8 @@ has now (`yes`, `no`, or `fix` when it is installed but `--status` reports a pro
 
 Installing the shell replaces the Caelestia shell that is running, whether that is the
 stock one or an earlier 0xIde build, with exactly one instance of the new one, and leaves
-any other Quickshell configuration running as it was. Run it from the desktop session.
+any other Quickshell configuration running as it was. Keep Awake stays on if it was on.
+Run it from the desktop session.
 
 Re-running `./install` is a no-op. An adapter whose application is missing is skipped
 rather than failing. The first version of every file this project replaces is kept under
