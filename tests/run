@@ -211,6 +211,33 @@ done
 grep -q "class AiRequest" "$OX_ROOT/shell/plugin/src/airequest.hpp" &&
     ok "plugin still declares both recovered types" || no "airequest.hpp lost AiRequest"
 
+ox_step "AI request: cancelled and timed out mid-answer"
+# Compiled on its own against a local server that streams and never ends: a
+# cancel mid-answer used to crash the shell, whenever a panel closed on one.
+moc="$(pkg-config --variable=libexecdir Qt6Core 2>/dev/null)/moc"
+if ox_have c++ && ox_have pkg-config && pkg-config --exists Qt6Network Qt6Qml Qt6Test && [ -x "$moc" ]; then
+    ax="$(mktemp -d)"
+    cp "$OX_ROOT/shell/plugin/src/airequest.hpp" "$OX_ROOT/shell/plugin/src/airequest.cpp" "$ax/"
+    read -r -a qt_flags <<< "$(pkg-config --cflags --libs Qt6Network Qt6Qml Qt6Test)"
+    if (cd "$ax" && "$moc" airequest.hpp -o moc_airequest.cpp 2>/dev/null &&
+        c++ -std=c++20 -O1 -fPIC -Wall -Wextra -Werror -I. "$OX_ROOT/tests/airequest_test.cpp" airequest.cpp \
+            moc_airequest.cpp "${qt_flags[@]}" -o test) >"$ax/log" 2>&1; then
+        out="$(cd "$ax" && timeout 60 ./test 2>&1)"; rc=$?
+        while IFS= read -r line; do
+            case "$line" in
+                "ok "*) ok "${line#ok }" ;;
+                "FAIL "*) no "${line#FAIL }" ;;
+            esac
+        done <<<"$out"
+        [ "$rc" = 0 ] || no "the request test exited $rc$( [ "$rc" = 139 ] && printf ' (crashed)')"
+    else
+        no "the request test does not compile: $(tail -5 "$ax/log")"
+    fi
+    rm -rf "$ax"
+else
+    skipt "no c++, Qt Network, Qt Qml, Qt Test or moc for the request test"
+fi
+
 ox_step "Shell deploy exclusions"
 # rsync matches an unanchored exclude at any depth, so "scripts" also removed
 # upstream's utils/scripts/. Runs the real patterns over a fixture: top-level

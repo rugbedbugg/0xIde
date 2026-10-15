@@ -51,24 +51,22 @@ void AiRequest::send(const QUrl& url, const QString& payload, int timeoutMs) {
     request.setRawHeader("Accept"_ba, "text/event-stream"_ba);
     request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
 
-    m_reply = m_manager->post(request, payload.toUtf8());
+    auto* reply = m_manager->post(request, payload.toUtf8());
+    m_reply = reply;
 
-    QObject::connect(m_reply, &QNetworkReply::readyRead, this, [this]() {
-        if (m_reply)
-            consume(m_reply->readAll());
+    QObject::connect(reply, &QNetworkReply::readyRead, this, [this, reply]() {
+        if (m_reply == reply)
+            consume(reply->readAll());
     });
-    QObject::connect(m_reply, &QNetworkReply::finished, this, [this]() {
-        auto* reply = m_reply;
+    // The reply this was connected to, never m_reply: cancel() clears m_reply
+    // and then aborts, and abort() finishes the reply before it returns.
+    QObject::connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        // cancel() already settled this request and said so.
+        if (m_reply != reply)
+            return;
         m_reply = nullptr;
         m_timeout->stop();
-        reply->deleteLater();
-
-        // cancel() already settled this request and cleared m_reply itself.
-        if (m_status == u"stopped"_s) {
-            emit changed();
-            emit finished();
-            return;
-        }
 
         consume(reply->readAll());
 
