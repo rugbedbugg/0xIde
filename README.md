@@ -449,7 +449,11 @@ upstream maintains, and each one costs something at the next update.
 The suite checks syntax and metadata across the tree, re-applies every patch to a clean
 checkout of the pin, and drives the installers, adapters and privileged helpers with
 their side effects stubbed. It fails if generated state (the built plugin, the upstream
-checkout, the AI model, Caelestia runtime state) ever becomes tracked. [CI][ci] runs the
+checkout, the AI model, Caelestia runtime state) ever becomes tracked. It never reaches the
+`caelestia` CLI, and fails if the GTK theme, colour scheme, icon theme or a browser theme
+policy of the desktop it runs on has changed by the end. A `qs` harness that loads the
+shell's services needs a current wallpaper in its private state; without one, `Wallpapers`
+applies its fallback through the CLI, which themes the real desktop. [CI][ci] runs the
 suite on Arch Linux and `shellcheck` on Ubuntu for pull requests, pushes to `main` and
 `ci/**`, and manual runs.
 
