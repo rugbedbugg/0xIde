@@ -715,6 +715,64 @@ STUB
     rm -rf "$td"
 fi
 
+ox_step "GTK adapter: status reads what is in effect"
+# The theme change log only says the adapter ran. GTK drifts from it when
+# anything else writes the theme name, as Caelestia's own GTK step does when it
+# runs without 0xIde's cli.json, so the status reads dconf and settings.ini.
+gx="$(mktemp -d)"
+mkdir -p "$gx/bin" "$gx/c/0xide" "$gx/c/caelestia" "$gx/c/gtk-3.0" "$gx/s/0xide" \
+    "$gx/sys/themes/adw-gtk3/gtk-3.0" "$gx/d/themes/0xide-a/gtk-3.0"
+: > "$gx/sys/themes/adw-gtk3/gtk-3.0/gtk.css"; : > "$gx/d/themes/0xide-a/gtk-3.0/gtk.css"
+printf '#!/bin/sh\n[ "$1" = read ] && cat "%s/gtk-theme" 2>/dev/null\nexit 0\n' "$gx" > "$gx/bin/dconf"; chmod +x "$gx/bin/dconf"
+printf 'gtk\n' > "$gx/c/0xide/adapters.enabled"
+printf 'gtk ok (0s)\n' > "$gx/s/0xide/post-theme.log"
+printf '{"theme":{"enableGtk":false}}\n' > "$gx/c/caelestia/cli.json"
+printf '[Settings]\ngtk-theme-name=0xide-a\n' > "$gx/c/gtk-3.0/settings.ini"
+printf "'0xide-a'\n" > "$gx/gtk-theme"
+gst() { env HOME="$gx" PATH="$gx/bin:$PATH" XDG_CONFIG_HOME="$gx/c" XDG_STATE_HOME="$gx/s" XDG_DATA_HOME="$gx/d" \
+    XDG_DATA_DIRS="$gx/sys" "$OX_ROOT/adapters/gtk/status"; }
+out="$(gst)"; rc=$?
+[ "$rc" = 0 ] && [ "$out" = "gtk: ok, GTK follows the scheme through 0xide-a" ] &&
+    ok "the generated theme in effect is ok" || no "in effect: $rc $out"
+printf "'adw-gtk3-dark'\n" > "$gx/gtk-theme"
+out="$(gst)"; rc=$?
+[ "$rc" = 1 ] && grep -q '^gtk: GTK is on adw-gtk3-dark, not 0xIde' <<<"$out" && grep -q 'adapters/gtk/apply$' <<<"$out" &&
+    ok "a theme name set after the adapter ran is a problem, and the fix is named" || no "drifted: $rc $out"
+printf "'0xide-b'\n" > "$gx/gtk-theme"
+out="$(gst)"; rc=$?
+[ "$rc" = 1 ] && grep -q 'set to 0xide-b, which is not there any more' <<<"$out" &&
+    ok "a generated theme that is gone is a problem" || no "missing theme: $rc $out"
+mkdir -p "$gx/d/themes/0xide-b/gtk-3.0"; : > "$gx/d/themes/0xide-b/gtk-3.0/gtk.css"
+out="$(gst)"; rc=$?
+[ "$rc" = 1 ] && grep -q 'dconf says 0xide-b but gtk-3.0/settings.ini says 0xide-a' <<<"$out" &&
+    ok "dconf and settings.ini disagreeing is a problem" || no "ini mismatch: $rc $out"
+printf "'0xide-a'\n" > "$gx/gtk-theme"
+printf '{"theme":{"postHook":"x"}}\n' > "$gx/c/caelestia/cli.json"
+out="$(gst)"; rc=$?
+[ "$rc" = 1 ] && grep -q "Caelestia's own GTK step is on" <<<"$out" && grep -q 'install --only overrides$' <<<"$out" &&
+    ok "Caelestia's own GTK step left on is a problem, since it resets GTK at every change" || no "enableGtk on: $rc $out"
+rm -f "$gx/c/caelestia/cli.json"
+out="$(gst)"; rc=$?
+[ "$rc" = 1 ] && grep -q "Caelestia's own GTK step is on" <<<"$out" &&
+    ok "so is a missing cli.json, which turns that step on" || no "no cli.json: $rc $out"
+printf '{"theme":{"enableGtk":false}}\n' > "$gx/c/caelestia/cli.json"
+: > "$gx/s/0xide/post-theme.log"; printf "'adw-gtk3'\n" > "$gx/gtk-theme"
+out="$(gst)"; rc=$?
+[ "$rc" = 0 ] && [ "$out" = "gtk: ready; GTK follows the scheme from the next theme change" ] &&
+    ok "before the first theme change it is ready, not broken" || no "before first change: $rc $out"
+printf 'gtk FAILED (exit 1)\n' > "$gx/s/0xide/post-theme.log"
+out="$(gst)"; rc=$?
+[ "$rc" = 1 ] && [[ "$out" == "gtk: the last theme change FAILED (exit 1); see "* ]] &&
+    ok "a failed theme change is reported as before" || no "failed: $rc $out"
+rm -rf "$gx/sys/themes/adw-gtk3"; printf 'gtk ok (0s)\n' > "$gx/s/0xide/post-theme.log"
+out="$(gst)"; rc=$?
+[ "$rc" = 1 ] && [ "$out" = "gtk: enabled, but adw-gtk3 is not installed, so there is no theme to build on" ] &&
+    ok "without adw-gtk3 there is nothing to build on, and it says so" || no "no adw-gtk3: $rc $out"
+: > "$gx/c/0xide/adapters.enabled"
+out="$(gst)"; rc=$?
+[ "$rc" = 0 ] && [ "$out" = "gtk: not enabled" ] && ok "not enabled is not a problem" || no "disabled: $rc $out"
+rm -rf "$gx"
+
 ox_step "Zed theme overlay"
 # Zed's settings are JSON with comments, so the overlay must change the one
 # top-level key and leave comments, nested keys of the same name and every

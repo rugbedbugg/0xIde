@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Whether open GTK applications follow the scheme, and if not, why. The theme
+# change log only says the adapter ran; GTK can drift from it afterwards, since
+# anything may write the theme name: Caelestia's own GTK step, when it runs
+# without 0xIde's cli.json, writes adw-gtk3-dark and leaves GTK3 applications on
+# a stock theme until the next theme change. So this reads what is in effect.
+set -uo pipefail
+. "$(dirname -- "${BASH_SOURCE[0]}")/../../orchestration/lib/common.sh"
+
+missing="$(ox_adapter_missing gtk)"
+if ! ox_adapter_enabled gtk; then
+    echo "gtk: not enabled${missing:+ (it needs $missing)}"
+    exit 0
+fi
+[ -z "$missing" ] || { echo "gtk: enabled, but $missing is not installed"; exit 1; }
+last="$(ox_theme_result gtk)"
+case "$last" in
+    FAILED*) echo "gtk: the last theme change $last; see $OX_STATE/post-theme.log"; exit 1 ;;
+esac
+
+# Where the apply script looks for the theme it builds on, in the same order.
+have_theme() {
+    local d data
+    local -a dirs=("$XDG_DATA_HOME/themes" "$HOME/.themes")
+    IFS=: read -ra data <<<"${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+    for d in "${data[@]}"; do [ -n "$d" ] && dirs+=("$d/themes"); done
+    for d in "${dirs[@]}"; do [ -r "$d/$1/gtk-3.0/gtk.css" ] && return 0; done
+    return 1
+}
+if ! have_theme adw-gtk3 && ! have_theme adw-gtk3-dark; then
+    echo "gtk: enabled, but adw-gtk3 is not installed, so there is no theme to build on"
+    exit 1
+fi
+
+# Caelestia's own GTK step overrides this adapter on every theme change.
+cli="$OX_CAELCONF/cli.json"
+if ! "$(ox_python)" -c 'import json,sys; sys.exit(json.load(open(sys.argv[1])).get("theme", {}).get("enableGtk", True) is not False)' "$cli" 2>/dev/null; then
+    echo "gtk: Caelestia's own GTK step is on (\"enableGtk\" in ${cli/#$HOME/\~}), so every theme change"
+    echo "     resets GTK to adw-gtk3-dark; run ./install --only overrides"
+    exit 1
+fi
+
+name="$(dconf read /org/gnome/desktop/interface/gtk-theme 2>/dev/null)"; name="${name//\'/}"
+case "$name" in
+    0xide-a|0xide-b) ;;
+    *)
+        if [ -z "$last" ]; then
+            echo "gtk: ready; GTK follows the scheme from the next theme change"
+            exit 0
+        fi
+        echo "gtk: GTK is on ${name:-its default theme}, not 0xIde's generated theme, so open GTK applications do"
+        echo "     not follow the scheme; something set it after the last theme change. Restore it with:"
+        echo "     $OX_ROOT/adapters/gtk/apply"
+        exit 1 ;;
+esac
+if [ ! -r "$XDG_DATA_HOME/themes/$name/gtk-3.0/gtk.css" ]; then
+    echo "gtk: GTK is set to $name, which is not there any more; restore it with: $OX_ROOT/adapters/gtk/apply"
+    exit 1
+fi
+# Applications that do not use the settings portal read settings.ini instead.
+ini="$(sed -n 's/^gtk-theme-name=//p' "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" 2>/dev/null | tail -n1)"
+if [ "$ini" != "$name" ]; then
+    echo "gtk: dconf says $name but gtk-3.0/settings.ini says ${ini:-nothing}; applications that read the file differ."
+    echo "     Restore it with: $OX_ROOT/adapters/gtk/apply"
+    exit 1
+fi
+echo "gtk: ok, GTK follows the scheme through $name"

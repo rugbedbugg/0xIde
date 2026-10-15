@@ -28,5 +28,14 @@ GTK4 and libadwaita ignore themes entirely, so those applications still read the
 palette from `~/.config/gtk-4.0/gtk.css` and change on their next start, as they
 did before.
 
+Anything can write the theme name after the adapter has run. Caelestia's own GTK
+step, when it runs without 0xIde's `cli.json` (a test harness with an empty
+config, say), writes `adw-gtk3-dark`, and GTK3 applications then stay on a stock
+theme until the next theme change. So `./install --status` reads what is in
+effect rather than what the last theme change logged: it reports a theme name
+other than `0xide-a` or `0xide-b`, a generated theme that is gone,
+`settings.ini` disagreeing with dconf, and `enableGtk` turned back on.
+`adapters/gtk/apply` restores the theme.
+
 If you turn this adapter off, remove `"enableGtk": false` from
 `$XDG_CONFIG_HOME/caelestia/cli.json` too, or GTK stops following the scheme.
