@@ -3346,6 +3346,89 @@ case "$out" in *'"stage": "error"'*'Install prerequisites manually'*clang*) [ "$
     ok "a failed start leaves no staging directory" || no "a staging directory was left behind"
 rm -rf "$lx"
 
+ox_step "Local model server: a restarted shell reuses it"
+# The real runtime.py over a stand-in llama-server that answers /health. A
+# shell restart ends the process the shell asked through and can keep the
+# shell's pid (Quickshell relaunches in place after a crash), so the next shell
+# must reuse the running server at once, not wait on its lock and call it busy.
+rx="$(mktemp -d)"
+mkdir -p "$rx/rt"
+cp "$OX_ROOT/shell/extensions/ai/tree/assets/ai/runtime.py" "$rx/rt/"
+"$PY" "$OX_ROOT/installer/render_manifest.py" "$OX_ROOT/manifests/ai.toml" "$rx/rt/manifest.json" >/dev/null
+rev="$("$PY" -c 'import json,sys; m=json.load(open(sys.argv[1])); print(m["runtimeRevision"][:12] + "-" + m["modelRevision"][:12])' "$rx/rt/manifest.json")"
+act="$rx/data/0xide/ai/$rev"
+mkdir -p "$act/runtime/build/bin"
+: > "$act/$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1]))["modelFile"])' "$rx/rt/manifest.json")"
+echo '{}' > "$act/ready.json"
+cat > "$act/runtime/build/bin/llama-server" <<STUB
+#!$PY
+import http.server, sys
+port = int(sys.argv[sys.argv.index('--port') + 1])
+class Health(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200 if self.path == '/health' else 404)
+        self.end_headers()
+    def log_message(self, *args):
+        pass
+http.server.HTTPServer(('127.0.0.1', port), Health).serve_forever()
+STUB
+chmod +x "$act/runtime/build/bin/llama-server"
+# Each serve runs under a subshell that stands for the process the shell starts
+# it through (uv); killing that subshell is what a shell restart does to it.
+rserve() { # owner, output
+    ( env XDG_DATA_HOME="$rx/data" PYTHONDONTWRITEBYTECODE=1 OX_AI_UNHANDLED_SECONDS=4 \
+        "$PY" "$rx/rt/runtime.py" serve --owner "$1" > "$2" 2>&1; echo "exit=$?" >> "$2" ) &
+    wrap=$!
+}
+waitfor() { # file, pattern, tenths of a second
+    for _ in $(seq "${3:-100}"); do grep -q "$2" "$1" 2>/dev/null && return 0; sleep 0.1; done
+    return 1
+}
+endpoint_of() { sed -n 's/.*"endpoint": "\([^"]*\)".*/\1/p' "$1" | head -1; }
+# Killed on purpose, and reaped, so the shell does not report them.
+kill9() { kill -9 "$@" 2>/dev/null; wait "$@" 2>/dev/null; }
+gone() { # pid, tenths of a second
+    for _ in $(seq "${2:-100}"); do kill -0 "$1" 2>/dev/null || return 0; sleep 0.1; done
+    return 1
+}
+sleep 600 & shell1=$!
+rserve "$shell1" "$rx/a.out"; wrapA=$wrap
+waitfor "$rx/a.out" '"ready"' && ok "a fresh server starts and says where it answers" || no "fresh: $(cat "$rx/a.out")"
+endpoint="$(endpoint_of "$rx/a.out")"
+server="$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1]))["pid"])' "$rx/data/0xide/ai/server.json" 2>/dev/null)"
+kill9 "$wrapA"
+t0=$SECONDS
+rserve "$shell1" "$rx/b.out"; wrapB=$wrap
+waitfor "$rx/b.out" '"ready"\|"error"' 50
+[ -n "$endpoint" ] && [ "$(endpoint_of "$rx/b.out")" = "$endpoint" ] && [ $((SECONDS - t0)) -le 3 ] && ! grep -q '"error"' "$rx/b.out" &&
+    ok "a shell restarted in place reuses the running server at once" || no "restarted in place: $(cat "$rx/b.out")"
+kill9 "$wrapB" "$shell1"
+sleep 600 & shell2=$!
+rserve "$shell2" "$rx/c.out"; wrapC=$wrap
+waitfor "$rx/c.out" '"ready"\|"error"' 50
+[ "$(endpoint_of "$rx/c.out")" = "$endpoint" ] && kill -0 "$server" 2>/dev/null &&
+    ok "so does a new shell, while the server waits for one" || no "new shell: $(cat "$rx/c.out")"
+pkill -TERM -P "$wrapC"
+waitfor "$rx/c.out" 'exit=' 100
+gone "$server" && grep -q '"cancelled"' "$rx/c.out" && grep -q 'exit=130' "$rx/c.out" && [ ! -e "$rx/data/0xide/ai/server.json" ] &&
+    ok "a stop from the shell stops the server it reused, and frees it" || no "stop: server ${server} $(kill -0 "$server" 2>/dev/null && echo alive), $(cat "$rx/c.out")"
+rserve "$shell2" "$rx/d.out"; wrapD=$wrap
+waitfor "$rx/d.out" '"ready"' && [ "$(endpoint_of "$rx/d.out")" != "$endpoint" ] &&
+    ok "after that a shell starts a server of its own" || no "fresh again: $(cat "$rx/d.out")"
+server="$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1]))["pid"])' "$rx/data/0xide/ai/server.json" 2>/dev/null)"
+kill9 "$wrapD"
+kill -0 "$server" 2>/dev/null && gone "$server" 100 && [ ! -e "$rx/data/0xide/ai/server.json" ] &&
+    ok "a server no shell asks for stops once the idle time is up" || no "unasked server ${server} still running or left its state"
+rserve "$shell2" "$rx/e.out"; wrapE=$wrap
+waitfor "$rx/e.out" '"ready"'
+server="$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1]))["pid"])' "$rx/data/0xide/ai/server.json" 2>/dev/null)"
+kill9 "$wrapE"
+out="$(env XDG_DATA_HOME="$rx/data" PYTHONDONTWRITEBYTECODE=1 timeout 30 "$PY" "$rx/rt/runtime.py" uninstall)"; code=$?
+[ "$code" = 0 ] && grep -q '"removed"' <<<"$out" && gone "$server" 10 && [ ! -d "$act" ] &&
+    ok "uninstalling stops a server a restarted shell left, rather than calling it busy" || no "uninstall: exit $code, $out"
+kill9 "$shell2"; wait 2>/dev/null
+rm -rf "$rx"
+
 ox_step "Local model installer: shared state"
 # The real AiRuntime in a private Quickshell, with a stand-in installer that
 # replays events. Nothing is built or downloaded.

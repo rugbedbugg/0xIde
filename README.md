@@ -226,7 +226,8 @@ uv run --no-project --python 3.13 runtime.py install
 ```
 
 The model server listens on `127.0.0.1` only, starts on the first question, and stops
-after five idle minutes or when the shell exits.
+after five idle minutes. A restarted shell, crash recovery included, answers from the
+server that is already running; one no shell asks for stops after the same five minutes.
 
 ### Voice dictation
 

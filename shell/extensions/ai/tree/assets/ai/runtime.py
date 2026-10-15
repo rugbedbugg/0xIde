@@ -31,11 +31,52 @@ if LEGACY.is_dir() and not LEGACY.is_symlink() and not ROOT.exists():
         pass
 REVISION = MANIFEST['runtimeRevision'][:12] + '-' + MANIFEST['modelRevision'][:12]
 ACTIVE = ROOT / REVISION
+# The running server, for a shell that finds it already started (see attach()).
+SERVER = ROOT / 'server.json'
+# How long a server no shell is asking for keeps running: as long as the shell
+# keeps an idle one (AiRuntime's idle timer), so a restarted shell still finds it.
+# Overridable only for the tests.
+UNHANDLED_SECONDS = float(os.environ.get('OX_AI_UNHANDLED_SECONDS', '300'))
 CHILD = None
 
 
 def emit(**data):
-    print(json.dumps(data), flush=True)
+    # A server outlives the shell that started it, and with it the pipe it was
+    # started with; what it would have said then has no one to hear it.
+    try:
+        print(json.dumps(data), flush=True)
+    except OSError:
+        sys.stdout = open(os.devnull, 'w')
+
+
+def read_server():
+    try:
+        return json.loads(SERVER.read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def write_server(**data):
+    tmp = SERVER.with_name(f'.server.json.{os.getpid()}')
+    tmp.write_text(json.dumps(data))
+    tmp.replace(SERVER)
+
+
+def is_runtime(pid):
+    """Whether pid is still a runtime.py serve, not a process that took its pid."""
+    try:
+        argv = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')
+    except OSError:
+        return False
+    return any(arg.endswith(b'runtime.py') for arg in argv) and b'serve' in argv
+
+
+def healthy(port):
+    try:
+        with urllib.request.urlopen(f'http://127.0.0.1:{port}/health', timeout=2) as response:
+            return response.status == 200
+    except (OSError, ValueError, urllib.error.URLError):
+        return False
 
 
 def stop_child():
@@ -171,9 +212,12 @@ def alive(pid):
 
 
 def serve(directory, once=False, owner=None):
-    """Runs the model server until it stops, or until owner (the shell that
-    asked for it) is gone. Without that, a shell restart orphans the server,
-    which keeps the lock and makes every later start fail."""
+    """Runs the model server until it stops, or until no shell has asked for it
+    for UNHANDLED_SECONDS. A shell asks through the process it started, this one
+    or the one attach() runs; a restart ends that process and can keep the
+    shell's pid (Quickshell relaunches in place after a crash), so the server
+    is reused by the next shell rather than kept alive by a pid, holding the
+    lock that every later start would wait on."""
     global CHILD
     # Reserve a candidate port, then verify only our child's readiness. A bind
     # conflict makes the child exit; never attach to an unrelated local server.
@@ -198,16 +242,88 @@ def serve(directory, once=False, owner=None):
         CHILD.wait(timeout=10)
         CHILD = None
     else:
-        emit(stage='ready', endpoint=f'http://127.0.0.1:{port}/v1/chat/completions')
-        while CHILD.poll() is None:
-            if owner and not alive(owner):
-                stop_child()
-                return
-            time.sleep(2)
+        me, parent = os.getpid(), os.getppid()
+        endpoint = f'http://127.0.0.1:{port}/v1/chat/completions'
+        # Written before ready, so a shell that restarts the moment this is up
+        # finds it.
+        write_server(pid=me, port=port, endpoint=endpoint, revision=REVISION, handle=me, owner=owner)
+        emit(stage='ready', endpoint=endpoint)
+        unhandled_since = None
+        try:
+            while CHILD.poll() is None:
+                state = read_server() or {}
+                handle, shell = state.get('handle', me), state.get('owner', owner)
+                if handle == me:
+                    # Asked for through the process the shell started, while
+                    # that still runs this and the shell is there.
+                    handled = os.getppid() == parent and (not shell or alive(shell))
+                else:
+                    handled = isinstance(handle, int) and alive(handle) and is_runtime(handle)
+                if handled:
+                    unhandled_since = None
+                elif unhandled_since is None:
+                    unhandled_since = time.monotonic()
+                elif time.monotonic() - unhandled_since > UNHANDLED_SECONDS:
+                    stop_child()
+                    return
+                time.sleep(1)
+        finally:
+            if (read_server() or {}).get('pid') == me:
+                SERVER.unlink(missing_ok=True)
         code = CHILD.returncode
         CHILD = None
         if code:
             raise RuntimeError(f'Local server stopped ({code})')
+
+
+def running_server():
+    """The pid of the server SERVER describes, if it is still that server and
+    still answers; None otherwise."""
+    state = read_server()
+    if not state or state.get('revision') != REVISION:
+        return None, None
+    pid = state.get('pid')
+    if not isinstance(pid, int) or not alive(pid) or not is_runtime(pid) or not healthy(state.get('port')):
+        return None, None
+    return pid, state
+
+
+def stop_server(pid):
+    # The server stops its model on SIGTERM; a shell that stops it waits for
+    # that, as uninstall() does before removing.
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    for _ in range(150):
+        if not alive(pid) or not is_runtime(pid):
+            return
+        time.sleep(0.1)
+
+
+def attach(owner):
+    """Acts for the shell as a server that is already running, so the shell
+    asks it at once instead of waiting for the lock to start its own. False
+    when there is none to act for."""
+    server, state = running_server()
+    if server is None:
+        return False
+    me, parent = os.getpid(), os.getppid()
+    write_server(**{**state, 'handle': me, 'owner': owner})
+    emit(stage='ready', endpoint=state['endpoint'])
+    try:
+        while True:
+            if not alive(server) or not is_runtime(server):
+                raise RuntimeError(f'Local server stopped; see {ROOT / "server.log"}')
+            # Another shell acts for it now, or the shell this acted for is
+            # gone: the server waits for the next one.
+            if (read_server() or {}).get('handle') != me or os.getppid() != parent or (owner and not alive(owner)):
+                return True
+            time.sleep(1)
+    except KeyboardInterrupt:
+        # Stopped by the shell: idle, Stop, or before an uninstall.
+        stop_server(server)
+        raise
 
 
 def install():
@@ -276,6 +392,13 @@ def main():
                     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     break
                 except BlockingIOError:
+                    # Each time, so a server still starting is reused once it is up.
+                    if action == 'serve' and attach(args.owner):
+                        return 0
+                    # Left by a shell that restarted; the one uninstalling has
+                    # already stopped its own.
+                    if attempt == 0 and action == 'uninstall' and (server := running_server()[0]):
+                        stop_server(server)
                     if attempt == 0 and action == 'install':
                         emit(stage='waiting', message='Waiting for the local model to stop')
                     if attempt == 9:
