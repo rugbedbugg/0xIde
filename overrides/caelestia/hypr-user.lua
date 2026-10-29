@@ -10,7 +10,9 @@ local vars = require("variables")
 hl.config({
     cursor = {
         no_hardware_cursors = false,
-        enable_hyprcursor = true,
+        -- Use the adapter's pre-rendered Xcursor theme; rendering Sweet's SVG
+        -- cursors synchronously adds seconds to Hyprland startup.
+        enable_hyprcursor = false,
     },
 })
 

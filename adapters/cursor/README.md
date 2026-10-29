@@ -17,8 +17,14 @@ This adapter keeps Sweet's shapes and swaps its colours for the scheme's.
   from the scheme's key colour palettes, because Sweet draws its badge glyphs
   (`?`, `+`, the link arrow) in the rim colour on top of them.
 - It renders an XCursor theme at 24, 36, 48 and 72 px. With `hyprcursor-util`
-  present it also writes a hyprcursor theme into the same directory, which
-  Hyprland draws from the SVGs at any scale.
+  present it also writes a hyprcursor theme into the same directory for users
+  who enable SVG cursor rendering.
+
+`overrides/caelestia/hypr-user.lua` disables Hyprcursor so Hyprland uses the
+pre-rendered XCursor theme. Loading Sweet's SVG frames synchronously adds
+seconds to startup; Hyprland 0.56.2 and 0.57.0 load the theme twice while
+initializing the cursor manager. The cursor shapes, scheme colours and
+animations still come from this adapter, and hardware cursors stay enabled.
 
 The result is `$XDG_DATA_HOME/icons/0xide-sweet`, swapped in whole so nothing
 reads a half-built theme. It is rebuilt only when the palette or the Sweet
